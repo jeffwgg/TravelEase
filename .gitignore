@@ -1,0 +1,70 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node / React
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+ios/Pods/
+
+# Android
+*.iml
+.gradle/
+local.properties
+
+# iOS / macOS
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Python / AI services
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Supabase
+.branches/
+.temp/
+
+# Generated assets and local model output
+*.tflite
+*.h5
+*.keras
+*.onnx
+server/ai_engine/datasets/raw/
+server/ai_engine/datasets/processed/
