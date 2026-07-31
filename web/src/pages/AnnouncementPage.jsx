@@ -1,4 +1,5 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 
 export default function AnnouncementPage() {
   return (
@@ -8,38 +9,12 @@ export default function AnnouncementPage() {
           <h2>Announcement Management</h2>
           <div className="header-subtitle">Broadcast real-time visual announcements and PA captions directly to deaf travelers in your venue.</div>
         </div>
-        <button className="btn btn-primary">+ Create Announcement</button>
+        <Link to="/announcements/create" className="btn btn-primary">+ Create Announcement</Link>
       </div>
 
       <div className="page-body">
-        <div className="grid-3" style={{ marginBottom: '24px' }}>
+        <div style={{ marginBottom: '24px' }}>
           <div className="card">
-            <div className="form-group">
-              <label>Target Zone / Area</label>
-              <select className="input">
-                <option>All Zones (All Travelers in Venue)</option>
-                <option>Gate A1 - A10 Area</option>
-                <option>Gate B1 - B12 Area</option>
-                <option>Baggage Claim Hall</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Announcement Type</label>
-              <select className="input">
-                <option>Gate Change / Travel Update</option>
-                <option>General Boarding Call</option>
-                <option>Delay / Cancellation Notice</option>
-                <option>Emergency Warning</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Message Content (English & BM)</label>
-              <textarea className="input" rows={4} placeholder="Type announcement text here..."></textarea>
-            </div>
-            <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>Broadcast Instantly</button>
-          </div>
-
-          <div style={{ gridColumn: 'span 2' }} className="card">
             <div className="card-header">
               <h3>Active & Recent Announcements</h3>
               <div style={{ display: 'flex', gap: '8px' }}>

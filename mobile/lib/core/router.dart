@@ -5,6 +5,7 @@ import '../views/profile/profile_management_view.dart';
 import '../views/profile/preferences_view.dart';
 import '../views/emergency/emergency_contact_settings_view.dart';
 import '../views/emergency/emergency_communication_card_view.dart';
+import '../views/emergency/environment_sound_alert_view.dart';
 import '../views/location/venue_identification_view.dart';
 import '../views/location/announcement_view.dart';
 import '../views/location/emergency_alert_view.dart';
@@ -67,6 +68,10 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/emergency-card',
       builder: (context, state) => const EmergencyCommunicationCardView(),
+    ),
+    GoRoute(
+      path: '/environment-sound-alert',
+      builder: (context, state) => const EnvironmentSoundAlertView(),
     ),
     GoRoute(
       path: '/venue',

@@ -389,6 +389,72 @@ body {
   background: var(--primary-alpha);
 }
 
+.btn-danger {
+  background: var(--emergency);
+  color: #fff;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.modal-card {
+  width: min(680px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
+}
+
+.modal-close {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 28px;
+  cursor: pointer;
+}
+
+.queue-status-actions,
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.queue-status-actions {
+  padding: 16px 0;
+  border-top: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+}
+
+.queue-number-action-field { width: 100%; }
+.queue-number-action-field label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.queue-number-result { width: 100%; padding: 10px 12px; border-radius: var(--radius-md); font-size: 13px; }
+.queue-number-result.missed { color: var(--secondary-dark); background: rgba(245,158,11,0.1); }
+.queue-number-result.cancelled { color: var(--emergency); background: rgba(239,68,68,0.1); }
+.btn:disabled { cursor: not-allowed; opacity: 0.5; }
+.modal-actions { justify-content: flex-end; margin-top: 20px; }
+
+@media (max-width: 760px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+
 .btn-sm {
   padding: 6px 14px;
   font-size: 12px;

@@ -11,6 +11,7 @@ class VenueIdentificationView extends StatefulWidget {
 
 class _VenueIdentificationViewState extends State<VenueIdentificationView> {
   String? _selectedVenue;
+  bool _showNearbyVenues = false;
 
   @override
   Widget build(BuildContext context) {
@@ -73,19 +74,21 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
                       ],
                     ),
                     const SizedBox(height: 20),
-                    // Search bar
-                    TextField(
-                      decoration: InputDecoration(
-                        hintText: 'Search venue, airport, hotel...',
-                        prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
-                        suffixIcon: Container(
-                          margin: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.qr_code_scanner, color: Colors.white, size: 20),
-                        ),
+                    // Quick Actions
+                    Text('Quick Actions', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 100,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          _buildQuickAction(context, Icons.sign_language_rounded, 'Sign\nTranslate', AppColors.primary, () => context.push('/sign-camera')),
+                          _buildQuickAction(context, Icons.record_voice_over, 'Speech\nto Sign', AppColors.accent, () => context.push('/speech-to-sign')),
+                          _buildQuickAction(context, Icons.forum_rounded, 'Two-Way\nDialogue', AppColors.secondary, () => context.push('/dialogue')),
+                          _buildQuickAction(context, Icons.menu_book_rounded, 'Sign\nDictionary', AppColors.primaryDark, () => context.push('/sign-dictionary')),
+                          _buildQuickAction(context, Icons.help_outline_rounded, 'Request\nHelp', AppColors.emergency, () => context.push('/assistance-request')),
+                          _buildQuickAction(context, Icons.confirmation_number_outlined, 'Queue Number\nTracking', AppColors.accent, () => context.push('/queue')),
+                        ],
                       ),
                     ),
                   ],
@@ -102,44 +105,57 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
                 const SizedBox(height: 24),
               ],
 
-              // Quick Actions
+              // Search bar
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Text('Quick Actions', style: Theme.of(context).textTheme.titleMedium),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 100,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildQuickAction(context, Icons.sign_language_rounded, 'Sign\nTranslate', AppColors.primary, () => context.push('/sign-camera')),
-                    _buildQuickAction(context, Icons.record_voice_over, 'Speech\nto Sign', AppColors.accent, () => context.push('/speech-to-sign')),
-                    _buildQuickAction(context, Icons.forum_rounded, 'Two-Way\nDialogue', AppColors.secondary, () => context.push('/dialogue')),
-                    _buildQuickAction(context, Icons.menu_book_rounded, 'Sign\nDictionary', AppColors.primaryDark, () => context.push('/sign-dictionary')),
-                    _buildQuickAction(context, Icons.help_outline_rounded, 'Request\nHelp', AppColors.emergency, () => context.push('/assistance-request')),
+                    Text('Identify Your Location', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search institution, airport, hotel...',
+                        prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+                        suffixIcon: Container(
+                          margin: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(8)),
+                          child: const Icon(Icons.qr_code_scanner, color: Colors.white, size: 20),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => setState(() => _showNearbyVenues = !_showNearbyVenues),
+                        icon: const Icon(Icons.near_me_outlined, size: 20),
+                        label: Text(_showNearbyVenues ? 'Hide Nearby Institutions' : 'Detect Nearby Institutions'),
+                      ),
+                    ),
                   ],
                 ),
               ),
               const SizedBox(height: 24),
 
               // Nearby Venues
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Nearby Venues', style: Theme.of(context).textTheme.titleMedium),
-                    TextButton(onPressed: () {}, child: const Text('See All')),
-                  ],
+              if (_showNearbyVenues) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Nearby Venues', style: Theme.of(context).textTheme.titleMedium),
+                      TextButton(onPressed: () {}, child: const Text('See All')),
+                    ],
+                  ),
                 ),
-              ),
-              ...[
-                const _VenueData('KLIA Terminal 1', 'Airport', Icons.flight, '0.5 km', true),
-                const _VenueData('Gateway@klia2 Hotel', 'Hotel', Icons.hotel, '1.2 km', true),
-                const _VenueData('Sepang International Circuit', 'Attraction', Icons.attractions, '8.5 km', false),
-              ].map((v) => _buildVenueCard(context, v)),
+                ...[
+                  const _VenueData('KLIA Terminal 1', 'Airport', Icons.flight, '0.5 km', true),
+                  const _VenueData('Gateway@klia2 Hotel', 'Hotel', Icons.hotel, '1.2 km', true),
+                  const _VenueData('Sepang International Circuit', 'Attraction', Icons.attractions, '8.5 km', false),
+                ].map((v) => _buildVenueCard(context, v)),
+              ],
               const SizedBox(height: 24),
 
               // Recent announcements

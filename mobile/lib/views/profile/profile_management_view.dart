@@ -130,6 +130,7 @@ class ProfileManagementView extends StatelessWidget {
                     _buildMenuSection(context, 'Safety', [
                       _MenuItem(Icons.contact_phone, 'Emergency Contacts', () => context.push('/emergency-contacts')),
                       _MenuItem(Icons.badge, 'Emergency Card', () => context.push('/emergency-card')),
+                      _MenuItem(Icons.graphic_eq, 'Environment Sound Alert', () => context.push('/environment-sound-alert')),
                       _MenuItem(Icons.privacy_tip_outlined, 'Privacy & Data', () {}),
                     ]),
                     const SizedBox(height: 16),

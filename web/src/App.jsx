@@ -17,7 +17,9 @@ import './index.css'
 import AuthPage from './pages/AuthPage'
 import ProfilePage from './pages/ProfilePage'
 import AnnouncementPage from './pages/AnnouncementPage'
+import CreateAnnouncementPage from './pages/CreateAnnouncementPage'
 import QueueUpdatePage from './pages/QueueUpdatePage'
+import AddQueueLinePage from './pages/AddQueueLinePage'
 import AssistanceRequestPage from './pages/AssistanceRequestPage'
 import StaffChatPage from './pages/StaffChatPage'
 import AnalyticsPage from './pages/AnalyticsPage'
@@ -122,7 +124,9 @@ function AppRoutes() {
         <Route path="/dashboard" element={<AnalyticsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/announcements" element={<AnnouncementPage />} />
+        <Route path="/announcements/create" element={<CreateAnnouncementPage />} />
         <Route path="/queue" element={<QueueUpdatePage />} />
+        <Route path="/queue/add" element={<AddQueueLinePage />} />
         <Route path="/requests" element={<AssistanceRequestPage />} />
         <Route path="/chat" element={<StaffChatPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
