@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'core/theme.dart';
 import 'core/router.dart';
+import 'core/supabase_client.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SupabaseClientHelper.initialize();
   runApp(const TravelEaseApp());
 }
 
@@ -19,3 +22,4 @@ class TravelEaseApp extends StatelessWidget {
     );
   }
 }
+

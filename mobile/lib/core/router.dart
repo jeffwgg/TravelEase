@@ -43,8 +43,8 @@ final GoRouter appRouter = GoRouter(
           builder: (context, state) => const _CommunicateTab(),
         ),
         GoRoute(
-          path: '/alerts',
-          builder: (context, state) => const _AlertsTab(),
+          path: '/assistance-request',
+          builder: (context, state) => const _AssistanceTab(),
         ),
         GoRoute(
           path: '/profile',
@@ -118,10 +118,6 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => const SignMediaViewerView(),
     ),
     GoRoute(
-      path: '/assistance-request',
-      builder: (context, state) => const AssistanceRequestView(),
-    ),
-    GoRoute(
       path: '/request-tracking',
       builder: (context, state) => const RequestTrackingView(),
     ),
@@ -155,12 +151,12 @@ class _CommunicateTab extends StatelessWidget {
   }
 }
 
-class _AlertsTab extends StatelessWidget {
-  const _AlertsTab();
+class _AssistanceTab extends StatelessWidget {
+  const _AssistanceTab();
 
   @override
   Widget build(BuildContext context) {
-    return const NotificationHistoryView();
+    return const AssistanceRequestView();
   }
 }
 

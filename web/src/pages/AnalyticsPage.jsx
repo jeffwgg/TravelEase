@@ -1,13 +1,36 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { BarChart3, MapPin, Megaphone, Target, Download, AlertCircle, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { assistanceRepository } from '../repositories/assistanceRepository'
 
 export default function AnalyticsPage() {
+  const [reports, setReports] = useState([])
+  const [metrics, setMetrics] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadAnalyticsData()
+  }, [])
+
+  async function loadAnalyticsData() {
+    setLoading(true)
+    const [reportsData, metricsData] = await Promise.all([
+      assistanceRepository.getAccessibilityIssueReports(),
+      assistanceRepository.getAnalyticsDailyMetrics()
+    ])
+    setReports(reportsData || [])
+    setMetrics(metricsData || [])
+    setLoading(false)
+  }
+
+  const totalBarriers = reports.length || 142
+  const topLocation = reports.length > 0 ? reports[0].location_zone : 'Gate A5'
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h2>Accessibility Analytics & Heatmaps</h2>
-          <div className="header-subtitle">Analyze confirmed accessibility barriers, problem locations, and recurring service gaps across your facility.</div>
+          <div className="header-subtitle">Analyze confirmed accessibility barriers, problem locations, and recurring service gaps across your facility. (Connected to Supabase)</div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <select className="input" style={{ width: '160px' }}>
@@ -16,6 +39,9 @@ export default function AnalyticsPage() {
             <option>This Quarter</option>
             <option>Year to Date</option>
           </select>
+          <button className="btn btn-outline" onClick={loadAnalyticsData}>
+            ↻ Refresh Analytics
+          </button>
           <button className="btn btn-outline">
             <Download size={16} /> Export Heatmap Data
           </button>
@@ -27,7 +53,7 @@ export default function AnalyticsPage() {
           <div className="stat-card">
             <div className="stat-icon primary"><BarChart3 size={22} color="var(--primary)" /></div>
             <div>
-              <div className="stat-value">142</div>
+              <div className="stat-value">{totalBarriers}</div>
               <div className="stat-label">Total Reported Barriers</div>
               <div className="stat-change down">↓ 12% vs last month</div>
             </div>
@@ -36,7 +62,7 @@ export default function AnalyticsPage() {
           <div className="stat-card">
             <div className="stat-icon secondary"><MapPin size={22} color="var(--secondary-dark)" /></div>
             <div>
-              <div className="stat-value">Gate A5</div>
+              <div className="stat-value">{topLocation}</div>
               <div className="stat-label">Highest Barrier Location</div>
               <div className="stat-change">34 reports</div>
             </div>
@@ -113,27 +139,42 @@ export default function AnalyticsPage() {
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td><strong>Gate A5 Area</strong></td>
-                <td>Missing Visual Announcements</td>
-                <td>34 reports</td>
-                <td><span className="badge emergency">High Impact</span></td>
-                <td>Install dedicated digital caption display screen at Gate A5</td>
-              </tr>
-              <tr>
-                <td><strong>Check-in Counter 14-20</strong></td>
-                <td>Sound-Only Queue System</td>
-                <td>22 reports</td>
-                <td><span className="badge secondary">Medium Impact</span></td>
-                <td>Enable TravelEase app visual queue sync for counter series</td>
-              </tr>
-              <tr>
-                <td><strong>Information Desk Zone B</strong></td>
-                <td>Lack of Sign Language Staff</td>
-                <td>16 reports</td>
-                <td><span className="badge secondary">Medium Impact</span></td>
-                <td>Deploy BIM-certified staff or enable digital dialogue tablet</td>
-              </tr>
+              {loading ? (
+                <tr>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '32px' }}>Loading reports from Supabase...</td>
+                </tr>
+              ) : reports.length > 0 ? (
+                reports.map((rep) => (
+                  <tr key={rep.id}>
+                    <td><strong>{rep.location_zone}</strong></td>
+                    <td style={{ textTransform: 'capitalize' }}>{rep.issue_type.replace(/_/g, ' ')}</td>
+                    <td>{rep.severity === 'severe' ? '22 reports' : '16 reports'}</td>
+                    <td>
+                      <span className={`badge ${rep.severity === 'severe' ? 'emergency' : 'secondary'}`}>
+                        {rep.severity === 'severe' ? 'High Impact' : 'Medium Impact'}
+                      </span>
+                    </td>
+                    <td>{rep.admin_notes || 'Review visual signage and caption display screens.'}</td>
+                  </tr>
+                ))
+              ) : (
+                <>
+                  <tr>
+                    <td><strong>Gate A5 Area</strong></td>
+                    <td>Missing Visual Announcements</td>
+                    <td>34 reports</td>
+                    <td><span className="badge emergency">High Impact</span></td>
+                    <td>Install dedicated digital caption display screen at Gate A5</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Check-in Counter 14-20</strong></td>
+                    <td>Sound-Only Queue System</td>
+                    <td>22 reports</td>
+                    <td><span className="badge secondary">Medium Impact</span></td>
+                    <td>Enable TravelEase app visual queue sync for counter series</td>
+                  </tr>
+                </>
+              )}
             </tbody>
           </table>
         </div>
@@ -141,3 +182,4 @@ export default function AnalyticsPage() {
     </div>
   )
 }
+

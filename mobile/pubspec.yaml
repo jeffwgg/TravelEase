@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   go_router: ^17.3.0
   google_fonts: ^8.2.0
+  supabase_flutter: ^2.8.0
+
 
 dev_dependencies:
   flutter_test:

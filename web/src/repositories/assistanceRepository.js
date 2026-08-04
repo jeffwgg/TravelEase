@@ -1,0 +1,157 @@
+import { supabase } from '../lib/supabase'
+
+export const assistanceRepository = {
+  // Module 5: Assistance Requests
+  async getAssistanceRequests() {
+    const { data, error } = await supabase
+      .from('assistance_requests')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching assistance requests:', error)
+      return []
+    }
+    return data
+  },
+
+  async createAssistanceRequest(payload) {
+    const { data, error } = await supabase
+      .from('assistance_requests')
+      .insert([payload])
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error creating assistance request:', error)
+      throw error
+    }
+    return data
+  },
+
+  async updateRequestStatus(id, status, assignedStaffName = null) {
+    const updatePayload = { status, updated_at: new Date().toISOString() }
+    if (assignedStaffName) {
+      updatePayload.assigned_staff_name = assignedStaffName
+    }
+    if (status === 'resolved' || status === 'closed') {
+      updatePayload.resolved_at = new Date().toISOString()
+    }
+
+    const { data, error } = await supabase
+      .from('assistance_requests')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating assistance request status:', error)
+      throw error
+    }
+    return data
+  },
+
+  // Module 5: Chat Messages
+  async getChatMessages(requestId) {
+    const { data, error } = await supabase
+      .from('assistance_chat_messages')
+      .select('*')
+      .eq('request_id', requestId)
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching chat messages:', error)
+      return []
+    }
+    return data
+  },
+
+  async sendChatMessage(payload) {
+    const { data, error } = await supabase
+      .from('assistance_chat_messages')
+      .insert([payload])
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error sending chat message:', error)
+      throw error
+    }
+    return data
+  },
+
+  // Module 5 & 7: Accessibility Issue Reports
+  async getAccessibilityIssueReports() {
+    const { data, error } = await supabase
+      .from('accessibility_issue_reports')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching accessibility reports:', error)
+      return []
+    }
+    return data
+  },
+
+  // Module 7: Analytics Metrics
+  async getAnalyticsDailyMetrics() {
+    const { data, error } = await supabase
+      .from('analytics_daily_metrics')
+      .select('*')
+      .order('metric_date', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching daily metrics:', error)
+      return []
+    }
+    return data
+  },
+
+  // Module 7: Generated Reports
+  async getGeneratedReports() {
+    const { data, error } = await supabase
+      .from('generated_reports')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching generated reports:', error)
+      return []
+    }
+    return data
+  },
+
+  // Realtime Subscriptions
+  subscribeToRequests(callback) {
+    const channel = supabase
+      .channel('public:assistance_requests')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assistance_requests' },
+        (payload) => callback(payload)
+      )
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  },
+
+  subscribeToMessages(requestId, callback) {
+    const channel = supabase
+      .channel(`public:assistance_chat_messages:${requestId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'assistance_chat_messages',
+          filter: `request_id=eq.${requestId}`
+        },
+        (payload) => callback(payload.new)
+      )
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }
+}

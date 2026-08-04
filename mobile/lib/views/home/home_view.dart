@@ -13,7 +13,7 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView> {
   int _currentIndex = 0;
 
-  static const _tabs = ['/home', '/communicate', '/alerts', '/profile'];
+  static const _tabs = ['/home', '/communicate', '/assistance-request', '/profile'];
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +48,7 @@ class _HomeViewState extends State<HomeView> {
                 _buildNavItem(Icons.explore_rounded, 'Explore', 0),
                 _buildNavItem(Icons.sign_language_rounded, 'Communicate', 1),
                 _buildSosButton(context),
-                _buildNavItem(Icons.notifications_rounded, 'Alerts', 2),
+                _buildNavItem(Icons.support_agent_rounded, 'Assistance', 2),
                 _buildNavItem(Icons.person_rounded, 'Profile', 3),
               ],
             ),
