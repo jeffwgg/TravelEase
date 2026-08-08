@@ -11,6 +11,7 @@ import '../views/location/announcement_view.dart';
 import '../views/location/emergency_alert_view.dart';
 import '../views/location/queue_tracking_view.dart';
 import '../views/location/notification_history_view.dart';
+import '../views/communication/communication_hub_view.dart';
 import '../views/communication/sign_translation_camera_view.dart';
 import '../views/communication/speech_to_sign_view.dart';
 import '../views/communication/two_way_dialogue_view.dart';
@@ -147,7 +148,7 @@ class _CommunicateTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SignTranslationCameraView();
+    return const CommunicationHubView();
   }
 }
 
