@@ -52,6 +52,43 @@ export const assistanceRepository = {
     return data
   },
 
+  // Institution Staff Management
+  async getInstitutionStaff() {
+    const { data, error } = await supabase
+      .from('institution_staff')
+      .select('*')
+      .order('name', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching institution staff:', error)
+      return []
+    }
+    return data
+  },
+
+  async assignStaffToRequest(requestId, staffId, staffName) {
+    const updatePayload = {
+      assigned_staff_id: staffId,
+      assigned_staff_name: staffName,
+      status: 'in_progress',
+      updated_at: new Date().toISOString()
+    }
+
+    const { data, error } = await supabase
+      .from('assistance_requests')
+      .update(updatePayload)
+      .eq('id', requestId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error assigning staff to request:', error)
+      throw error
+    }
+
+    return data
+  },
+
   // Module 5: Chat Messages
   async getChatMessages(requestId) {
     const { data, error } = await supabase

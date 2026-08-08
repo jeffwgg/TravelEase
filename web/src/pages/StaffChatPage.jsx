@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react'
-import { MapPin, Mic, Zap, Send, CheckCircle2 } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { MapPin, Mic, MicOff, Zap, Send, CheckCircle2, Video, VideoOff, PhoneCall, PhoneOff, Phone, PhoneIncoming } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
+import { useWebRTC } from '../hooks/useWebRTC'
 
 export default function StaffChatPage() {
   const [requests, setRequests] = useState([])
@@ -9,6 +10,28 @@ export default function StaffChatPage() {
   const [inputText, setInputText] = useState('')
   const [loadingMsg, setLoadingMsg] = useState(false)
 
+  // WebRTC hook — wired to the selected request's ID
+  const {
+    callState,
+    callType,
+    incomingCallerName,
+    isMicMuted,
+    isCameraOff,
+    localVideoRef,
+    remoteVideoRef,
+    startCall,
+    acceptCall,
+    rejectCall,
+    hangup,
+    toggleMic,
+    toggleCamera,
+    subscribeToSignaling,
+  } = useWebRTC(selectedReq?.id ?? null)
+
+  // Track the cleanup function for signaling subscription
+  const unsubscribeSignalingRef = useRef(null)
+
+  // ── Load requests & realtime subscription ─────────────────────────────────
   useEffect(() => {
     loadRequests()
 
@@ -21,6 +44,25 @@ export default function StaffChatPage() {
     }
   }, [])
 
+  // ── Subscribe to WebRTC signaling whenever selected request changes ────────
+  useEffect(() => {
+    // Cleanup previous signaling subscription
+    if (unsubscribeSignalingRef.current) {
+      unsubscribeSignalingRef.current()
+      unsubscribeSignalingRef.current = null
+    }
+
+    if (!selectedReq?.id) return
+
+    const cleanup = subscribeToSignaling()
+    unsubscribeSignalingRef.current = cleanup
+
+    return () => {
+      if (cleanup) cleanup()
+    }
+  }, [selectedReq?.id, subscribeToSignaling])
+
+  // ── Load messages when request changes ────────────────────────────────────
   useEffect(() => {
     if (!selectedReq) return
 
@@ -88,8 +130,197 @@ export default function StaffChatPage() {
     setInputText((prev) => (prev ? prev + ' ' + templateText : templateText))
   }
 
+  const isInCall = callState === 'connected' || callState === 'calling'
+
   return (
     <div style={{ padding: '0' }}>
+
+      {/* ── Incoming Call Banner (Mobile → Web) ─────────────────────────────── */}
+      {callState === 'incoming' && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(6px)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#1e293b',
+            borderRadius: '24px',
+            padding: '40px 48px',
+            textAlign: 'center',
+            boxShadow: '0 32px 80px rgba(0,0,0,0.5)',
+            minWidth: '320px',
+          }}>
+            {/* Animated avatar ring */}
+            <div style={{
+              width: '80px', height: '80px',
+              borderRadius: '50%',
+              background: 'rgba(59,130,246,0.2)',
+              border: '2px solid rgba(59,130,246,0.5)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 20px',
+              animation: 'pulse 1.5s infinite',
+            }}>
+              <PhoneIncoming size={36} color="#60a5fa" />
+            </div>
+            <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Incoming {callType === 'video' ? 'Video' : 'Voice'} Call
+            </div>
+            <div style={{ fontSize: '22px', fontWeight: '700', color: '#f1f5f9', marginBottom: '8px' }}>
+              {incomingCallerName}
+            </div>
+            <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '32px' }}>
+              {selectedReq?.request_code} · {selectedReq?.location_zone}
+            </div>
+            <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
+              <button
+                onClick={rejectCall}
+                style={{
+                  width: '56px', height: '56px', borderRadius: '50%',
+                  background: '#ef4444', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 4px 12px rgba(239,68,68,0.4)',
+                }}
+              >
+                <PhoneOff size={22} color="white" />
+              </button>
+              <button
+                onClick={acceptCall}
+                style={{
+                  width: '56px', height: '56px', borderRadius: '50%',
+                  background: '#22c55e', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 4px 12px rgba(34,197,94,0.4)',
+                }}
+              >
+                <Phone size={22} color="white" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Active Call Overlay ──────────────────────────────────────────────── */}
+      {isInCall && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: '#0f172a',
+          zIndex: 9998,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          {/* Remote video (large) */}
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            style={{
+              position: 'absolute', inset: 0,
+              width: '100%', height: '100%',
+              objectFit: 'cover',
+              opacity: callType === 'video' ? 1 : 0,
+            }}
+          />
+
+          {/* Calling state overlay */}
+          {callState === 'calling' && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              color: 'white',
+            }}>
+              <PhoneCall size={60} color="#60a5fa" style={{ marginBottom: '16px' }} />
+              <div style={{ fontSize: '20px', fontWeight: '600', marginBottom: '8px' }}>
+                Calling {selectedReq?.traveler_name}...
+              </div>
+              <div style={{ color: '#94a3b8', fontSize: '14px' }}>Waiting for traveler to accept</div>
+            </div>
+          )}
+
+          {/* Local video PIP */}
+          {callType === 'video' && (
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                position: 'absolute',
+                bottom: '120px', right: '24px',
+                width: '180px', height: '130px',
+                objectFit: 'cover',
+                borderRadius: '12px',
+                border: '2px solid rgba(255,255,255,0.2)',
+                zIndex: 1,
+              }}
+            />
+          )}
+
+          {/* Call controls bar */}
+          <div style={{
+            position: 'absolute',
+            bottom: '32px',
+            display: 'flex',
+            gap: '16px',
+            alignItems: 'center',
+            background: 'rgba(255,255,255,0.1)',
+            backdropFilter: 'blur(12px)',
+            borderRadius: '50px',
+            padding: '12px 24px',
+          }}>
+            <button
+              onClick={toggleMic}
+              style={{
+                width: '48px', height: '48px', borderRadius: '50%',
+                background: isMicMuted ? '#ef4444' : 'rgba(255,255,255,0.15)',
+                border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              title={isMicMuted ? 'Unmute' : 'Mute'}
+            >
+              {isMicMuted ? <MicOff size={20} color="white" /> : <Mic size={20} color="white" />}
+            </button>
+
+            {callType === 'video' && (
+              <button
+                onClick={toggleCamera}
+                style={{
+                  width: '48px', height: '48px', borderRadius: '50%',
+                  background: isCameraOff ? '#ef4444' : 'rgba(255,255,255,0.15)',
+                  border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+                title={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
+              >
+                {isCameraOff ? <VideoOff size={20} color="white" /> : <Video size={20} color="white" />}
+              </button>
+            )}
+
+            <button
+              onClick={() => hangup()}
+              style={{
+                width: '56px', height: '56px', borderRadius: '50%',
+                background: '#ef4444', border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 16px rgba(239,68,68,0.5)',
+              }}
+              title="End Call"
+            >
+              <PhoneOff size={24} color="white" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Page Header ──────────────────────────────────────────────────────── */}
       <div className="page-header" style={{ padding: '16px 32px' }}>
         <div>
           <h2>Staff Communication Console</h2>
@@ -97,13 +328,13 @@ export default function StaffChatPage() {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <span className="badge success" style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></span> Online & Accepting Chats
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></span> Online &amp; Accepting Chats
           </span>
         </div>
       </div>
 
       <div style={{ display: 'flex', height: 'calc(100vh - 85px)' }}>
-        {/* Chat sidebar */}
+        {/* ── Chat Sidebar ───────────────────────────────────────────────────── */}
         <div style={{ width: '320px', borderRight: '1px solid var(--divider)', background: 'var(--surface)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '16px', borderBottom: '1px solid var(--divider)' }}>
             <input type="text" className="input" placeholder="Search conversations..." />
@@ -147,11 +378,11 @@ export default function StaffChatPage() {
           </div>
         </div>
 
-        {/* Chat main area */}
+        {/* ── Chat Main Area ─────────────────────────────────────────────────── */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
           {selectedReq ? (
             <>
-              {/* Top chat info */}
+              {/* Top chat info bar */}
               <div style={{ padding: '16px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--divider)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h3 style={{ fontSize: '16px', fontWeight: '700' }}>{selectedReq.traveler_name} (Deaf Traveler)</h3>
@@ -159,11 +390,31 @@ export default function StaffChatPage() {
                     Location: {selectedReq.location_zone} • Prefers: {selectedReq.preferred_communication} • Request: {selectedReq.category}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-outline btn-sm"><MapPin size={14} /> View on Map</button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {/* Voice call button */}
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => startCall('voice')}
+                    title="Start Voice Call"
+                  >
+                    <Phone size={14} /> Voice
+                  </button>
+                  {/* Video call button */}
                   <button
                     className="btn btn-primary btn-sm"
-                    style={{ background: 'var(--success)' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => startCall('video')}
+                    title="Start Video Call"
+                  >
+                    <Video size={14} /> Video Call
+                  </button>
+                  <button className="btn btn-outline btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <MapPin size={14} /> View on Map
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    style={{ background: 'var(--success)', display: 'flex', alignItems: 'center', gap: '4px' }}
                     onClick={handleMarkResolved}
                   >
                     <CheckCircle2 size={14} /> Mark Resolved
@@ -280,4 +531,3 @@ export default function StaffChatPage() {
     </div>
   )
 }
-

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
+import '../../viewmodels/accessibility_issue_viewmodel.dart';
 
 class AccessibilityIssueView extends StatefulWidget {
   const AccessibilityIssueView({super.key});
@@ -9,8 +10,67 @@ class AccessibilityIssueView extends StatefulWidget {
 }
 
 class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
-  String? _issueType;
-  int _severity = 1;
+  final _viewModel = AccessibilityIssueViewModel();
+
+  @override
+  void initState() {
+    super.initState();
+    _viewModel.addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _viewModel.removeListener(_onChanged);
+    _viewModel.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSubmit() async {
+    final success = await _viewModel.submitReport(venueName: 'Current Venue');
+    if (success && mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.1), shape: BoxShape.circle),
+                child: const Icon(Icons.check_circle, color: AppColors.success, size: 48),
+              ),
+              const SizedBox(height: 16),
+              const Text('Report Submitted!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              const Text(
+                'Thank you for reporting this accessibility barrier. The venue will be notified.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _viewModel.reset();
+                  Navigator.pop(context);
+                },
+                child: const Text('Done'),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,8 +121,9 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
             const SizedBox(height: 24),
             Text('Location of Issue', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            const TextField(
-              decoration: InputDecoration(
+            TextField(
+              controller: _viewModel.locationController,
+              decoration: const InputDecoration(
                 hintText: 'e.g., Gate A5, Reception Counter',
                 prefixIcon: Icon(Icons.location_on_outlined, color: AppColors.textMuted),
               ),
@@ -71,6 +132,7 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
             Text('Description', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             TextField(
+              controller: _viewModel.descriptionController,
               maxLines: 4,
               decoration: InputDecoration(
                 hintText: 'Describe the accessibility barrier...',
@@ -109,13 +171,41 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
                 ],
               ),
             ),
+
+            // Error message
+            if (_viewModel.errorMessage != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.emergency.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.emergency.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: AppColors.emergency, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _viewModel.errorMessage!,
+                        style: const TextStyle(color: AppColors.emergency, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             const SizedBox(height: 32),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.report),
-                label: const Text('Submit Report'),
+                onPressed: _viewModel.isSubmitting ? null : _handleSubmit,
+                icon: _viewModel.isSubmitting
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.report),
+                label: Text(_viewModel.isSubmitting ? 'Submitting...' : 'Submit Report'),
                 style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               ),
             ),
@@ -127,9 +217,9 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
   }
 
   Widget _buildChip(String label, IconData icon, String value) {
-    final selected = _issueType == value;
+    final selected = _viewModel.issueType == value;
     return GestureDetector(
-      onTap: () => setState(() => _issueType = value),
+      onTap: () => _viewModel.setIssueType(value),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
@@ -150,10 +240,10 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
   }
 
   Widget _buildSeverity(int level, String title, String desc, Color color) {
-    final selected = _severity == level;
+    final selected = _viewModel.severity == level;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _severity = level),
+        onTap: () => _viewModel.setSeverity(level),
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(

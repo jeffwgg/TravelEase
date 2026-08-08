@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../../core/theme.dart';
+import '../../viewmodels/assistance_request_viewmodel.dart';
 
 class AssistanceRequestView extends StatefulWidget {
   const AssistanceRequestView({super.key});
@@ -10,8 +14,48 @@ class AssistanceRequestView extends StatefulWidget {
 }
 
 class _AssistanceRequestViewState extends State<AssistanceRequestView> {
-  String? _selectedType;
-  int _urgency = 1;
+  final _viewModel = AssistanceRequestViewModel();
+  final _venueController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _viewModel.addListener(_onViewModelChanged);
+    _viewModel.fetchCurrentLocation().then((_) {
+      if (_viewModel.venueName.isNotEmpty) {
+        _venueController.text = _viewModel.venueName;
+      }
+    });
+  }
+
+  void _onViewModelChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _viewModel.removeListener(_onViewModelChanged);
+    _viewModel.dispose();
+    _venueController.dispose();
+    super.dispose();
+  }
+
+  void _showLocationOptions() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => _LocationBottomSheet(
+        currentVenue: _viewModel.venueName,
+        onVenueSelected: (name) {
+          _viewModel.setVenue(name);
+          _venueController.text = name;
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +69,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Connected venue
+            // ── Location section ──
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -33,26 +77,87 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.location_on, color: AppColors.primary, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Requesting help from:', style: Theme.of(context).textTheme.bodySmall),
-                        const Text('KLIA Terminal 1', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                      ],
-                    ),
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on, color: AppColors.primary, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Requesting help from:', style: Theme.of(context).textTheme.bodySmall),
+                            if (_viewModel.isFetchingLocation)
+                              Row(
+                                children: [
+                                  const SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Detecting location...',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 14,
+                                      color: AppColors.textMuted,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            else if (_viewModel.venueName.isNotEmpty)
+                              Text(
+                                _viewModel.venueName,
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              )
+                            else
+                              Text(
+                                'No location selected',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 14,
+                                  color: AppColors.textMuted,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _showLocationOptions,
+                        child: Text(_viewModel.venueName.isNotEmpty ? 'Change' : 'Select'),
+                      ),
+                    ],
                   ),
-                  TextButton(onPressed: () {}, child: const Text('Change')),
+                  const SizedBox(height: 10),
+                  // Editable venue name field
+                  TextField(
+                    controller: _venueController,
+                    onChanged: (value) => _viewModel.setVenue(value),
+                    decoration: InputDecoration(
+                      hintText: 'Or type venue name here...',
+                      prefixIcon: const Icon(Icons.edit_location_alt_outlined, size: 20, color: AppColors.textMuted),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: AppColors.cardBorder),
+                      ),
+                    ),
+                    style: const TextStyle(fontSize: 14),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            // Request type
+            // ── Request type ──
             Text('What do you need help with?', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             Wrap(
@@ -70,10 +175,11 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
             ),
             const SizedBox(height: 24),
 
-            // Description
+            // ── Description ──
             Text('Describe your situation', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             TextField(
+              controller: _viewModel.descriptionController,
               maxLines: 4,
               decoration: InputDecoration(
                 hintText: 'Tell us what you need help with...',
@@ -83,7 +189,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
             ),
             const SizedBox(height: 24),
 
-            // Urgency
+            // ── Urgency ──
             Text('Urgency Level', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             Row(
@@ -97,44 +203,89 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
             ),
             const SizedBox(height: 24),
 
-            // Communication preference
+            // ── Communication preference (FIXED radio buttons) ──
             Text('How should staff reach you?', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             Card(
               child: Column(
                 children: [
-                  RadioListTile(title: const Text('In-app Chat', style: TextStyle(fontSize: 14)), value: 'chat', groupValue: 'chat', activeColor: AppColors.primary, onChanged: (_) {}),
+                  RadioListTile<String>(
+                    title: const Text('In-app Chat', style: TextStyle(fontSize: 14)),
+                    subtitle: const Text('Staff will message you here', style: TextStyle(fontSize: 11)),
+                    value: 'chat',
+                    groupValue: _viewModel.contactMethod,
+                    activeColor: AppColors.primary,
+                    onChanged: (value) => _viewModel.setContactMethod(value!),
+                  ),
                   const Divider(height: 1, indent: 16),
-                  RadioListTile(title: const Text('Come to my location', style: TextStyle(fontSize: 14)), value: 'location', groupValue: 'chat', activeColor: AppColors.primary, onChanged: (_) {}),
+                  RadioListTile<String>(
+                    title: const Text('Come to my location', style: TextStyle(fontSize: 14)),
+                    subtitle: const Text('Staff will find you in person', style: TextStyle(fontSize: 11)),
+                    value: 'location',
+                    groupValue: _viewModel.contactMethod,
+                    activeColor: AppColors.primary,
+                    onChanged: (value) => _viewModel.setContactMethod(value!),
+                  ),
                   const Divider(height: 1, indent: 16),
-                  RadioListTile(title: const Text('SMS / Text Message', style: TextStyle(fontSize: 14)), value: 'sms', groupValue: 'chat', activeColor: AppColors.primary, onChanged: (_) {}),
+                  RadioListTile<String>(
+                    title: const Text('SMS / Text Message', style: TextStyle(fontSize: 14)),
+                    subtitle: const Text('Receive updates via text', style: TextStyle(fontSize: 11)),
+                    value: 'sms',
+                    groupValue: _viewModel.contactMethod,
+                    activeColor: AppColors.primary,
+                    onChanged: (value) => _viewModel.setContactMethod(value!),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            // Share location toggle
+            // ── Share location toggle ──
             Card(
               child: SwitchListTile(
                 title: const Text('Share my current location', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                 subtitle: Text('Helps staff find you faster', style: Theme.of(context).textTheme.bodySmall),
                 secondary: const Icon(Icons.my_location, color: AppColors.primary),
-                value: true,
+                value: _viewModel.shareLocation,
                 activeColor: AppColors.primary,
-                onChanged: (_) {},
+                onChanged: (value) => _viewModel.setShareLocation(value),
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 16),
 
-            // Submit
+            // ── Error message ──
+            if (_viewModel.errorMessage != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.emergency.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.emergency.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: AppColors.emergency, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _viewModel.errorMessage!,
+                        style: const TextStyle(color: AppColors.emergency, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // ── Submit ──
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () {
-                  _showSubmitted(context);
-                },
-                icon: const Icon(Icons.send),
-                label: const Text('Submit Request'),
+                onPressed: _viewModel.isSubmitting ? null : _handleSubmit,
+                icon: _viewModel.isSubmitting
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.send),
+                label: Text(_viewModel.isSubmitting ? 'Submitting...' : 'Submit Request'),
                 style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               ),
             ),
@@ -152,10 +303,17 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
     );
   }
 
+  Future<void> _handleSubmit() async {
+    final success = await _viewModel.submitRequest();
+    if (success && mounted) {
+      _showSubmitted(context);
+    }
+  }
+
   Widget _buildTypeChip(String label, IconData icon, String value) {
-    final selected = _selectedType == value;
+    final selected = _viewModel.selectedCategory == value;
     return GestureDetector(
-      onTap: () => setState(() => _selectedType = value),
+      onTap: () => _viewModel.setCategory(value),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
@@ -176,10 +334,10 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
   }
 
   Widget _buildUrgencyOption(int level, String label, Color color) {
-    final selected = _urgency == level;
+    final selected = _viewModel.urgencyLevel == level;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _urgency = level),
+        onTap: () => _viewModel.setUrgencyLevel(level),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
@@ -200,6 +358,10 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
   }
 
   void _showSubmitted(BuildContext context) {
+    final request = _viewModel.submittedRequest;
+    final requestCode = request?['request_code'] ?? 'N/A';
+    final venue = _viewModel.venueName;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -215,9 +377,9 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
             const SizedBox(height: 16),
             const Text('Request Submitted!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
-            const Text('KLIA Terminal 1 staff will respond shortly.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary)),
+            Text('$venue staff will respond shortly.', textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textSecondary)),
             const SizedBox(height: 8),
-            const Text('Request ID: #REQ-2847', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.primary)),
+            Text('Request ID: #$requestCode', style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.primary)),
           ],
         ),
         actions: [
@@ -226,6 +388,8 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
             child: ElevatedButton(
               onPressed: () {
                 Navigator.pop(ctx);
+                _viewModel.reset();
+                _venueController.clear();
                 context.push('/request-tracking');
               },
               child: const Text('Track Request'),
@@ -236,3 +400,259 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
     );
   }
 }
+
+// ── Location selection bottom sheet ──
+
+class _LocationBottomSheet extends StatefulWidget {
+  final String currentVenue;
+  final ValueChanged<String> onVenueSelected;
+
+  const _LocationBottomSheet({
+    required this.currentVenue,
+    required this.onVenueSelected,
+  });
+
+  @override
+  State<_LocationBottomSheet> createState() => _LocationBottomSheetState();
+}
+
+class _LocationBottomSheetState extends State<_LocationBottomSheet> {
+  bool _isGettingLocation = false;
+  final _manualController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _manualController.text = widget.currentVenue;
+  }
+
+  @override
+  void dispose() {
+    _manualController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _useCurrentLocation() async {
+    setState(() => _isGettingLocation = true);
+
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permission denied. Please enable it in Settings.')),
+          );
+        }
+        setState(() => _isGettingLocation = false);
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+
+      // Reverse geocode using Nominatim for now, or Google if key provided
+      // TODO: Replace with Google Maps Geocoding API if key provided
+      final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse?lat=${position.latitude}&lon=${position.longitude}&format=json&addressdetails=1',
+      );
+
+      final response = await http.get(url, headers: {
+        'User-Agent': 'TravelEase/1.0',
+      });
+      
+      String placeName = '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final address = data['address'] as Map<String, dynamic>?;
+        if (address != null) {
+          placeName = address['tourism'] ??
+              address['building'] ??
+              address['amenity'] ??
+              address['road'] ??
+              address['suburb'] ??
+              placeName;
+          final city = address['city'] ?? address['town'] ?? address['village'];
+          if (city != null && placeName != city) {
+            placeName = '$placeName, $city';
+          }
+        }
+      }
+
+      widget.onVenueSelected(placeName);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not get location: $e')),
+        );
+      }
+    }
+
+    setState(() => _isGettingLocation = false);
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(context).viewInsets.bottom + 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle bar
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: AppColors.divider,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+
+          Text('Choose Location', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 4),
+          Text(
+            'Select how you want to set your location',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 20),
+
+          // Option 1: Manual input
+          TextField(
+            controller: _manualController,
+            decoration: InputDecoration(
+              hintText: 'Type venue or address...',
+              prefixIcon: const Icon(Icons.edit_location_alt_outlined, color: AppColors.textMuted),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.check_circle, color: AppColors.primary),
+                onPressed: () {
+                  if (_manualController.text.isNotEmpty) {
+                    widget.onVenueSelected(_manualController.text);
+                    Navigator.pop(context);
+                  }
+                },
+              ),
+            ),
+            onSubmitted: (value) {
+              if (value.isNotEmpty) {
+                widget.onVenueSelected(value);
+                Navigator.pop(context);
+              }
+            },
+          ),
+
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              const Expanded(child: Divider()),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text('or', style: Theme.of(context).textTheme.bodySmall),
+              ),
+              const Expanded(child: Divider()),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Option 2: Use current location
+          _buildOptionTile(
+            icon: Icons.my_location,
+            iconColor: AppColors.primary,
+            title: 'Use current location',
+            subtitle: 'Detect via GPS',
+            isLoading: _isGettingLocation,
+            onTap: _isGettingLocation ? null : _useCurrentLocation,
+          ),
+
+          const SizedBox(height: 8),
+
+          // Option 3: Pick from map
+          _buildOptionTile(
+            icon: Icons.map_outlined,
+            iconColor: AppColors.accent,
+            title: 'Choose from map',
+            subtitle: 'Tap on the map to pin your location',
+            onTap: () async {
+              final result = await context.push<Map<String, dynamic>>('/location-picker');
+              if (result != null && result['name'] != null && mounted) {
+                widget.onVenueSelected(result['name'] as String);
+                Navigator.pop(context);
+              }
+            },
+          ),
+
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOptionTile({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    bool isLoading = false,
+    VoidCallback? onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColors.cardBorder),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: isLoading
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: iconColor),
+                    )
+                  : Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: AppColors.textMuted, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
