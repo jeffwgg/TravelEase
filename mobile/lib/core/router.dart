@@ -22,6 +22,7 @@ import '../views/assistance/assistance_request_view.dart';
 import '../views/assistance/request_tracking_view.dart';
 import '../views/assistance/chat_view.dart';
 import '../views/assistance/accessibility_issue_view.dart';
+import '../views/assistance/location_picker_view.dart';
 import '../views/home/home_view.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -124,11 +125,18 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/chat',
-      builder: (context, state) => const ChatView(),
+      builder: (context, state) {
+        final requestId = state.uri.queryParameters['requestId'] ?? '';
+        return ChatView(requestId: requestId);
+      },
     ),
     GoRoute(
       path: '/accessibility-issue',
       builder: (context, state) => const AccessibilityIssueView(),
+    ),
+    GoRoute(
+      path: '/location-picker',
+      builder: (context, state) => const LocationPickerView(),
     ),
   ],
 );

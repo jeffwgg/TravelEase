@@ -13,6 +13,11 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
     <uses-feature android:name="android.hardware.microphone" android:required="false"/>
 
+
+    <!-- WebRTC: Camera & Microphone -->
+
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <application
         android:label="travelease"
         android:name="${applicationName}"
@@ -44,6 +49,9 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyCacId7cwk7eUIa1xglCXi3BkxaHuZO4qw" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
