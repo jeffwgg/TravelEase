@@ -68,3 +68,5 @@ env/
 *.onnx
 server/ai_engine/datasets/raw/
 server/ai_engine/datasets/processed/
+mobile/.cursorrules
+.cursorrules
