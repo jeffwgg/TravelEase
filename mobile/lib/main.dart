@@ -4,6 +4,9 @@ import 'core/theme.dart';
 import 'core/router.dart';
 import 'core/supabase_client.dart';
 
+import 'services/webrtc_service.dart';
+import 'views/widgets/incoming_call_overlay.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
@@ -11,8 +14,21 @@ void main() async {
   runApp(const TravelEaseApp());
 }
 
-class TravelEaseApp extends StatelessWidget {
+class TravelEaseApp extends StatefulWidget {
   const TravelEaseApp({super.key});
+
+  @override
+  State<TravelEaseApp> createState() => _TravelEaseAppState();
+}
+
+class _TravelEaseAppState extends State<TravelEaseApp> {
+  @override
+  void initState() {
+    super.initState();
+    WebRTCService.instance.init().then((_) {
+      WebRTCService.instance.subscribeToGlobalSignaling();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +37,7 @@ class TravelEaseApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       routerConfig: appRouter,
+      builder: (context, child) => IncomingCallOverlay(child: child ?? const SizedBox.shrink()),
     );
   }
 }

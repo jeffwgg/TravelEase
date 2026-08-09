@@ -22,6 +22,11 @@ enum WebRTCCallState { idle, calling, incoming, connected, ended }
 ///   call_end      — { reason }
 ///   call_reject   — { reason }
 class WebRTCService extends ChangeNotifier {
+  // Singleton instance
+  static final WebRTCService instance = WebRTCService._internal();
+  factory WebRTCService() => instance;
+  WebRTCService._internal();
+
   // ── ICE Servers (public STUN — no account needed) ─────────────────────────
   static const _iceServers = {
     'iceServers': [
@@ -34,6 +39,7 @@ class WebRTCService extends ChangeNotifier {
   WebRTCCallState callState = WebRTCCallState.idle;
   CallType callType = CallType.video;
   String incomingCallerName = '';
+  String? incomingRequestId;
   bool isMicMuted = false;
   bool isCameraOff = false;
 
@@ -49,18 +55,51 @@ class WebRTCService extends ChangeNotifier {
   // ── Supabase signaling ─────────────────────────────────────────────────────
   final _client = SupabaseClientHelper.client;
   RealtimeChannel? _signalingChannel;
+  RealtimeChannel? _globalChannel;
   String? _requestId;
 
   bool _renderersInitialized = false;
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
-  /// Call this once when the ChatView opens.
+  /// Call this once when app starts.
   Future<void> init() async {
     if (_renderersInitialized) return;
     await localRenderer.initialize();
     await remoteRenderer.initialize();
     _renderersInitialized = true;
+  }
+
+  /// Global foreground listener for incoming calls from any room/request
+  void subscribeToGlobalSignaling() {
+    if (_globalChannel != null) return;
+    _globalChannel = _client
+        .channel('call_room_global')
+        .onBroadcast(
+          event: 'call_offer',
+          callback: (payload) => _onCallOffer(payload),
+        )
+        .onBroadcast(
+          event: 'call_answer',
+          callback: (payload) => _onCallAnswer(payload),
+        )
+        .onBroadcast(
+          event: 'ice_candidate',
+          callback: (payload) => _onIceCandidate(payload),
+        )
+        .onBroadcast(
+          event: 'call_end',
+          callback: (_) => hangup(notifyRemote: false),
+        )
+        .onBroadcast(
+          event: 'call_reject',
+          callback: (_) {
+            _cleanupPeer();
+            callState = WebRTCCallState.idle;
+            notifyListeners();
+          },
+        )
+        .subscribe();
   }
 
   /// Subscribe to the signaling channel for [requestId].
@@ -122,8 +161,9 @@ class WebRTCService extends ChangeNotifier {
       await _sendSignal('call_offer', {
         'sdp': offer.sdp,
         'callType': type == CallType.video ? 'video' : 'voice',
-        'callerName': 'Traveler',
+        'callerName': 'Jeff Wong (Traveler)',
         'callerSide': 'mobile',
+        'requestId': requestId,
       });
     } catch (e) {
       debugPrint('WebRTCService.startCall error: $e');
@@ -208,21 +248,30 @@ class WebRTCService extends ChangeNotifier {
   // ── Private: signal event handlers ───────────────────────────────────────
 
   void _onCallOffer(Map<String, dynamic> payload) {
-    // If we sent this ourselves (mobile), ignore
-    if (payload['callerSide'] == 'mobile') return;
+    final data = payload.containsKey('payload') ? payload['payload'] : payload;
 
-    _pendingOffer = payload;
-    callType = (payload['callType'] as String?) == 'voice'
+    // If we sent this ourselves (mobile), ignore
+    if (data['callerSide'] == 'mobile') return;
+
+    _pendingOffer = data;
+    callType = (data['callType'] as String?) == 'voice'
         ? CallType.voice
         : CallType.video;
-    incomingCallerName = (payload['callerName'] as String?) ?? 'Staff';
+    incomingCallerName = (data['callerName'] as String?) ?? 'Staff';
+    incomingRequestId = (data['requestId'] as String?) ?? _requestId;
+
+    if (incomingRequestId != null && _requestId != incomingRequestId) {
+      subscribeToSignaling(incomingRequestId!);
+    }
+
     callState = WebRTCCallState.incoming;
     notifyListeners();
   }
 
   Future<void> _onCallAnswer(Map<String, dynamic> payload) async {
     if (_pc == null) return;
-    final sdp = payload['sdp'] as String?;
+    final data = payload.containsKey('payload') ? payload['payload'] : payload;
+    final sdp = data['sdp'] as String?;
     if (sdp == null) return;
     await _pc!.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
     callState = WebRTCCallState.connected;
@@ -231,11 +280,12 @@ class WebRTCService extends ChangeNotifier {
 
   Future<void> _onIceCandidate(Map<String, dynamic> payload) async {
     if (_pc == null) return;
+    final data = payload.containsKey('payload') ? payload['payload'] : payload;
     try {
       await _pc!.addCandidate(RTCIceCandidate(
-        payload['candidate'] as String,
-        payload['sdpMid'] as String?,
-        payload['sdpMLineIndex'] as int?,
+        data['candidate'] as String,
+        data['sdpMid'] as String?,
+        data['sdpMLineIndex'] as int?,
       ));
     } catch (e) {
       debugPrint('addIceCandidate error: $e');
@@ -289,11 +339,21 @@ class WebRTCService extends ChangeNotifier {
   // ── Private: signaling ─────────────────────────────────────────────────────
 
   Future<void> _sendSignal(String event, Map<String, dynamic> payload) async {
-    if (_signalingChannel == null) return;
-    await _signalingChannel!.sendBroadcastMessage(
-      event: event,
-      payload: payload,
-    );
+    if (_signalingChannel != null) {
+      await _signalingChannel!.sendBroadcastMessage(
+        event: event,
+        payload: payload,
+      );
+    }
+    try {
+      final globalChannel = _client.channel('call_room_global');
+      await globalChannel.sendBroadcastMessage(
+        event: event,
+        payload: payload,
+      );
+    } catch (e) {
+      debugPrint('Global signal broadcast error: $e');
+    }
   }
 
   void _unsubscribeSignaling() {

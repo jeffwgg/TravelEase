@@ -8,6 +8,7 @@ import '../models/repositories/assistance_repository.dart';
 
 class AssistanceRequestViewModel extends ChangeNotifier {
   final AssistanceRepository _repository = AssistanceRepository();
+  bool _isDisposed = false;
 
   // Form state
   String? selectedCategory;
@@ -190,7 +191,15 @@ class AssistanceRequestViewModel extends ChangeNotifier {
   }
 
   @override
+  void notifyListeners() {
+    if (!_isDisposed) {
+      super.notifyListeners();
+    }
+  }
+
+  @override
   void dispose() {
+    _isDisposed = true;
     descriptionController.dispose();
     super.dispose();
   }

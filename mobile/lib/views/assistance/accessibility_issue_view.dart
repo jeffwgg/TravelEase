@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/theme.dart';
 import '../../viewmodels/accessibility_issue_viewmodel.dart';
 
@@ -11,6 +13,8 @@ class AccessibilityIssueView extends StatefulWidget {
 
 class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
   final _viewModel = AccessibilityIssueViewModel();
+  XFile? _selectedPhoto;
+  bool _analyticsConsent = false; // FR-M5-27
 
   @override
   void initState() {
@@ -29,7 +33,63 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
     super.dispose();
   }
 
+  // FR-M5-24: Pick photo from gallery or camera
+  Future<void> _pickPhoto(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final file = await picker.pickImage(source: source, imageQuality: 80, maxWidth: 1280);
+      if (file != null) {
+        setState(() => _selectedPhoto = file);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not pick photo: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
+  void _showPhotoOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take Photo'),
+              onTap: () { Navigator.pop(ctx); _pickPhoto(ImageSource.camera); },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from Gallery'),
+              onTap: () { Navigator.pop(ctx); _pickPhoto(ImageSource.gallery); },
+            ),
+            if (_selectedPhoto != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: AppColors.emergency),
+                title: const Text('Remove Photo', style: TextStyle(color: AppColors.emergency)),
+                onTap: () { Navigator.pop(ctx); setState(() => _selectedPhoto = null); },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _handleSubmit() async {
+    // FR-M5-27: Consent required
+    if (!_analyticsConsent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please consent to share data for analytics to submit.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     final success = await _viewModel.submitReport(venueName: 'Current Venue');
     if (success && mounted) {
       showDialog(
@@ -61,6 +121,7 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
                 onPressed: () {
                   Navigator.pop(ctx);
                   _viewModel.reset();
+                  setState(() { _selectedPhoto = null; _analyticsConsent = false; });
                   Navigator.pop(context);
                 },
                 child: const Text('Done'),
@@ -152,22 +213,103 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
               ],
             ),
             const SizedBox(height: 24),
+
+            // FR-M5-24: Photo Upload
             Text('Attach Photo (Optional)', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              height: 100,
-              decoration: BoxDecoration(
-                border: Border.all(color: AppColors.cardBorder, style: BorderStyle.solid),
+            if (_selectedPhoto != null) ...[
+              // Preview
+              ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                color: AppColors.surfaceVariant,
+                child: Stack(
+                  children: [
+                    Image.file(
+                      File(_selectedPhoto!.path),
+                      width: double.infinity,
+                      height: 180,
+                      fit: BoxFit.cover,
+                    ),
+                    Positioned(
+                      top: 8, right: 8,
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedPhoto = null),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                          child: const Icon(Icons.close, size: 16, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 8, right: 8,
+                      child: GestureDetector(
+                        onTap: _showPhotoOptions,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+                          child: const Text('Change', style: TextStyle(color: Colors.white, fontSize: 12)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              child: const Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+            ] else ...[
+              GestureDetector(
+                onTap: _showPhotoOptions,
+                child: Container(
+                  width: double.infinity,
+                  height: 110,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.cardBorder, style: BorderStyle.solid),
+                    borderRadius: BorderRadius.circular(12),
+                    color: AppColors.surfaceVariant,
+                  ),
+                  child: const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_a_photo, color: AppColors.primary, size: 32),
+                      SizedBox(height: 8),
+                      Text('Tap to add photo evidence', style: TextStyle(fontSize: 13, color: AppColors.textMuted)),
+                      SizedBox(height: 2),
+                      Text('Camera or Gallery', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            // FR-M5-27: Analytics Consent
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceVariant,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _analyticsConsent ? AppColors.primary.withValues(alpha: 0.5) : AppColors.cardBorder),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.add_a_photo, color: AppColors.textMuted, size: 28),
-                  SizedBox(height: 8),
-                  Text('Tap to add photo', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                  Checkbox(
+                    value: _analyticsConsent,
+                    onChanged: (v) => setState(() => _analyticsConsent = v ?? false),
+                    activeColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _analyticsConsent = !_analyticsConsent),
+                      child: const Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: Text(
+                          'I consent to sharing this anonymised report for institutional accessibility analytics to help improve accessibility for all travellers.',
+                          style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.4),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -201,7 +343,8 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _viewModel.isSubmitting ? null : _handleSubmit,
+                // FR-M5-27: Disabled if no consent
+                onPressed: (_viewModel.isSubmitting || !_analyticsConsent) ? null : _handleSubmit,
                 icon: _viewModel.isSubmitting
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.report),
@@ -209,6 +352,16 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
                 style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               ),
             ),
+            if (!_analyticsConsent)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Center(
+                  child: Text(
+                    'Consent required to submit',
+                    style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                  ),
+                ),
+              ),
             const SizedBox(height: 32),
           ],
         ),

@@ -107,6 +107,13 @@ export default function AssistanceRequestPage() {
       (req.location_zone && req.location_zone.toLowerCase().includes(searchQuery.toLowerCase()))
 
     return matchesStatus && matchesSearch
+  }).sort((a, b) => {
+    const aResolved = a.status === 'resolved' || a.status === 'closed' ? 1 : 0
+    const bResolved = b.status === 'resolved' || b.status === 'closed' ? 1 : 0
+    if (aResolved !== bResolved) {
+      return aResolved - bResolved // Unresolved (0) before Resolved (1)
+    }
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0)
   })
 
   const filteredStaff = staffList.filter(staff => {
@@ -222,7 +229,7 @@ export default function AssistanceRequestPage() {
       <div className="page-header">
         <div>
           <h2>Assistance Request Dispatch</h2>
-          <div className="header-subtitle">Real-time incoming assistance requests from travelers requiring physical or communication support. (Connected to Supabase)</div>
+          <div className="header-subtitle">Real-time incoming assistance requests from travelers requiring physical or communication support.</div>
         </div>
         <button className="btn btn-primary" onClick={loadRequests}>↻ Refresh Live Data</button>
       </div>

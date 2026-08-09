@@ -25,7 +25,7 @@ class _ChatViewState extends State<ChatView> {
     _viewModel.loadMessages();
     _viewModel.subscribeToLive();
 
-    _webrtc = WebRTCService();
+    _webrtc = WebRTCService.instance;
     _webrtc.addListener(_onChanged);
     _webrtc.init().then((_) {
       _webrtc.subscribeToSignaling(widget.requestId);
@@ -41,7 +41,6 @@ class _ChatViewState extends State<ChatView> {
     _viewModel.removeListener(_onChanged);
     _viewModel.dispose();
     _webrtc.removeListener(_onChanged);
-    _webrtc.dispose();
     super.dispose();
   }
 
@@ -76,15 +75,15 @@ class _ChatViewState extends State<ChatView> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Staff Chat', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                Text(_viewModel.assignedStaffName ?? 'Staff Chat', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                 Row(
                   children: [
                     Container(
                       width: 6, height: 6,
-                      decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle),
+                      decoration: BoxDecoration(color: _viewModel.assignedStaffName != null ? AppColors.success : AppColors.textMuted, shape: BoxShape.circle),
                     ),
                     const SizedBox(width: 4),
-                    Text('Online', style: TextStyle(fontSize: 11, color: AppColors.success)),
+                    Text(_viewModel.assignedStaffName != null ? 'Online' : 'Waiting...', style: TextStyle(fontSize: 11, color: _viewModel.assignedStaffName != null ? AppColors.success : AppColors.textMuted)),
                   ],
                 ),
               ],
@@ -92,6 +91,12 @@ class _ChatViewState extends State<ChatView> {
           ],
         ),
         actions: [
+          // Confirm Resolution button for traveler
+          IconButton(
+            icon: const Icon(Icons.check_circle_outline, color: AppColors.success),
+            tooltip: 'Confirm Resolution & Rate',
+            onPressed: () => _showResolutionDialog(context),
+          ),
           // Voice call button
           IconButton(
             icon: const Icon(Icons.call, color: AppColors.success),
@@ -128,6 +133,25 @@ class _ChatViewState extends State<ChatView> {
                       child: Text(
                         'Request #${widget.requestId.length > 8 ? widget.requestId.substring(0, 8) : widget.requestId}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () => _showResolutionDialog(context),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.success.withValues(alpha: 0.5)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle, size: 14, color: AppColors.success),
+                            SizedBox(width: 4),
+                            Text('Resolve & Rate', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -267,9 +291,11 @@ class _ChatViewState extends State<ChatView> {
         children: [
           // Remote video (full screen)
           if (_webrtc.callType == CallType.video)
-            RTCVideoView(
-              _webrtc.remoteRenderer,
-              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+            Positioned.fill(
+              child: RTCVideoView(
+                _webrtc.remoteRenderer,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+              ),
             ),
 
           // Calling state message
@@ -438,7 +464,9 @@ class _ChatViewState extends State<ChatView> {
       children: [
         Flexible(
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 280),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.85,
+            ),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: isUser ? AppColors.primary : AppColors.surface,
@@ -450,24 +478,16 @@ class _ChatViewState extends State<ChatView> {
               ),
               border: isUser ? null : Border.all(color: AppColors.cardBorder),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (!isUser && senderName.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      senderName,
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
-                    ),
-                  ),
-                Text(text, style: TextStyle(color: isUser ? Colors.white : AppColors.textPrimary, fontSize: 14)),
-                const SizedBox(height: 4),
-                Align(
-                  alignment: Alignment.bottomRight,
-                  child: Text(time, style: TextStyle(fontSize: 10, color: isUser ? Colors.white54 : AppColors.textMuted)),
-                ),
-              ],
+            child: IntrinsicWidth(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(text, style: TextStyle(color: isUser ? Colors.white : AppColors.textPrimary, fontSize: 14)),
+                  const SizedBox(height: 4),
+                  Text(time, textAlign: TextAlign.right, style: TextStyle(fontSize: 10, color: isUser ? Colors.white54 : AppColors.textMuted)),
+                ],
+              ),
             ),
           ),
         ),
@@ -481,6 +501,176 @@ class _ChatViewState extends State<ChatView> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(12)),
         child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+      ),
+    );
+  }
+
+  // ── UC503: Resolution Confirmation Modal for Traveler ────────────────────
+  void _showResolutionDialog(BuildContext context) {
+    String selectedOutcome = '';
+    int selectedRating = 0;
+    final commentCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          return Container(
+            padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40, height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.check_circle_outline, color: AppColors.success, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Confirm Resolution', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                          Text('Provide feedback for your assistance session', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Was your assistance request effectively resolved by the staff?',
+                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.5),
+                ),
+                const SizedBox(height: 20),
+                const Text('Outcome', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    _buildOutcomeChip('fully_resolved', '✅ Resolved', AppColors.success, selectedOutcome, (v) => setSheetState(() => selectedOutcome = v)),
+                    const SizedBox(width: 8),
+                    _buildOutcomeChip('partially_resolved', '⚠️ Partial', AppColors.secondary, selectedOutcome, (v) => setSheetState(() => selectedOutcome = v)),
+                    const SizedBox(width: 8),
+                    _buildOutcomeChip('unresolved', '❌ Unresolved', AppColors.emergency, selectedOutcome, (v) => setSheetState(() => selectedOutcome = v)),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const Text('Satisfaction Rating', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (i) {
+                    final star = i + 1;
+                    return GestureDetector(
+                      onTap: () => setSheetState(() => selectedRating = star),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Icon(
+                          star <= selectedRating ? Icons.star_rounded : Icons.star_outline_rounded,
+                          size: 42,
+                          color: star <= selectedRating ? const Color(0xFFF59E0B) : AppColors.textMuted,
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+                if (selectedRating > 0) ...[
+                  const SizedBox(height: 4),
+                  Center(
+                    child: Text(
+                      ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'][selectedRating],
+                      style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                TextField(
+                  controller: commentCtrl,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    hintText: 'Any feedback comments? (optional)',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: (selectedOutcome.isEmpty || selectedRating == 0 || isSubmitting)
+                        ? null
+                        : () async {
+                            setSheetState(() => isSubmitting = true);
+                            final success = await _viewModel.submitResolutionFeedback(
+                              outcome: selectedOutcome,
+                              rating: selectedRating,
+                              comment: commentCtrl.text.trim().isEmpty ? null : commentCtrl.text.trim(),
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (success && mounted) {
+                              final isFullyResolved = selectedOutcome == 'fully_resolved';
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(isFullyResolved
+                                      ? '✅ Request closed. Thank you for your rating!'
+                                      : '⚠️ Ticket re-opened for staff review.'),
+                                  backgroundColor: isFullyResolved ? AppColors.success : AppColors.secondary,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                              Navigator.pop(context);
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                    child: isSubmitting
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Text('Submit Feedback'),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildOutcomeChip(String value, String label, Color color, String selected, ValueChanged<String> onTap) {
+    final isSelected = selected == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => onTap(value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          decoration: BoxDecoration(
+            color: isSelected ? color.withValues(alpha: 0.12) : AppColors.surfaceVariant,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: isSelected ? color : AppColors.cardBorder, width: isSelected ? 2 : 1),
+          ),
+          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isSelected ? color : AppColors.textMuted)),
+        ),
       ),
     );
   }

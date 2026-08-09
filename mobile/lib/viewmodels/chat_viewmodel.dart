@@ -18,6 +18,15 @@ class ChatViewModel extends ChangeNotifier {
 
   ChatViewModel({required this.requestId});
 
+  String? get assignedStaffName {
+    try {
+      final staffMsg = messages.firstWhere((m) => m['sender_type'] == 'staff');
+      return staffMsg['sender_name'];
+    } catch (e) {
+      return null;
+    }
+  }
+
   Future<void> loadMessages() async {
     isLoading = true;
     errorMessage = null;
@@ -60,6 +69,20 @@ class ChatViewModel extends ChangeNotifier {
       errorMessage = 'Failed to send message';
       notifyListeners();
     }
+  }
+
+  // FR-M5-16 / FR-M5-26: Deaf traveler confirms resolution and submits rating
+  Future<bool> submitResolutionFeedback({
+    required String outcome,
+    required int rating,
+    String? comment,
+  }) async {
+    return await _repository.submitResolutionFeedback(
+      requestId: requestId,
+      outcome: outcome,
+      rating: rating,
+      comment: comment,
+    );
   }
 
   void subscribeToLive() {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { MapPin, Mic, MicOff, Zap, Send, CheckCircle2, Video, VideoOff, PhoneCall, PhoneOff, Phone, PhoneIncoming } from 'lucide-react'
+import { MapPin, Mic, MicOff, Zap, Send, CheckCircle2, Video, VideoOff, PhoneCall, PhoneOff, Phone, PhoneIncoming, X, ExternalLink, Navigation } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import { useWebRTC } from '../hooks/useWebRTC'
 
@@ -9,6 +9,16 @@ export default function StaffChatPage() {
   const [messages, setMessages] = useState([])
   const [inputText, setInputText] = useState('')
   const [loadingMsg, setLoadingMsg] = useState(false)
+  const [showMapModal, setShowMapModal] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const handleIncomingCall = React.useCallback((reqId) => {
+    setRequests((prev) => {
+      const match = prev.find((r) => r.id === reqId)
+      if (match) setSelectedReq(match)
+      return prev
+    })
+  }, [])
 
   // WebRTC hook — wired to the selected request's ID
   const {
@@ -26,7 +36,7 @@ export default function StaffChatPage() {
     toggleMic,
     toggleCamera,
     subscribeToSignaling,
-  } = useWebRTC(selectedReq?.id ?? null)
+  } = useWebRTC(selectedReq?.id ?? null, handleIncomingCall)
 
   // Track the cleanup function for signaling subscription
   const unsubscribeSignalingRef = useRef(null)
@@ -69,7 +79,10 @@ export default function StaffChatPage() {
     loadMessages(selectedReq.id)
 
     const unsubscribeMsg = assistanceRepository.subscribeToMessages(selectedReq.id, (newMsg) => {
-      setMessages((prev) => [...prev, newMsg])
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev
+        return [...prev, newMsg]
+      })
     })
 
     return () => {
@@ -324,7 +337,7 @@ export default function StaffChatPage() {
       <div className="page-header" style={{ padding: '16px 32px' }}>
         <div>
           <h2>Staff Communication Console</h2>
-          <div className="header-subtitle">Real-time two-way dialogue console with automatic speech-to-text and sign translation support. (Connected to Supabase)</div>
+          <div className="header-subtitle">Real-time two-way dialogue console with automatic speech-to-text and sign translation support.</div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <span className="badge success" style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -337,32 +350,78 @@ export default function StaffChatPage() {
         {/* ── Chat Sidebar ───────────────────────────────────────────────────── */}
         <div style={{ width: '320px', borderRight: '1px solid var(--divider)', background: 'var(--surface)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '16px', borderBottom: '1px solid var(--divider)' }}>
-            <input type="text" className="input" placeholder="Search conversations..." />
+            <input
+              type="text"
+              className="input"
+              placeholder="Search conversations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {requests.map((req) => {
+            {requests
+              .filter((req) => {
+                if (!searchQuery.trim()) return true
+                const q = searchQuery.toLowerCase()
+                return (
+                  (req.traveler_name && req.traveler_name.toLowerCase().includes(q)) ||
+                  (req.request_code && req.request_code.toLowerCase().includes(q)) ||
+                  (req.location_zone && req.location_zone.toLowerCase().includes(q)) ||
+                  (req.description && req.description.toLowerCase().includes(q))
+                )
+              })
+              .sort((a, b) => {
+                const aResolved = a.status === 'resolved' || a.status === 'closed' ? 1 : 0
+                const bResolved = b.status === 'resolved' || b.status === 'closed' ? 1 : 0
+                if (aResolved !== bResolved) {
+                  return aResolved - bResolved // Unresolved (0) before Resolved (1)
+                }
+                return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+              })
+              .map((req) => {
               const isSelected = selectedReq && selectedReq.id === req.id
+              const isEscalated = req.is_escalated === true
+              const minutesWaiting = req.created_at
+                ? Math.floor((Date.now() - new Date(req.created_at).getTime()) / 60000)
+                : 0
+              // FR-M5-11: Auto-escalate client-side if pending > 10 min and not already escalated
+              const shouldEscalate = !isEscalated && req.status === 'pending' && minutesWaiting >= 10
               return (
                 <div
                   key={req.id}
                   style={{
                     padding: '16px',
                     borderBottom: '1px solid var(--divider)',
-                    background: isSelected ? 'var(--primary-alpha)' : 'transparent',
-                    cursor: 'pointer'
+                    background: isSelected
+                      ? 'var(--primary-alpha)'
+                      : (isEscalated || shouldEscalate) ? 'rgba(239,68,68,0.04)' : 'transparent',
+                    cursor: 'pointer',
+                    borderLeft: (isEscalated || shouldEscalate) ? '3px solid #ef4444' : undefined,
                   }}
                   onClick={() => setSelectedReq(req)}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
                     <strong style={{ fontSize: '14px' }}>{req.traveler_name} ({req.request_code})</strong>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                       {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
+                  {(isEscalated || shouldEscalate) && (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: '5px',
+                      background: 'rgba(239,68,68,0.1)', borderRadius: '6px',
+                      padding: '4px 8px', marginBottom: '6px', width: 'fit-content',
+                    }}>
+                      <span style={{ fontSize: '12px' }}>⚠️</span>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#ef4444' }}>
+                        ESCALATED — Waiting {minutesWaiting} min
+                      </span>
+                    </div>
+                  )}
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {req.description}
                   </div>
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
                     <span className="badge primary">{req.location_zone}</span>
                     <span
                       className={`badge ${
@@ -371,6 +430,12 @@ export default function StaffChatPage() {
                     >
                       {req.status}
                     </span>
+                    {req.urgency === 'high' && <span className="badge emergency">🔴 High</span>}
+                    {req.user_rating && (
+                      <span className="badge secondary" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontWeight: '700' }}>
+                        ★ {req.user_rating}/5
+                      </span>
+                    )}
                   </div>
                 </div>
               )
@@ -409,7 +474,11 @@ export default function StaffChatPage() {
                   >
                     <Video size={14} /> Video Call
                   </button>
-                  <button className="btn btn-outline btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                    onClick={() => setShowMapModal(true)}
+                  >
                     <MapPin size={14} /> View on Map
                   </button>
                   <button
@@ -421,6 +490,49 @@ export default function StaffChatPage() {
                   </button>
                 </div>
               </div>
+
+              {/* ── Traveler Resolution Feedback Banner ── */}
+              {(selectedReq.resolution_outcome || selectedReq.user_rating) && (
+                <div style={{
+                  margin: '16px 24px 0',
+                  padding: '14px 20px',
+                  borderRadius: '14px',
+                  background: selectedReq.resolution_outcome === 'fully_resolved'
+                    ? 'rgba(34, 197, 94, 0.1)'
+                    : 'rgba(245, 158, 11, 0.1)',
+                  border: `1px solid ${selectedReq.resolution_outcome === 'fully_resolved' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '700', color: selectedReq.resolution_outcome === 'fully_resolved' ? '#22c55e' : '#f59e0b' }}>
+                        Traveler Outcome: {selectedReq.resolution_outcome === 'fully_resolved' ? '✅ Fully Resolved' : selectedReq.resolution_outcome === 'partially_resolved' ? '⚠️ Partially Resolved' : '❌ Unresolved'}
+                      </span>
+                      {selectedReq.user_rating && (
+                        <span style={{ fontSize: '13px', fontWeight: '700', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          ★ {selectedReq.user_rating} / 5
+                        </span>
+                      )}
+                    </div>
+                    {selectedReq.user_feedback_comment && (
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                        "{selectedReq.user_feedback_comment}"
+                      </div>
+                    )}
+                  </div>
+                  <span className="badge" style={{
+                    background: selectedReq.status === 'closed' ? 'var(--success)' : 'var(--secondary)',
+                    color: '#fff',
+                    padding: '6px 12px',
+                    fontSize: '11px',
+                    fontWeight: '700'
+                  }}>
+                    Ticket: {selectedReq.status.toUpperCase()}
+                  </span>
+                </div>
+              )}
 
               {/* Messages list */}
               <div style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -439,35 +551,25 @@ export default function StaffChatPage() {
                       <div
                         key={msg.id}
                         style={{
-                          alignSelf: isStaff ? 'flex-start' : 'flex-end',
-                          maxWidth: '60%',
-                          background: isStaff ? 'var(--surface)' : 'var(--primary)',
-                          color: isStaff ? 'var(--text)' : '#fff',
+                          alignSelf: isStaff ? 'flex-end' : 'flex-start',
+                          maxWidth: '85%',
+                          background: isStaff ? 'var(--success)' : 'var(--surface)',
+                          color: isStaff ? '#fff' : 'var(--text)',
                           padding: '14px',
                           borderRadius: '16px',
-                          border: isStaff ? '1px solid var(--card-border)' : 'none'
+                          border: isStaff ? 'none' : '1px solid var(--card-border)'
                         }}
                       >
-                        <div
-                          style={{
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            color: isStaff ? 'var(--primary)' : 'var(--primary-light)',
-                            marginBottom: '4px'
-                          }}
-                        >
-                          {msg.sender_name}
-                        </div>
                         <div style={{ fontSize: '14px' }}>{msg.content}</div>
                         <div
                           style={{
                             fontSize: '10px',
-                            color: isStaff ? 'var(--text-muted)' : 'rgba(255,255,255,0.7)',
+                            color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)',
                             textAlign: 'right',
                             marginTop: '4px'
                           }}
                         >
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {msg.message_type}
+                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
                       </div>
                     )
@@ -528,6 +630,103 @@ export default function StaffChatPage() {
           )}
         </div>
       </div>
+      {/* ── View on Map Modal ────────────────────────────────────────────────── */}
+      {showMapModal && selectedReq && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(6px)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '24px',
+        }}>
+          <div style={{
+            background: 'var(--surface)',
+            borderRadius: '20px',
+            border: '1px solid var(--card-border)',
+            width: '100%',
+            maxWidth: '720px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid var(--divider)',
+              display: 'flex',
+              justify: 'space-between',
+              alignItems: 'center',
+              background: 'var(--surface-variant)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px', height: '36px', borderRadius: '10px',
+                  background: 'rgba(59, 130, 246, 0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <MapPin size={20} color="var(--primary)" />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>
+                    Traveler Location — {selectedReq.traveler_name}
+                  </h3>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Request #{selectedReq.request_code} · {selectedReq.location_zone}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowMapModal(false)}
+                style={{
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  padding: '8px', borderRadius: '50%', color: 'var(--text-muted)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Map Content */}
+            <div style={{ position: 'relative', height: '380px', width: '100%', background: '#1e293b' }}>
+              <iframe
+                title="Traveler Location Map"
+                width="100%"
+                height="100%"
+                style={{ border: 0 }}
+                loading="lazy"
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(selectedReq.venue_name || selectedReq.location_zone)}&t=&z=15&ie=UTF8&iwloc=&output=embed`}
+              />
+            </div>
+
+            {/* Footer / Location details */}
+            <div style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface)' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>
+                  {selectedReq.venue_name || selectedReq.location_zone}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Urgency: <span style={{ textTransform: 'capitalize', fontWeight: '600', color: selectedReq.urgency === 'high' ? 'var(--emergency)' : 'var(--secondary)' }}>{selectedReq.urgency}</span> · Category: {selectedReq.category}
+                </div>
+              </div>
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedReq.venue_name || selectedReq.location_zone)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-primary btn-sm"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+              >
+                <Navigation size={14} /> Open in Google Maps <ExternalLink size={12} />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
