@@ -1,89 +1,374 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
+import '../../models/queue_tracking.dart';
+import '../../repositories/queue_repository.dart';
 
-class QueueTrackingView extends StatelessWidget {
+class QueueTrackingView extends StatefulWidget {
   const QueueTrackingView({super.key});
+
+  @override
+  State<QueueTrackingView> createState() => _QueueTrackingViewState();
+}
+
+class _QueueTrackingViewState extends State<QueueTrackingView> {
+  final QueueRepository _repository = QueueRepository();
+  final TextEditingController _numberController = TextEditingController();
+  List<QueueLineInfo> _lines = const [];
+  QueueTrackingData? _tracking;
+  RealtimeChannel? _channel;
+  String? _selectedLineId;
+  String? _error;
+  bool _loadingLines = true;
+  bool _trackingNumber = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLines();
+  }
+
+  @override
+  void dispose() {
+    _numberController.dispose();
+    final channel = _channel;
+    if (channel != null) _repository.removeSubscription(channel);
+    super.dispose();
+  }
+
+  Future<void> _loadLines() async {
+    try {
+      final lines = await _repository.getActiveQueueLines();
+      if (!mounted) return;
+      setState(() {
+        _lines = lines;
+        _loadingLines = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Unable to load queue lines. Please sign in and try again.';
+        _loadingLines = false;
+      });
+    }
+  }
+
+  Future<void> _trackNumber() async {
+    final number = _numberController.text.trim();
+    if (number.isEmpty) {
+      setState(() => _error = 'Enter your queue number.');
+      return;
+    }
+    setState(() {
+      _trackingNumber = true;
+      _error = null;
+    });
+    try {
+      final result = await _repository.trackNumber(
+        number: number,
+        queueLineId: _selectedLineId,
+      );
+      if (!mounted) return;
+      if (result == null) {
+        setState(() {
+          _tracking = null;
+          _error = 'Queue number not found. Check the number and queue line.';
+        });
+        return;
+      }
+      final previous = _channel;
+      if (previous != null) await _repository.removeSubscription(previous);
+      _channel = _repository.subscribeToTracking(
+        result.line.id,
+        _refreshTracking,
+      );
+      setState(() {
+        _tracking = result;
+        _selectedLineId = result.line.id;
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = 'Unable to track this queue number right now.');
+      }
+    } finally {
+      if (mounted) setState(() => _trackingNumber = false);
+    }
+  }
+
+  Future<void> _refreshTracking() async {
+    final current = _tracking;
+    if (current == null) return;
+    try {
+      final result = await _repository.trackNumber(
+        number: current.number,
+        queueLineId: current.line.id,
+      );
+      if (mounted && result != null) setState(() => _tracking = result);
+    } catch (_) {
+      // Keep the last known state during transient realtime refresh failures.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Queue Tracking'),
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+        title: const Text('Queue Number Tracking'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Your queue status
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [AppColors.primary, AppColors.primaryDark],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(color: AppColors.primary.withValues(alpha: 0.3), blurRadius: 16, offset: const Offset(0, 6)),
-              ],
-            ),
-            child: Column(
-              children: [
-                const Text('Your Queue Number', style: TextStyle(color: Colors.white70, fontSize: 14)),
-                const SizedBox(height: 8),
-                const Text('A-047', style: TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.w800, letterSpacing: 4)),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+      body: RefreshIndicator(
+        onRefresh: _tracking == null ? _loadLines : _refreshTracking,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildTrackingForm(context),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.emergency.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
                   children: [
-                    Expanded(child: _buildQueueStat('Now Serving', 'A-042')),
-                    Container(width: 1, height: 40, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 8)),
-                    Expanded(child: _buildQueueStat('People Ahead', '5')),
-                    Container(width: 1, height: 40, color: Colors.white24, margin: const EdgeInsets.symmetric(horizontal: 8)),
-                    Expanded(child: _buildQueueStat('Est. Wait', '~15 min')),
+                    const Icon(Icons.error_outline, color: AppColors.emergency),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: AppColors.emergency),
+                      ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.vibration, color: Colors.white70, size: 18),
-                      SizedBox(width: 8),
-                      Text('You will be notified when it\'s your turn', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                    ],
+              ),
+            ],
+            const SizedBox(height: 20),
+            if (_tracking == null)
+              _buildEmptyState()
+            else ...[
+              _buildStatusCard(_tracking!),
+              const SizedBox(height: 24),
+              Text(
+                'Queue Line Information',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              _buildLineInformation(_tracking!.line),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTrackingForm(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Identify Your Queue Number',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Enter the number shown on your queue ticket.',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String?>(
+              initialValue: _selectedLineId,
+              decoration: const InputDecoration(
+                labelText: 'Queue Line (Optional)',
+              ),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Search all queue lines'),
+                ),
+                ..._lines.map(
+                  (line) => DropdownMenuItem<String?>(
+                    value: line.id,
+                    child: Text(
+                      '${line.name} — ${line.serviceArea}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
               ],
+              onChanged: _loadingLines
+                  ? null
+                  : (value) => setState(() => _selectedLineId = value),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _numberController,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Queue Number',
+                hintText: 'e.g. A-047',
+                prefixIcon: Icon(Icons.confirmation_number_outlined),
+              ),
+              onSubmitted: (_) => _trackNumber(),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _trackingNumber ? null : _trackNumber,
+                icon: _trackingNumber
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.search),
+                label: Text(
+                  _trackingNumber ? 'Finding Queue…' : 'Track Queue Number',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: const [
+          Icon(Icons.manage_search, size: 42, color: AppColors.primary),
+          SizedBox(height: 12),
+          Text(
+            'Enter a queue number to see live serving information.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.textMuted),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _buildStatusCard(QueueTrackingData tracking) {
+    final statusMessage = switch (tracking.status) {
+      'called' || 'serving' => 'Please proceed to ${tracking.line.counter}',
+      'missed' => 'This queue number was marked as missed',
+      'cancelled' => 'This queue number was cancelled',
+      'completed' => 'Service for this queue number is complete',
+      _ => 'You will be notified when it is your turn',
+    };
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppColors.primary, AppColors.primaryDark],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          const Text(
+            'Your Queue Number',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              tracking.number,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 48,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 3,
+              ),
             ),
           ),
-          const SizedBox(height: 24),
-          // Queue line information
-          Text('Queue Line Information', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  _buildInfoRow(Icons.confirmation_number_outlined, 'Queue Line', 'A Series'),
-                  const Divider(height: 24),
-                  _buildInfoRow(Icons.support_agent_outlined, 'Service', 'General Ticketing & Check-in'),
-                  const Divider(height: 24),
-                  _buildInfoRow(Icons.meeting_room_outlined, 'Counter', 'Counter #1 — Main Service Desk'),
-                  const Divider(height: 24),
-                  _buildInfoRow(Icons.location_on_outlined, 'Service Area', 'Departure Hall A, Level 3'),
-                  const Divider(height: 24),
-                  _buildInfoRow(Icons.schedule_outlined, 'Operating Hours', '6:00 AM – 11:00 PM'),
-                ],
+          const SizedBox(height: 4),
+          Text(
+            tracking.status.toUpperCase(),
+            style: const TextStyle(
+              color: Colors.white70,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: _buildQueueStat(
+                  'Now Serving',
+                  tracking.line.currentNumber,
+                ),
               ),
+              Container(
+                width: 1,
+                height: 42,
+                color: Colors.white24,
+                margin: const EdgeInsets.symmetric(horizontal: 5),
+              ),
+              Expanded(
+                child: _buildQueueStat(
+                  'People Ahead',
+                  '${tracking.peopleAhead}',
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 42,
+                color: Colors.white24,
+                margin: const EdgeInsets.symmetric(horizontal: 5),
+              ),
+              Expanded(
+                child: _buildQueueStat(
+                  'Est. Wait',
+                  tracking.estimatedWaitMinutes == 0
+                      ? 'Now'
+                      : '~${tracking.estimatedWaitMinutes} min',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.vibration, color: Colors.white70, size: 18),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    statusMessage,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -91,37 +376,92 @@ class QueueTrackingView extends StatelessWidget {
     );
   }
 
-  static Widget _buildQueueStat(String label, String value) {
-    return Column(
-      children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 2),
-        Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, fontSize: 11)),
-      ],
-    );
-  }
+  Widget _buildLineInformation(QueueLineInfo line) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _buildInfoRow(
+            Icons.confirmation_number_outlined,
+            'Queue Line',
+            line.name,
+          ),
+          const Divider(height: 24),
+          _buildInfoRow(
+            Icons.support_agent_outlined,
+            'Service',
+            line.serviceArea,
+          ),
+          const Divider(height: 24),
+          _buildInfoRow(Icons.meeting_room_outlined, 'Counter', line.counter),
+          const Divider(height: 24),
+          _buildInfoRow(
+            Icons.schedule_outlined,
+            'Operating Hours',
+            line.operatingHours ?? 'Contact venue staff',
+          ),
+          const Divider(height: 24),
+          _buildInfoRow(
+            Icons.info_outline,
+            'Queue Status',
+            line.status.toUpperCase(),
+          ),
+        ],
+      ),
+    ),
+  );
 
-  static Widget _buildInfoRow(IconData icon, String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(9),
-          decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-          child: Icon(icon, color: AppColors.primary, size: 20),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
-              const SizedBox(height: 2),
-              Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            ],
+  static Widget _buildQueueStat(String label, String value) => Column(
+    children: [
+      FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          value,
+          maxLines: 1,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
           ),
         ),
-      ],
-    );
-  }
+      ),
+      const SizedBox(height: 3),
+      Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: Colors.white60, fontSize: 10),
+      ),
+    ],
+  );
+
+  static Widget _buildInfoRow(IconData icon, String label, String value) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Container(
+        padding: const EdgeInsets.all(9),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: AppColors.primary, size: 20),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
 }

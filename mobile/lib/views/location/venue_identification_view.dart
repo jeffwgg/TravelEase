@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
+import '../../models/announcement.dart';
+import '../../repositories/announcement_repository.dart';
 
 class VenueIdentificationView extends StatefulWidget {
   const VenueIdentificationView({super.key});
@@ -12,6 +15,32 @@ class VenueIdentificationView extends StatefulWidget {
 class _VenueIdentificationViewState extends State<VenueIdentificationView> {
   String? _selectedVenue;
   bool _showNearbyVenues = false;
+  final _announcementRepository = AnnouncementRepository();
+  List<Announcement> _recentAnnouncements = [];
+  RealtimeChannel? _announcementChannel;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRecentAnnouncements();
+    _announcementChannel = _announcementRepository.subscribeToAnnouncements(_loadRecentAnnouncements);
+  }
+
+  @override
+  void dispose() {
+    final channel = _announcementChannel;
+    if (channel != null) _announcementRepository.removeSubscription(channel);
+    super.dispose();
+  }
+
+  Future<void> _loadRecentAnnouncements() async {
+    try {
+      final items = await _announcementRepository.getActiveAnnouncements();
+      if (mounted) setState(() => _recentAnnouncements = items.take(2).toList());
+    } catch (_) {
+      // The full announcement page exposes retry/error UI. Keep the home preview quiet.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -169,8 +198,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
                   ],
                 ),
               ),
-              _buildAnnouncementCard(context, 'Gate Change', 'Flight MH370 gate changed from A5 to B12', '2 min ago', Icons.swap_horiz, AppColors.secondary, true),
-              _buildAnnouncementCard(context, 'Boarding Call', 'Flight AK123 now boarding at Gate C4', '8 min ago', Icons.flight_takeoff, AppColors.primary, false),
+              ..._recentAnnouncements.map((announcement) => _buildAnnouncementCard(context, announcement)),
               const SizedBox(height: 100),
             ],
           ),
@@ -303,7 +331,18 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
     );
   }
 
-  Widget _buildAnnouncementCard(BuildContext context, String title, String desc, String time, IconData icon, Color color, bool urgent) {
+  Widget _buildAnnouncementCard(BuildContext context, Announcement announcement) {
+    final urgent = announcement.isUrgent;
+    final color = announcement.priority == 'urgent' ? AppColors.emergency : urgent ? AppColors.secondary : AppColors.primary;
+    final icon = switch (announcement.type) {
+      'boarding' => Icons.flight_takeoff,
+      'delay_cancellation' => Icons.schedule,
+      'emergency' => Icons.warning_amber_rounded,
+      'travel_update' => Icons.swap_horiz,
+      _ => Icons.campaign_outlined,
+    };
+    final elapsed = DateTime.now().difference(announcement.publishedAt);
+    final time = elapsed.inMinutes < 1 ? 'Just now' : elapsed.inMinutes < 60 ? '${elapsed.inMinutes} min ago' : '${elapsed.inHours} hr ago';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       child: Card(
@@ -331,12 +370,12 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                        Text(announcement.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                         Text(time, style: Theme.of(context).textTheme.bodySmall),
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(desc, style: Theme.of(context).textTheme.bodyMedium),
+                    Text(announcement.messageEn, style: Theme.of(context).textTheme.bodyMedium),
                   ],
                 ),
               ),
