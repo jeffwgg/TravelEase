@@ -10,7 +10,7 @@ const languageOptions = [
 
 const initialForm = {
   title: '', zoneId: 'all', type: 'travel_update', priority: 'normal',
-  messageEn: '', messageMs: '', expiresAt: '', autoTranslate: false,
+  messageEn: '', messageMs: '', messageZh: '', expiresAt: '', autoTranslate: false,
   targetLanguages: ['ms'], status: 'active',
 }
 
@@ -54,6 +54,7 @@ export default function CreateAnnouncementPage() {
             priority: item.priority,
             messageEn: item.message_en,
             messageMs: item.message_ms || '',
+            messageZh: item.translations?.zh?.message || '',
             expiresAt: toLocalDateTime(item.expires_at),
             autoTranslate: item.auto_translated || false,
             targetLanguages: Object.keys(item.translations || {}).length ? Object.keys(item.translations) : ['ms'],
@@ -163,8 +164,9 @@ export default function CreateAnnouncementPage() {
           message: translations[code]?.message.trim() || generated[code]?.message || '',
         }]))
         setTranslations((current) => ({ ...current, ...translationsPayload }))
-      } else if (form.messageMs.trim()) {
-        translationsPayload = { ms: { title: form.title.trim(), message: form.messageMs.trim() } }
+      } else {
+        if (form.messageMs.trim()) translationsPayload.ms = { title: form.title.trim(), message: form.messageMs.trim() }
+        if (form.messageZh.trim()) translationsPayload.zh = { title: form.title.trim(), message: form.messageZh.trim() }
       }
 
       const payload = {
@@ -208,7 +210,7 @@ export default function CreateAnnouncementPage() {
       </div>
 
       <div className="page-body">
-        <form className="card" style={{ maxWidth: '800px' }} onSubmit={handleSubmit} noValidate>
+        <form className="card full-width-form" onSubmit={handleSubmit} noValidate>
           {error && <div className="form-alert error" role="alert">{error}</div>}
           {loading ? <div className="table-message">Loading announcement…</div> : <>
             <div className="form-group"><label htmlFor="announcement-title">Title / Subject <span className="required-mark">*</span></label><input id="announcement-title" className={`input ${fieldErrors.title ? 'invalid' : ''}`} value={form.title} onChange={update('title')} maxLength={160} placeholder="e.g. Gate Change — MH370" />{fieldError('title')}</div>
@@ -233,7 +235,13 @@ export default function CreateAnnouncementPage() {
                     <div className="form-group"><label htmlFor={`translation-${language.code}-message`}>Translated Message</label><textarea id={`translation-${language.code}-message`} className="input" rows={4} value={translations[language.code]?.message || ''} onChange={updateTranslation(language.code, 'message')} maxLength={2000} placeholder={`Enter or generate the ${language.label} message...`} /></div>
                   </div>)}
                 </div>
-              </> : <div className="form-group manual-translation"><label htmlFor="message-ms">Message Content (Bahasa Melayu, Optional)</label><textarea id="message-ms" className="input" rows={4} value={form.messageMs} onChange={update('messageMs')} maxLength={2000} placeholder="Enter the Malay translation manually..." /></div>}
+              </> : <div className="manual-translation">
+                <div className="manual-translation-intro"><strong>Manual translations</strong><span>Automatic translation is off. Both translations below are optional—enter either or both if you want travellers to see the announcement in another language.</span></div>
+                <div className="manual-translation-grid">
+                  <div className="form-group"><label htmlFor="message-ms">Bahasa Melayu <span className="optional-label">Optional</span></label><textarea id="message-ms" className="input" rows={5} value={form.messageMs} onChange={update('messageMs')} maxLength={2000} placeholder="Enter the complete announcement in Bahasa Melayu..." /><div className="field-note">Leave blank if a Malay translation is not required.</div></div>
+                  <div className="form-group"><label htmlFor="message-zh">Simplified Chinese <span className="optional-label">Optional</span></label><textarea id="message-zh" className="input" rows={5} value={form.messageZh} onChange={update('messageZh')} maxLength={2000} placeholder="Enter the complete announcement in Simplified Chinese..." /><div className="field-note">Leave blank if a Chinese translation is not required.</div></div>
+                </div>
+              </div>}
             </div>
 
             <button type="submit" className="btn btn-primary" disabled={submitting} style={{ width: '100%', justifyContent: 'center' }}>{submitting ? (form.autoTranslate ? 'Translating & Saving…' : 'Saving…') : (isEditing ? 'Save Changes' : 'Broadcast Instantly')}</button>

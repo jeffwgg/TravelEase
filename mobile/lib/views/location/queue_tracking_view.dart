@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
 import '../../models/queue_tracking.dart';
 import '../../repositories/queue_repository.dart';
+import '../../services/queue_notification_service.dart';
+import '../../widgets/app_message_banner.dart';
 
 class QueueTrackingView extends StatefulWidget {
   const QueueTrackingView({super.key});
@@ -21,6 +23,13 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
   String? _error;
   bool _loadingLines = true;
   bool _trackingNumber = false;
+
+  QueueLineInfo? get _selectedLine {
+    for (final line in _lines) {
+      if (line.id == _selectedLineId) return line;
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -44,6 +53,18 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
         _lines = lines;
         _loadingLines = false;
       });
+      final saved = QueueNotificationService.instance.current;
+      if (saved != null && mounted) {
+        _numberController.text = saved.number;
+        setState(() {
+          _tracking = saved;
+          _selectedLineId = saved.line.id;
+        });
+        _channel = _repository.subscribeToTracking(
+          saved.line.id,
+          _refreshTracking,
+        );
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -67,6 +88,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
       final result = await _repository.trackNumber(
         number: number,
         queueLineId: _selectedLineId,
+        queuePrefix: _selectedLine?.prefix,
       );
       if (!mounted) return;
       if (result == null) {
@@ -86,6 +108,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
         _tracking = result;
         _selectedLineId = result.line.id;
       });
+      await QueueNotificationService.instance.track(result);
     } catch (error) {
       if (mounted) {
         setState(() => _error = 'Unable to track this queue number right now.');
@@ -102,6 +125,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
       final result = await _repository.trackNumber(
         number: current.number,
         queueLineId: current.line.id,
+        queuePrefix: current.line.prefix,
       );
       if (mounted && result != null) setState(() => _tracking = result);
     } catch (_) {
@@ -127,25 +151,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
             _buildTrackingForm(context),
             if (_error != null) ...[
               const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.emergency.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.error_outline, color: AppColors.emergency),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: AppColors.emergency),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              AppMessageBanner(message: _error!, type: AppMessageType.error),
             ],
             const SizedBox(height: 20),
             if (_tracking == null)
@@ -185,6 +191,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
             const SizedBox(height: 16),
             DropdownButtonFormField<String?>(
               initialValue: _selectedLineId,
+              isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Queue Line (Optional)',
               ),
@@ -213,7 +220,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
               textCapitalization: TextCapitalization.characters,
               decoration: const InputDecoration(
                 labelText: 'Queue Number',
-                hintText: 'e.g. A-047',
+                hintText: 'A-047 or A047',
                 prefixIcon: Icon(Icons.confirmation_number_outlined),
               ),
               onSubmitted: (_) => _trackNumber(),
@@ -259,9 +266,9 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
   );
 
   Widget _buildStatusCard(QueueTrackingData tracking) {
+    final statusColor = _statusColor(tracking.status);
     final statusMessage = switch (tracking.status) {
       'called' || 'serving' => 'Please proceed to ${tracking.line.counter}',
-      'missed' => 'This queue number was marked as missed',
       'cancelled' => 'This queue number was cancelled',
       'completed' => 'Service for this queue number is complete',
       _ => 'You will be notified when it is your turn',
@@ -269,15 +276,15 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.primary, AppColors.primaryDark],
+        gradient: LinearGradient(
+          colors: [statusColor, Color.lerp(statusColor, Colors.black, 0.22)!],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.3),
+            color: statusColor.withValues(alpha: 0.3),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -410,6 +417,15 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
       ),
     ),
   );
+
+  Color _statusColor(String status) => switch (status) {
+    'waiting' => AppColors.secondary,
+    'called' => AppColors.accent,
+    'serving' => AppColors.primary,
+    'completed' => AppColors.success,
+    'cancelled' => AppColors.emergency,
+    _ => AppColors.textMuted,
+  };
 
   static Widget _buildQueueStat(String label, String value) => Column(
     children: [

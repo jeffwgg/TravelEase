@@ -16,7 +16,11 @@ class EnvironmentSoundPreferences {
   Future<Set<EnvironmentSoundType>> loadTypes() async {
     final preferences = await SharedPreferences.getInstance();
     final saved = preferences.getStringList(_typesKey);
-    if (saved == null) return EnvironmentSoundType.values.toSet();
+    if (saved == null) {
+      return EnvironmentSoundType.values
+          .where((type) => type != EnvironmentSoundType.speechAnnouncement)
+          .toSet();
+    }
     return EnvironmentSoundType.values
         .where((type) => saved.contains(type.name))
         .toSet();

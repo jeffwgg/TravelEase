@@ -3,6 +3,7 @@ class QueueLineInfo {
   final String name;
   final String serviceArea;
   final String counter;
+  final String prefix;
   final String currentNumber;
   final String upcomingNumber;
   final String status;
@@ -14,6 +15,7 @@ class QueueLineInfo {
     required this.name,
     required this.serviceArea,
     required this.counter,
+    required this.prefix,
     required this.currentNumber,
     required this.upcomingNumber,
     required this.status,
@@ -26,6 +28,7 @@ class QueueLineInfo {
     name: json['name'] as String,
     serviceArea: json['service_area'] as String,
     counter: json['counter'] as String,
+    prefix: json['prefix'] as String? ?? '',
     currentNumber: json['current_number'] as String,
     upcomingNumber: json['upcoming_number'] as String,
     status: json['status'] as String,
