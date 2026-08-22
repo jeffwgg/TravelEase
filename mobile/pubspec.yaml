@@ -25,6 +25,7 @@ dependencies:
   tflite_flutter: 0.12.1
   flutter_dotenv: ^6.0.1
   flutter_local_notifications: ^22.2.0
+  image_picker: ^1.1.2
 
 
 dev_dependencies:

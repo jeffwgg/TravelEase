@@ -8,6 +8,7 @@ import '../models/repositories/assistance_repository.dart';
 
 class AssistanceRequestViewModel extends ChangeNotifier {
   final AssistanceRepository _repository = AssistanceRepository();
+  bool _isDisposed = false;
 
   // Form state
   String? selectedCategory;
@@ -93,41 +94,90 @@ class AssistanceRequestViewModel extends ChangeNotifier {
         ),
       );
 
-      // Reverse geocode
-      final url = Uri.parse(
-        'https://maps.googleapis.com/maps/api/geocode/json?latlng=${position.latitude},${position.longitude}&key=$_googleApiKey',
-      );
-
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['status'] == 'OK' && data['results'].isNotEmpty) {
-          final result = data['results'][0];
-          String shortName = result['formatted_address'];
-          for (var component in result['address_components']) {
-            final types = List<String>.from(component['types']);
-            if (types.contains('point_of_interest') || types.contains('establishment')) {
-              shortName = component['long_name'];
-              break;
-            }
-          }
-          
-          venueName = shortName;
-          // Set a default zone if we want, or just leave empty
-          locationZone = 'Current Location';
-        } else {
-          venueName = '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
-        }
-      } else {
-        venueName = '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
-      }
+      final resolved = await _reverseGeocode(position.latitude, position.longitude);
+      venueName = resolved;
+      locationZone = 'Current Location';
     } catch (e) {
       // Ignore errors and let user pick manually
     }
 
     isFetchingLocation = false;
     notifyListeners();
+  }
+
+  /// Tries Google Geocoding first, then Nominatim (OSM) as fallback.
+  /// Returns a human-readable place name, never raw coordinates if avoidable.
+  Future<String> _reverseGeocode(double lat, double lng) async {
+    // ── 1. Try Google Geocoding API ───────────────────────────────────────────
+    if (_googleApiKey.isNotEmpty &&
+        _googleApiKey != 'YOUR_GOOGLE_MAPS_API_KEY_HERE') {
+      try {
+        final url = Uri.parse(
+          'https://maps.googleapis.com/maps/api/geocode/json?latlng=$lat,$lng&key=$_googleApiKey',
+        );
+        final response = await http.get(url).timeout(const Duration(seconds: 8));
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          if (data['status'] == 'OK' && (data['results'] as List).isNotEmpty) {
+            final result = data['results'][0];
+            String shortName = result['formatted_address'] as String;
+            for (var component in result['address_components']) {
+              final types = List<String>.from(component['types'] as List);
+              if (types.contains('point_of_interest') ||
+                  types.contains('establishment')) {
+                shortName = component['long_name'] as String;
+                break;
+              }
+            }
+            return shortName;
+          }
+        }
+      } catch (_) {
+        // Fall through to Nominatim
+      }
+    }
+
+    // ── 2. Fallback: OpenStreetMap Nominatim ──────────────────────────────────
+    try {
+      final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng&format=json&addressdetails=1',
+      );
+      final response = await http.get(
+        url,
+        headers: {'User-Agent': 'TravelEase/1.0'},
+      ).timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        final displayName = data['display_name'] as String? ?? '';
+        final address = data['address'] as Map<String, dynamic>?;
+
+        if (address != null) {
+          String shortName = (address['tourism'] ??
+              address['building'] ??
+              address['amenity'] ??
+              address['road'] ??
+              address['suburb'] ??
+              address['city'] ??
+              displayName) as String;
+          final city =
+              (address['city'] ?? address['town'] ?? address['village'])
+                  as String?;
+          if (city != null && shortName != city) {
+            shortName = '$shortName, $city';
+          }
+          return shortName;
+        } else if (displayName.isNotEmpty) {
+          return displayName;
+        }
+      }
+    } catch (_) {
+      // Fall through to raw coordinates
+    }
+
+    // ── 3. Last resort: raw coordinates ──────────────────────────────────────
+    return '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
   }
 
   Future<bool> submitRequest() async {
@@ -190,7 +240,15 @@ class AssistanceRequestViewModel extends ChangeNotifier {
   }
 
   @override
+  void notifyListeners() {
+    if (!_isDisposed) {
+      super.notifyListeners();
+    }
+  }
+
+  @override
   void dispose() {
+    _isDisposed = true;
     descriptionController.dispose();
     super.dispose();
   }

@@ -20,7 +20,7 @@ const ICE_SERVERS = [
  *   call_end      — { reason }
  *   call_reject   — { reason }
  */
-export function useWebRTC(requestId) {
+export function useWebRTC(requestId, onIncomingCall) {
   const [callState, setCallState] = useState('idle') // idle | calling | incoming | connected | ended
   const [callType, setCallType] = useState('video')  // 'video' | 'voice'
   const [incomingOffer, setIncomingOffer] = useState(null)
@@ -31,68 +31,109 @@ export function useWebRTC(requestId) {
   const pcRef = useRef(null)          // RTCPeerConnection
   const localStreamRef = useRef(null) // local MediaStream
   const channelRef = useRef(null)     // Supabase Broadcast channel
+  const globalChannelRef = useRef(null) // Global Broadcast channel
 
   const localVideoRef = useRef(null)  // attach to <video> element
   const remoteVideoRef = useRef(null) // attach to <video> element
 
   // ─── Signaling helpers ─────────────────────────────────────────────────────
 
-  function getChannel() {
-    if (channelRef.current) return channelRef.current
-    const ch = supabase.channel(`call_room_${requestId}`)
+  function getChannel(id = requestId) {
+    if (!id) return channelRef.current
+    if (channelRef.current && channelRef.current.topic === `realtime:call_room_${id}`) {
+      return channelRef.current
+    }
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+    }
+    const ch = supabase.channel(`call_room_${id}`)
     channelRef.current = ch
     return ch
   }
 
   async function sendSignal(event, payload) {
-    await getChannel().send({ type: 'broadcast', event, payload })
+    const targetId = payload.requestId || requestId
+    const payloadWithId = {
+      ...payload,
+      requestId: targetId,
+    }
+    if (targetId) {
+      const ch = getChannel(targetId)
+      if (ch) await ch.send({ type: 'broadcast', event, payload: payloadWithId })
+    }
+    if (globalChannelRef.current) {
+      await globalChannelRef.current.send({ type: 'broadcast', event, payload: payloadWithId })
+    }
   }
 
   // ─── Subscribe to incoming signals ─────────────────────────────────────────
 
   const subscribeToSignaling = useCallback(() => {
-    if (!requestId) return
+    let channel = null
+    if (requestId) {
+      channel = getChannel(requestId)
+      channel
+        .on('broadcast', { event: 'call_offer' }, ({ payload }) => handleCallOffer(payload))
+        .on('broadcast', { event: 'call_answer' }, ({ payload }) => handleCallAnswer(payload))
+        .on('broadcast', { event: 'ice_candidate' }, ({ payload }) => handleIceCandidate(payload))
+        .on('broadcast', { event: 'call_end' }, () => hangup(false))
+        .on('broadcast', { event: 'call_reject' }, () => {
+          cleanupPeer()
+          setCallState('idle')
+        })
+        .subscribe()
+    }
 
-    const channel = getChannel()
+    if (!globalChannelRef.current) {
+      const gCh = supabase.channel('call_room_global')
+      gCh
+        .on('broadcast', { event: 'call_offer' }, ({ payload }) => handleCallOffer(payload))
+        .on('broadcast', { event: 'call_answer' }, ({ payload }) => handleCallAnswer(payload))
+        .on('broadcast', { event: 'ice_candidate' }, ({ payload }) => handleIceCandidate(payload))
+        .on('broadcast', { event: 'call_end' }, () => hangup(false))
+        .on('broadcast', { event: 'call_reject' }, () => {
+          cleanupPeer()
+          setCallState('idle')
+        })
+        .subscribe()
+      globalChannelRef.current = gCh
+    }
 
-    channel
-      .on('broadcast', { event: 'call_offer' }, ({ payload }) => {
-        // Only handle if we are idle (avoid re-triggering our own offer)
-        if (payload.callerSide === 'web') return // we sent this; ignore
-        setIncomingOffer(payload)
-        setCallType(payload.callType || 'video')
-        setIncomingCallerName(payload.callerName || 'Traveler')
-        setCallState('incoming')
-      })
-      .on('broadcast', { event: 'call_answer' }, ({ payload }) => {
-        if (pcRef.current && payload.sdp) {
-          pcRef.current
-            .setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }))
-            .then(() => setCallState('connected'))
-            .catch(console.error)
-        }
-      })
-      .on('broadcast', { event: 'ice_candidate' }, ({ payload }) => {
-        if (pcRef.current && payload.candidate) {
-          pcRef.current
-            .addIceCandidate(new RTCIceCandidate(payload))
-            .catch(console.error)
-        }
-      })
-      .on('broadcast', { event: 'call_end' }, () => {
-        hangup(false)
-      })
-      .on('broadcast', { event: 'call_reject' }, () => {
-        cleanupPeer()
-        setCallState('idle')
-      })
-      .subscribe()
+    function handleCallOffer(payload) {
+      if (payload.callerSide === 'web') return
+      setIncomingOffer(payload)
+      setCallType(payload.callType || 'video')
+      setIncomingCallerName(payload.callerName || 'Traveler')
+      setCallState('incoming')
+      if (onIncomingCall && payload.requestId) {
+        onIncomingCall(payload.requestId)
+      }
+    }
+
+    function handleCallAnswer(payload) {
+      if (pcRef.current && payload.sdp) {
+        pcRef.current
+          .setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }))
+          .then(() => setCallState('connected'))
+          .catch(console.error)
+      }
+    }
+
+    function handleIceCandidate(payload) {
+      if (pcRef.current && payload.candidate) {
+        pcRef.current
+          .addIceCandidate(new RTCIceCandidate(payload))
+          .catch(console.error)
+      }
+    }
 
     return () => {
-      supabase.removeChannel(channel)
-      channelRef.current = null
+      if (channel) {
+        supabase.removeChannel(channel)
+        channelRef.current = null
+      }
     }
-  }, [requestId])
+  }, [requestId, onIncomingCall])
 
   // ─── Create RTCPeerConnection ───────────────────────────────────────────────
 
@@ -148,6 +189,7 @@ export function useWebRTC(requestId) {
         callType: type,
         callerName: 'Staff',
         callerSide: 'web',
+        requestId: requestId,
       })
     } catch (err) {
       console.error('startCall error:', err)

@@ -94,7 +94,11 @@ export default function ServicePerformancePage() {
                 <td>42 requests</td>
                 <td>1.8 mins</td>
                 <td>6.5 mins</td>
-                <td><span className="badge success">★ 4.9</span></td>
+                <td>
+                  <span className="badge success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Star size={12} fill="currentColor" /> 4.9
+                  </span>
+                </td>
                 <td><span className="badge success">On Duty</span></td>
               </tr>
               <tr>
@@ -102,7 +106,11 @@ export default function ServicePerformancePage() {
                 <td>38 requests</td>
                 <td>2.1 mins</td>
                 <td>7.2 mins</td>
-                <td><span className="badge success">★ 4.8</span></td>
+                <td>
+                  <span className="badge success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Star size={12} fill="currentColor" /> 4.8
+                  </span>
+                </td>
                 <td><span className="badge success">On Duty</span></td>
               </tr>
               <tr>
@@ -110,7 +118,11 @@ export default function ServicePerformancePage() {
                 <td>29 requests</td>
                 <td>3.0 mins</td>
                 <td>9.8 mins</td>
-                <td><span className="badge primary">★ 4.6</span></td>
+                <td>
+                  <span className="badge primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Star size={12} fill="currentColor" /> 4.6
+                  </span>
+                </td>
                 <td><span className="badge muted">Off Duty</span></td>
               </tr>
             </tbody>
