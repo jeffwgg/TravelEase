@@ -5,6 +5,7 @@ import {
   MessageSquare, 
   CheckCircle2, 
   AlertCircle, 
+  AlertTriangle,
   MessageCircle, 
   MapPin, 
   Ticket, 
@@ -94,9 +95,19 @@ export default function AssistanceRequestPage() {
   }
 
   const filteredRequests = requests.filter(req => {
+    const isUnassigned = !req.assigned_staff_name || req.assigned_staff_name === 'Unassigned'
+    const isEscalated = req.is_escalated === true
+    const minutesWaiting = req.created_at
+      ? Math.floor((Date.now() - new Date(req.created_at).getTime()) / 60000)
+      : 0
+    const shouldEscalate = !isEscalated && req.status === 'pending' && minutesWaiting >= 10
+    const isEscalatedOrPendingLong = isEscalated || shouldEscalate
+
     const matchesStatus =
       statusFilter === 'All Statuses' ||
       (statusFilter === 'Pending' && req.status === 'pending') ||
+      (statusFilter === 'Unassigned' && isUnassigned && req.status !== 'resolved' && req.status !== 'closed') ||
+      (statusFilter === 'Escalated' && isEscalatedOrPendingLong) ||
       (statusFilter === 'In Progress' && req.status === 'in_progress') ||
       (statusFilter === 'Resolved' && (req.status === 'resolved' || req.status === 'closed'))
 
@@ -175,6 +186,46 @@ export default function AssistanceRequestPage() {
       default:
         return <span className="badge secondary">{status}</span>
     }
+  }
+
+  const getReachBadge = (method) => {
+    if (method === 'location') {
+      return (
+        <span
+          className="badge secondary"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            background: 'rgba(245, 158, 11, 0.12)',
+            color: '#b45309',
+            border: '1px solid rgba(245, 158, 11, 0.25)',
+            fontSize: '11px',
+            fontWeight: 500,
+            padding: '3px 8px',
+            borderRadius: '6px'
+          }}
+        >
+          <MapPin size={12} /> In-Person
+        </span>
+      )
+    }
+    return (
+      <span
+        className="badge primary"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '5px',
+          fontSize: '11px',
+          fontWeight: 500,
+          padding: '3px 8px',
+          borderRadius: '6px'
+        }}
+      >
+        <MessageSquare size={12} /> In-App Chat
+      </span>
+    )
   }
 
   const getStaffStatusBadge = (status) => {
@@ -272,12 +323,14 @@ export default function AssistanceRequestPage() {
             <div style={{ display: 'flex', gap: '8px' }}>
               <select
                 className="input"
-                style={{ width: '160px' }}
+                style={{ width: '180px' }}
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
                 <option>All Statuses</option>
                 <option>Pending</option>
+                <option>Unassigned</option>
+                <option>Escalated</option>
                 <option>In Progress</option>
                 <option>Resolved</option>
               </select>
@@ -296,7 +349,8 @@ export default function AssistanceRequestPage() {
             <thead>
               <tr>
                 <th>Request ID</th>
-                <th>Traveler Name</th>
+                <th>Traveler</th>
+                <th>Reach Method</th>
                 <th>Category</th>
                 <th>Location / Zone</th>
                 <th>Urgency</th>
@@ -308,76 +362,126 @@ export default function AssistanceRequestPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8" style={{ textAlign: 'center', padding: '32px' }}>Loading requests from Supabase...</td>
+                  <td colSpan="9" style={{ textAlign: 'center', padding: '32px' }}>Loading requests from Supabase...</td>
                 </tr>
               ) : filteredRequests.length === 0 ? (
                 <tr>
-                  <td colSpan="8" style={{ textAlign: 'center', padding: '32px' }}>No assistance requests match your filter.</td>
+                  <td colSpan="9" style={{ textAlign: 'center', padding: '32px' }}>No assistance requests match your filter.</td>
                 </tr>
               ) : (
-                filteredRequests.map((req) => (
-                  <tr key={req.id}>
-                    <td><strong>{req.request_code}</strong></td>
-                    <td>
-                      {req.traveler_name}<br />
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        Prefers: {req.preferred_communication}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'capitalize' }}>
-                        {getCategoryIcon(req.category)} {req.category}
-                      </div>
-                    </td>
-                    <td>{req.location_zone}</td>
-                    <td>{getUrgencyBadge(req.urgency)}</td>
-                    <td>
-                      {req.assigned_staff_name && req.assigned_staff_name !== 'Unassigned' ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <ShieldCheck size={14} color="var(--primary)" />
-                          <span style={{ fontWeight: 500 }}>{req.assigned_staff_name}</span>
+                filteredRequests.map((req) => {
+                  const isUnassigned = !req.assigned_staff_name || req.assigned_staff_name === 'Unassigned'
+                  const isEscalated = req.is_escalated === true
+                  const minutesWaiting = req.created_at
+                    ? Math.floor((Date.now() - new Date(req.created_at).getTime()) / 60000)
+                    : 0
+                  const shouldEscalate = !isEscalated && req.status === 'pending' && minutesWaiting >= 10
+                  const showEscalationBadge = isEscalated || shouldEscalate
+
+                  return (
+                    <tr key={req.id} style={{ background: showEscalationBadge ? 'rgba(239, 68, 68, 0.02)' : undefined }}>
+                      <td>
+                        <strong>{req.request_code}</strong>
+                        {showEscalationBadge && (
+                          <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            color: '#ef4444',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            borderRadius: '4px',
+                            padding: '2px 6px',
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            marginTop: '4px',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            <AlertTriangle size={11} color="#ef4444" />
+                            <span>ESCALATED — Waiting {minutesWaiting} min</span>
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{req.traveler_name}</div>
+                      </td>
+                      <td>
+                        {getReachBadge(req.preferred_communication)}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'capitalize' }}>
+                          {getCategoryIcon(req.category)} {req.category}
                         </div>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Unassigned</span>
-                      )}
-                    </td>
-                    <td>{getStatusBadge(req.status)}</td>
-                    <td>
-                      {req.status === 'pending' ? (
-                        <button
-                          className="btn btn-primary btn-sm"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                          onClick={() => openAssignModal(req)}
-                        >
-                          <UserCheck size={14} /> Assign Staff
-                        </button>
-                      ) : req.status === 'in_progress' ? (
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => openAssignModal(req)}
-                          >
-                            Reassign
-                          </button>
+                      </td>
+                      <td>{req.location_zone}</td>
+                      <td>{getUrgencyBadge(req.urgency)}</td>
+                      <td>
+                        {!isUnassigned ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <ShieldCheck size={14} color="var(--primary)" />
+                            <span style={{ fontWeight: 500 }}>{req.assigned_staff_name}</span>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '2px' }}>
+                            <span
+                              className="badge emergency"
+                              style={{
+                                background: 'rgba(239, 68, 68, 0.08)',
+                                color: '#ef4444',
+                                border: '1px dashed #ef4444',
+                                padding: '3px 8px',
+                                fontSize: '11px',
+                                fontWeight: 600
+                              }}
+                            >
+                              Unassigned
+                            </span>
+                            {req.status === 'pending' && (
+                              <span style={{ fontSize: '10px', color: '#64748b' }}>
+                                Waiting {minutesWaiting} min
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td>{getStatusBadge(req.status)}</td>
+                      <td>
+                        {req.status === 'pending' ? (
                           <button
                             className="btn btn-primary btn-sm"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                            onClick={() => openAssignModal(req)}
+                          >
+                            <UserCheck size={14} /> Assign Staff
+                          </button>
+                        ) : req.status === 'in_progress' ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => openAssignModal(req)}
+                            >
+                              Reassign
+                            </button>
+                            <button
+                              className="btn btn-primary btn-sm"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              onClick={() => navigate('/chat')}
+                            >
+                              <MessageSquare size={14} /> Open Chat
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="btn btn-secondary btn-sm"
                             onClick={() => navigate('/chat')}
                           >
-                            <MessageSquare size={14} /> Open Chat
+                            View Chat
                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => navigate('/chat')}
-                        >
-                          View Chat
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -461,14 +565,15 @@ export default function AssistanceRequestPage() {
                 <div style={{ fontWeight: 600, fontSize: '15px', color: '#1e293b', marginTop: '2px' }}>
                   {selectedReq.traveler_name}
                 </div>
-                <div style={{ fontSize: '13px', color: '#475569', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ fontSize: '13px', color: '#475569', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <span>Location: <strong>{selectedReq.location_zone}</strong></span>
                   <span>•</span>
                   <span style={{ textTransform: 'capitalize' }}>Category: <strong>{selectedReq.category}</strong></span>
                 </div>
               </div>
-              <div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
                 {getUrgencyBadge(selectedReq.urgency)}
+                {getReachBadge(selectedReq.preferred_communication)}
               </div>
             </div>
 
@@ -492,7 +597,7 @@ export default function AssistanceRequestPage() {
                   style={{ fontSize: '13px', whiteSpace: 'nowrap', padding: '8px 14px' }}
                   onClick={() => setStaffFilterAvailable(!staffFilterAvailable)}
                 >
-                  {staffFilterAvailable ? '✓ Available Only' : 'Show All Staff'}
+                  {staffFilterAvailable ? 'Available Only' : 'Show All Staff'}
                 </button>
               </div>
 
@@ -549,7 +654,9 @@ export default function AssistanceRequestPage() {
                               {staff.role}
                             </div>
                             <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <span>📍 {staff.department || 'General'}</span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <MapPin size={11} /> {staff.department || 'General'}
+                              </span>
                               {staff.contact_number && (
                                 <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                                   <Phone size={11} /> {staff.contact_number}

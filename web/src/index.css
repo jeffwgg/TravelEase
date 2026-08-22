@@ -578,38 +578,3 @@ body {
   background: var(--card-border);
   border-radius: 3px;
 }
-
-/* AI Assistant Floating Button */
-.ai-assistant-btn {
-  position: fixed;
-  bottom: 24px;
-  left: calc(var(--sidebar-width) + 24px);
-  z-index: 90;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #6366F1, #8B5CF6, #EC4899);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  box-shadow: 0 8px 32px rgba(139, 92, 246, 0.4);
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.ai-assistant-btn:hover {
-  transform: scale(1.1) rotate(-5deg);
-  box-shadow: 0 12px 40px rgba(236, 72, 153, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-}
-
-.ai-assistant-btn .ai-icon {
-  animation: pulse-glow 2s infinite alternate;
-}
-
-@keyframes pulse-glow {
-  0% { filter: drop-shadow(0 0 2px rgba(255,255,255,0.2)); }
-  100% { filter: drop-shadow(0 0 12px rgba(255,255,255,0.9)); }
-}

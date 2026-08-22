@@ -1,5 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { MapPin, Mic, MicOff, Zap, Send, CheckCircle2, Video, VideoOff, PhoneCall, PhoneOff, Phone, PhoneIncoming, X, ExternalLink, Navigation } from 'lucide-react'
+import { 
+  MapPin, 
+  Mic, 
+  MicOff, 
+  Zap, 
+  Send, 
+  CheckCircle2, 
+  Video, 
+  VideoOff, 
+  PhoneCall, 
+  PhoneOff, 
+  Phone, 
+  PhoneIncoming, 
+  X, 
+  ExternalLink, 
+  Navigation,
+  AlertTriangle,
+  Star,
+  AlertCircle,
+  MessageSquare
+} from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import { useWebRTC } from '../hooks/useWebRTC'
 
@@ -11,6 +31,8 @@ export default function StaffChatPage() {
   const [loadingMsg, setLoadingMsg] = useState(false)
   const [showMapModal, setShowMapModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+
+  const [chatFilter, setChatFilter] = useState('unsolved') // 'unsolved' | 'solved' | 'all'
 
   const handleIncomingCall = React.useCallback((reqId) => {
     setRequests((prev) => {
@@ -54,6 +76,56 @@ export default function StaffChatPage() {
     }
   }, [])
 
+  // Filter requests to ONLY assigned chat requests, respecting chatFilter ('unsolved' by default)
+  const assignedChatRequests = requests.filter(
+    (r) => r.preferred_communication !== 'location' && r.assigned_staff_name && r.assigned_staff_name !== 'Unassigned'
+  )
+
+  const unsolvedCount = assignedChatRequests.filter(
+    (r) => r.status !== 'resolved' && r.status !== 'closed'
+  ).length
+
+  const solvedCount = assignedChatRequests.filter(
+    (r) => r.status === 'resolved' || r.status === 'closed'
+  ).length
+
+  const filteredChatRequests = assignedChatRequests
+    .filter((req) => {
+      const isSolved = req.status === 'resolved' || req.status === 'closed'
+      if (chatFilter === 'unsolved' && isSolved) return false
+      if (chatFilter === 'solved' && !isSolved) return false
+
+      if (!searchQuery.trim()) return true
+      const q = searchQuery.toLowerCase()
+      return (
+        (req.traveler_name && req.traveler_name.toLowerCase().includes(q)) ||
+        (req.request_code && req.request_code.toLowerCase().includes(q)) ||
+        (req.location_zone && req.location_zone.toLowerCase().includes(q)) ||
+        (req.description && req.description.toLowerCase().includes(q)) ||
+        (req.assigned_staff_name && req.assigned_staff_name.toLowerCase().includes(q))
+      )
+    })
+    .sort((a, b) => {
+      const aResolved = a.status === 'resolved' || a.status === 'closed' ? 1 : 0
+      const bResolved = b.status === 'resolved' || b.status === 'closed' ? 1 : 0
+      if (aResolved !== bResolved) {
+        return aResolved - bResolved // Unresolved (0) before Resolved (1)
+      }
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    })
+
+  // Keep selected request in sync with filtered list
+  useEffect(() => {
+    if (filteredChatRequests.length > 0) {
+      const exists = filteredChatRequests.some((r) => r.id === selectedReq?.id)
+      if (!exists) {
+        setSelectedReq(filteredChatRequests[0])
+      }
+    } else {
+      setSelectedReq(null)
+    }
+  }, [filteredChatRequests.length, chatFilter])
+
   // ── Subscribe to WebRTC signaling whenever selected request changes ────────
   useEffect(() => {
     // Cleanup previous signaling subscription
@@ -93,9 +165,6 @@ export default function StaffChatPage() {
   async function loadRequests() {
     const data = await assistanceRepository.getAssistanceRequests()
     setRequests(data || [])
-    if (data && data.length > 0 && !selectedReq) {
-      setSelectedReq(data[0])
-    }
   }
 
   async function loadMessages(requestId) {
@@ -348,98 +417,200 @@ export default function StaffChatPage() {
 
       <div style={{ display: 'flex', height: 'calc(100vh - 85px)' }}>
         {/* ── Chat Sidebar ───────────────────────────────────────────────────── */}
-        <div style={{ width: '320px', borderRight: '1px solid var(--divider)', background: 'var(--surface)', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '16px', borderBottom: '1px solid var(--divider)' }}>
+        <div style={{ width: '330px', borderRight: '1px solid var(--divider)', background: 'var(--surface)', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--divider)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <input
               type="text"
               className="input"
-              placeholder="Search conversations..."
+              placeholder="Search assigned chats..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            {/* Filter Tabs */}
+            <div style={{ display: 'flex', background: 'var(--surface-variant, #f1f5f9)', borderRadius: '8px', padding: '3px', gap: '2px' }}>
+              <button
+                type="button"
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  padding: '6px 0',
+                  fontSize: '12px',
+                  fontWeight: chatFilter === 'unsolved' ? 600 : 500,
+                  borderRadius: '6px',
+                  background: chatFilter === 'unsolved' ? '#ffffff' : 'transparent',
+                  color: chatFilter === 'unsolved' ? 'var(--primary)' : 'var(--text-secondary)',
+                  boxShadow: chatFilter === 'unsolved' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  transition: 'all 0.15s ease'
+                }}
+                onClick={() => setChatFilter('unsolved')}
+              >
+                <span>Active</span>
+                <span style={{
+                  fontSize: '10px',
+                  background: chatFilter === 'unsolved' ? 'var(--primary-alpha)' : '#e2e8f0',
+                  color: chatFilter === 'unsolved' ? 'var(--primary)' : '#64748b',
+                  borderRadius: '10px',
+                  padding: '1px 5px',
+                  fontWeight: 700
+                }}>
+                  {unsolvedCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  padding: '6px 0',
+                  fontSize: '12px',
+                  fontWeight: chatFilter === 'solved' ? 600 : 500,
+                  borderRadius: '6px',
+                  background: chatFilter === 'solved' ? '#ffffff' : 'transparent',
+                  color: chatFilter === 'solved' ? 'var(--primary)' : 'var(--text-secondary)',
+                  boxShadow: chatFilter === 'solved' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  transition: 'all 0.15s ease'
+                }}
+                onClick={() => setChatFilter('solved')}
+              >
+                <span>Solved</span>
+                <span style={{
+                  fontSize: '10px',
+                  background: chatFilter === 'solved' ? 'var(--primary-alpha)' : '#e2e8f0',
+                  color: chatFilter === 'solved' ? 'var(--primary)' : '#64748b',
+                  borderRadius: '10px',
+                  padding: '1px 5px',
+                  fontWeight: 700
+                }}>
+                  {solvedCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  padding: '6px 0',
+                  fontSize: '12px',
+                  fontWeight: chatFilter === 'all' ? 600 : 500,
+                  borderRadius: '6px',
+                  background: chatFilter === 'all' ? '#ffffff' : 'transparent',
+                  color: chatFilter === 'all' ? 'var(--primary)' : 'var(--text-secondary)',
+                  boxShadow: chatFilter === 'all' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  transition: 'all 0.15s ease'
+                }}
+                onClick={() => setChatFilter('all')}
+              >
+                <span>All</span>
+                <span style={{
+                  fontSize: '10px',
+                  background: chatFilter === 'all' ? 'var(--primary-alpha)' : '#e2e8f0',
+                  color: chatFilter === 'all' ? 'var(--primary)' : '#64748b',
+                  borderRadius: '10px',
+                  padding: '1px 5px',
+                  fontWeight: 700
+                }}>
+                  {assignedChatRequests.length}
+                </span>
+              </button>
+            </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {requests
-              .filter((req) => {
-                if (!searchQuery.trim()) return true
-                const q = searchQuery.toLowerCase()
+            {filteredChatRequests.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-muted)', fontSize: '13px' }}>
+                {chatFilter === 'unsolved'
+                  ? 'No active assigned chats.'
+                  : chatFilter === 'solved'
+                  ? 'No resolved chats found.'
+                  : 'No assigned chat requests.'}
+              </div>
+            ) : (
+              filteredChatRequests.map((req) => {
+                const isSelected = selectedReq && selectedReq.id === req.id
+                const isEscalated = req.is_escalated === true
+                const minutesWaiting = req.created_at
+                  ? Math.floor((Date.now() - new Date(req.created_at).getTime()) / 60000)
+                  : 0
+                // Auto-escalate client-side if pending > 10 min
+                const shouldEscalate = !isEscalated && req.status === 'pending' && minutesWaiting >= 10
                 return (
-                  (req.traveler_name && req.traveler_name.toLowerCase().includes(q)) ||
-                  (req.request_code && req.request_code.toLowerCase().includes(q)) ||
-                  (req.location_zone && req.location_zone.toLowerCase().includes(q)) ||
-                  (req.description && req.description.toLowerCase().includes(q))
-                )
-              })
-              .sort((a, b) => {
-                const aResolved = a.status === 'resolved' || a.status === 'closed' ? 1 : 0
-                const bResolved = b.status === 'resolved' || b.status === 'closed' ? 1 : 0
-                if (aResolved !== bResolved) {
-                  return aResolved - bResolved // Unresolved (0) before Resolved (1)
-                }
-                return new Date(b.created_at || 0) - new Date(a.created_at || 0)
-              })
-              .map((req) => {
-              const isSelected = selectedReq && selectedReq.id === req.id
-              const isEscalated = req.is_escalated === true
-              const minutesWaiting = req.created_at
-                ? Math.floor((Date.now() - new Date(req.created_at).getTime()) / 60000)
-                : 0
-              // FR-M5-11: Auto-escalate client-side if pending > 10 min and not already escalated
-              const shouldEscalate = !isEscalated && req.status === 'pending' && minutesWaiting >= 10
-              return (
-                <div
-                  key={req.id}
-                  style={{
-                    padding: '16px',
-                    borderBottom: '1px solid var(--divider)',
-                    background: isSelected
-                      ? 'var(--primary-alpha)'
-                      : (isEscalated || shouldEscalate) ? 'rgba(239,68,68,0.04)' : 'transparent',
-                    cursor: 'pointer',
-                    borderLeft: (isEscalated || shouldEscalate) ? '3px solid #ef4444' : undefined,
-                  }}
-                  onClick={() => setSelectedReq(req)}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
-                    <strong style={{ fontSize: '14px' }}>{req.traveler_name} ({req.request_code})</strong>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                      {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  {(isEscalated || shouldEscalate) && (
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: '5px',
-                      background: 'rgba(239,68,68,0.1)', borderRadius: '6px',
-                      padding: '4px 8px', marginBottom: '6px', width: 'fit-content',
-                    }}>
-                      <span style={{ fontSize: '12px' }}>⚠️</span>
-                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#ef4444' }}>
-                        ESCALATED — Waiting {minutesWaiting} min
+                  <div
+                    key={req.id}
+                    style={{
+                      padding: '16px',
+                      borderBottom: '1px solid var(--divider)',
+                      background: isSelected
+                        ? 'var(--primary-alpha)'
+                        : (isEscalated || shouldEscalate) ? 'rgba(239,68,68,0.04)' : 'transparent',
+                      cursor: 'pointer',
+                      borderLeft: (isEscalated || shouldEscalate) ? '3px solid #ef4444' : undefined,
+                    }}
+                    onClick={() => setSelectedReq(req)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
+                      <strong style={{ fontSize: '14px' }}>{req.traveler_name} ({req.request_code})</strong>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
-                  )}
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {req.description}
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
-                    <span className="badge primary">{req.location_zone}</span>
-                    <span
-                      className={`badge ${
-                        req.status === 'pending' ? 'emergency' : req.status === 'in_progress' ? 'secondary' : 'success'
-                      }`}
-                    >
-                      {req.status}
-                    </span>
-                    {req.urgency === 'high' && <span className="badge emergency">🔴 High</span>}
-                    {req.user_rating && (
-                      <span className="badge secondary" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontWeight: '700' }}>
-                        ★ {req.user_rating}/5
-                      </span>
+                    {(isEscalated || shouldEscalate) && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '5px',
+                        background: 'rgba(239,68,68,0.1)', borderRadius: '6px',
+                        padding: '4px 8px', marginBottom: '6px', width: 'fit-content',
+                      }}>
+                        <AlertTriangle size={13} color="#ef4444" />
+                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#ef4444' }}>
+                          ESCALATED — Waiting {minutesWaiting} min
+                        </span>
+                      </div>
                     )}
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {req.description}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                      <span className="badge primary">{req.location_zone}</span>
+                      <span
+                        className={`badge ${
+                          req.status === 'pending' ? 'emergency' : req.status === 'in_progress' ? 'secondary' : 'success'
+                        }`}
+                      >
+                        {req.status}
+                      </span>
+                      {req.urgency === 'high' && (
+                        <span className="badge emergency" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <AlertCircle size={11} /> High
+                        </span>
+                      )}
+                      {req.assigned_staff_name && (
+                        <span className="badge secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px' }}>
+                          <ShieldCheck size={10} color="var(--primary)" /> {req.assigned_staff_name}
+                        </span>
+                      )}
+                      {req.user_rating && (
+                        <span className="badge secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontWeight: '700' }}>
+                          <Star size={11} fill="#f59e0b" /> {req.user_rating}/5
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })
+            )}
           </div>
         </div>
 
@@ -451,8 +622,12 @@ export default function StaffChatPage() {
               <div style={{ padding: '16px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--divider)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h3 style={{ fontSize: '16px', fontWeight: '700' }}>{selectedReq.traveler_name} (Deaf Traveler)</h3>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Location: {selectedReq.location_zone} • Prefers: {selectedReq.preferred_communication} • Request: {selectedReq.category}
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                    <span>Location: <strong>{selectedReq.location_zone}</strong></span>
+                    <span>•</span>
+                    <span>Reach: <strong>{selectedReq.preferred_communication === 'location' ? 'In-Person (Come to Location)' : 'In-App Chat'}</strong></span>
+                    <span>•</span>
+                    <span style={{ textTransform: 'capitalize' }}>Request: <strong>{selectedReq.category}</strong></span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -507,12 +682,18 @@ export default function StaffChatPage() {
                 }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                      <span style={{ fontSize: '13px', fontWeight: '700', color: selectedReq.resolution_outcome === 'fully_resolved' ? '#22c55e' : '#f59e0b' }}>
-                        Traveler Outcome: {selectedReq.resolution_outcome === 'fully_resolved' ? '✅ Fully Resolved' : selectedReq.resolution_outcome === 'partially_resolved' ? '⚠️ Partially Resolved' : '❌ Unresolved'}
+                      <span style={{ fontSize: '13px', fontWeight: '700', color: selectedReq.resolution_outcome === 'fully_resolved' ? '#22c55e' : '#f59e0b', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        {selectedReq.resolution_outcome === 'fully_resolved' ? (
+                          <><CheckCircle2 size={15} color="#22c55e" /> Traveler Outcome: Fully Resolved</>
+                        ) : selectedReq.resolution_outcome === 'partially_resolved' ? (
+                          <><AlertTriangle size={15} color="#f59e0b" /> Traveler Outcome: Partially Resolved</>
+                        ) : (
+                          <><AlertCircle size={15} color="#ef4444" /> Traveler Outcome: Unresolved</>
+                        )}
                       </span>
                       {selectedReq.user_rating && (
                         <span style={{ fontSize: '13px', fontWeight: '700', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          ★ {selectedReq.user_rating} / 5
+                          <Star size={13} fill="#f59e0b" /> {selectedReq.user_rating} / 5
                         </span>
                       )}
                     </div>

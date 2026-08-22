@@ -53,12 +53,16 @@ export function useWebRTC(requestId, onIncomingCall) {
 
   async function sendSignal(event, payload) {
     const targetId = payload.requestId || requestId
+    const payloadWithId = {
+      ...payload,
+      requestId: targetId,
+    }
     if (targetId) {
       const ch = getChannel(targetId)
-      if (ch) await ch.send({ type: 'broadcast', event, payload })
+      if (ch) await ch.send({ type: 'broadcast', event, payload: payloadWithId })
     }
     if (globalChannelRef.current) {
-      await globalChannelRef.current.send({ type: 'broadcast', event, payload })
+      await globalChannelRef.current.send({ type: 'broadcast', event, payload: payloadWithId })
     }
   }
 
@@ -185,6 +189,7 @@ export function useWebRTC(requestId, onIncomingCall) {
         callType: type,
         callerName: 'Staff',
         callerSide: 'web',
+        requestId: requestId,
       })
     } catch (err) {
       console.error('startCall error:', err)

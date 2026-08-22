@@ -339,17 +339,22 @@ class WebRTCService extends ChangeNotifier {
   // ── Private: signaling ─────────────────────────────────────────────────────
 
   Future<void> _sendSignal(String event, Map<String, dynamic> payload) async {
+    final fullPayload = {
+      ...payload,
+      if (!payload.containsKey('requestId') && _requestId != null) 'requestId': _requestId,
+      if (!payload.containsKey('requestId') && incomingRequestId != null) 'requestId': incomingRequestId,
+    };
     if (_signalingChannel != null) {
       await _signalingChannel!.sendBroadcastMessage(
         event: event,
-        payload: payload,
+        payload: fullPayload,
       );
     }
     try {
       final globalChannel = _client.channel('call_room_global');
       await globalChannel.sendBroadcastMessage(
         event: event,
-        payload: payload,
+        payload: fullPayload,
       );
     } catch (e) {
       debugPrint('Global signal broadcast error: $e');

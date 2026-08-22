@@ -491,13 +491,40 @@ class _RequestTrackingViewState extends State<RequestTrackingView> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => context.push('/chat?requestId=$requestId'),
-                      icon: const Icon(Icons.chat, size: 16),
-                      label: const Text('Open Chat'),
+                  if (req['preferred_communication'] != 'location') ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => context.push('/chat?requestId=$requestId'),
+                        icon: const Icon(Icons.chat, size: 16),
+                        label: const Text('Open Chat'),
+                      ),
                     ),
-                  ),
+                  ] else ...[
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF59E0B).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.directions_walk_rounded, size: 16, color: Color(0xFFB45309)),
+                            SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                'In-Person Assistance',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFB45309)),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                   // FR-M5-29: Cancel button
                   if (cancellable) ...[
                     const SizedBox(width: 8),

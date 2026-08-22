@@ -18,6 +18,21 @@ class AssistanceRepository {
     }
   }
 
+  // Module 5: Get a single request by ID (used to pre-populate assigned staff name in chat)
+  Future<Map<String, dynamic>?> getRequestDetails(String requestId) async {
+    try {
+      final response = await _client
+          .from('assistance_requests')
+          .select()
+          .eq('id', requestId)
+          .single();
+      return response;
+    } catch (e) {
+      print('Error loading request details: $e');
+      return null;
+    }
+  }
+
   // Module 5: Submit a New Assistance Request
   Future<Map<String, dynamic>?> createAssistanceRequest({
     required String requestCode,

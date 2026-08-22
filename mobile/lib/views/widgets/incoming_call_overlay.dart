@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import '../../core/router.dart';
 import '../../core/theme.dart';
 import '../../services/webrtc_service.dart';
 
@@ -127,8 +127,8 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
                       onPressed: () async {
                         final reqId = _webrtc.incomingRequestId;
                         await _webrtc.acceptCall();
-                        if (reqId != null && reqId.isNotEmpty && context.mounted) {
-                          context.push('/chat?requestId=$reqId');
+                        if (reqId != null && reqId.isNotEmpty) {
+                          appRouter.push('/chat?requestId=$reqId');
                         }
                       },
                       icon: const Icon(Icons.call_rounded, color: Colors.white, size: 20),
