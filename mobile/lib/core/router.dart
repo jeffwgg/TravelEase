@@ -11,6 +11,7 @@ import '../views/location/announcement_view.dart';
 import '../views/location/emergency_alert_view.dart';
 import '../views/location/queue_tracking_view.dart';
 import '../views/location/notification_history_view.dart';
+import '../views/communication/communication_hub_view.dart';
 import '../views/communication/sign_translation_camera_view.dart';
 import '../views/communication/speech_to_sign_view.dart';
 import '../views/communication/two_way_dialogue_view.dart';
@@ -18,9 +19,11 @@ import '../views/sign_reference/sign_dictionary_view.dart';
 import '../views/sign_reference/favorite_phrases_view.dart';
 import '../views/sign_reference/sign_media_viewer_view.dart';
 import '../views/assistance/assistance_request_view.dart';
+import '../views/assistance/assistance_menu_view.dart';
 import '../views/assistance/request_tracking_view.dart';
 import '../views/assistance/chat_view.dart';
 import '../views/assistance/accessibility_issue_view.dart';
+import '../views/assistance/location_picker_view.dart';
 import '../views/home/home_view.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -122,12 +125,23 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => const RequestTrackingView(),
     ),
     GoRoute(
+      path: '/assistance-request/new',
+      builder: (context, state) => const AssistanceRequestView(),
+    ),
+    GoRoute(
       path: '/chat',
-      builder: (context, state) => const ChatView(),
+      builder: (context, state) {
+        final requestId = state.uri.queryParameters['requestId'] ?? '';
+        return ChatView(requestId: requestId);
+      },
     ),
     GoRoute(
       path: '/accessibility-issue',
       builder: (context, state) => const AccessibilityIssueView(),
+    ),
+    GoRoute(
+      path: '/location-picker',
+      builder: (context, state) => const LocationPickerView(),
     ),
   ],
 );
@@ -147,7 +161,7 @@ class _CommunicateTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SignTranslationCameraView();
+    return const CommunicationHubView();
   }
 }
 
@@ -156,7 +170,7 @@ class _AssistanceTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const AssistanceRequestView();
+    return const AssistanceMenuView();
   }
 }
 

@@ -1,0 +1,79 @@
+import { createClient } from 'npm:@supabase/supabase-js@2'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+Deno.serve(async (request) => {
+  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405)
+
+  let createdLineId: string | null = null
+  try {
+    const authorization = request.headers.get('Authorization')
+    if (!authorization) return json({ error: 'Authentication is required.' }, 401)
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } })
+    const adminClient = createClient(supabaseUrl, serviceRoleKey)
+    const { data: userData, error: userError } = await userClient.auth.getUser()
+    if (userError || !userData.user) return json({ error: 'Invalid institution session.' }, 401)
+
+    const body = await request.json()
+    const input = body.queueLine
+    if (!input || typeof input !== 'object') return json({ error: 'Queue-line information is required.' }, 400)
+    const institutionId = typeof input.institution_id === 'string' ? input.institution_id : ''
+    const { data: institution, error: institutionError } = await adminClient
+      .from('institutions').select('id').eq('id', institutionId)
+      .eq('account_user_id', userData.user.id).eq('active', true).maybeSingle()
+    if (institutionError) throw institutionError
+    if (!institution) return json({ error: 'Active institution account access is required.' }, 403)
+
+    const linePayload = {
+      institution_id: institutionId,
+      name: String(input.name || '').trim(),
+      service_area: String(input.service_area || '').trim(),
+      counter: String(input.counter || '').trim(),
+      prefix: String(input.prefix || '').trim().toUpperCase(),
+      current_number: String(input.current_number || '').trim().toUpperCase(),
+      upcoming_number: String(input.upcoming_number || '').trim().toUpperCase(),
+      status: input.status,
+      estimated_service_minutes: input.estimated_service_minutes,
+      operating_hours: input.operating_hours || null,
+      staff_notes: input.staff_notes || null,
+      created_by: userData.user.id,
+    }
+    const { data: line, error: lineError } = await adminClient.from('queue_lines').insert(linePayload).select().single()
+    if (lineError) throw lineError
+    createdLineId = line.id
+
+    const { error: numbersError } = await adminClient.from('queue_numbers').insert([
+      { queue_line_id: line.id, institution_id: institutionId, number: line.current_number, status: 'called', called_at: new Date().toISOString() },
+      { queue_line_id: line.id, institution_id: institutionId, number: line.upcoming_number, status: 'waiting' },
+    ])
+    if (numbersError) throw numbersError
+
+    const { error: eventError } = await adminClient.from('queue_events').insert({
+      institution_id: institutionId,
+      queue_line_id: line.id,
+      event_type: 'created',
+      event_number: line.current_number,
+      created_by: userData.user.id,
+    })
+    if (eventError) throw eventError
+    return json({ queueLine: line }, 201)
+  } catch (error) {
+    if (createdLineId) {
+      const adminClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+      await adminClient.from('queue_lines').delete().eq('id', createdLineId)
+    }
+    console.error('create-queue-line failed', error)
+    return json({ error: error instanceof Error ? error.message : 'Unable to create the queue line.' }, 500)
+  }
+})
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+}

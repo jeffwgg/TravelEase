@@ -1,5 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../core/supabase_client.dart';
+import '../../core/supabase_client.dart';
 
 class AssistanceRepository {
   final _client = SupabaseClientHelper.client;
@@ -15,6 +15,21 @@ class AssistanceRepository {
     } catch (e) {
       print('Error loading assistance requests: $e');
       return [];
+    }
+  }
+
+  // Module 5: Get a single request by ID (used to pre-populate assigned staff name in chat)
+  Future<Map<String, dynamic>?> getRequestDetails(String requestId) async {
+    try {
+      final response = await _client
+          .from('assistance_requests')
+          .select()
+          .eq('id', requestId)
+          .single();
+      return response;
+    } catch (e) {
+      print('Error loading request details: $e');
+      return null;
     }
   }
 
@@ -145,4 +160,66 @@ class AssistanceRepository {
         )
         .subscribe();
   }
+
+  // FR-M5-29: Cancel an active assistance request
+  Future<bool> cancelRequest(String requestId) async {
+    try {
+      await _client
+          .from('assistance_requests')
+          .update({'status': 'cancelled', 'updated_at': DateTime.now().toIso8601String()})
+          .eq('id', requestId);
+      return true;
+    } catch (e) {
+      print('Error cancelling request: $e');
+      return false;
+    }
+  }
+
+  // FR-M5-16 / FR-M5-26: Submit resolution feedback and close/reopen ticket
+  Future<bool> submitResolutionFeedback({
+    required String requestId,
+    required String outcome, // 'fully_resolved' | 'partially_resolved' | 'unresolved'
+    required int rating,
+    String? comment,
+  }) async {
+    try {
+      final newStatus = outcome == 'fully_resolved' ? 'closed' : 'in_progress';
+      await _client
+          .from('assistance_requests')
+          .update({
+            'resolution_outcome': outcome,
+            'user_rating': rating,
+            'user_feedback_comment': comment,
+            'status': newStatus,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', requestId);
+      return true;
+    } catch (e) {
+      print('Error submitting feedback: $e');
+      return false;
+    }
+  }
+
+  // FR-M5-11: Subscribe to changes on a specific request (e.g., status → resolved)
+  RealtimeChannel subscribeToRequestChanges(
+      String requestId, void Function(Map<String, dynamic>) onChanged) {
+    return _client
+        .channel('request_status_$requestId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'assistance_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: requestId,
+          ),
+          callback: (payload) {
+            onChanged(payload.newRecord);
+          },
+        )
+        .subscribe();
+  }
 }
+

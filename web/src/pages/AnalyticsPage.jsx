@@ -30,7 +30,7 @@ export default function AnalyticsPage() {
       <div className="page-header">
         <div>
           <h2>Accessibility Analytics & Heatmaps</h2>
-          <div className="header-subtitle">Analyze confirmed accessibility barriers, problem locations, and recurring service gaps across your facility. (Connected to Supabase)</div>
+          <div className="header-subtitle">Analyze confirmed accessibility barriers, problem locations, and recurring service gaps across your facility.</div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <select className="input" style={{ width: '160px' }}>

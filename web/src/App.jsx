@@ -27,8 +27,13 @@ import ServicePerformancePage from './pages/ServicePerformancePage'
 import ReportGenerationPage from './pages/ReportGenerationPage'
 import SignDictionaryMgmtPage from './pages/SignDictionaryMgmtPage'
 import SignFeedbackPage from './pages/SignFeedbackPage'
+import { AuthProvider, useAuth } from './context/AuthContext'
 
 function Sidebar() {
+  const { session, signOut } = useAuth()
+  const displayName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Staff User'
+  const initials = displayName.split(/\s|@/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('')
+
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
@@ -92,11 +97,12 @@ function Sidebar() {
         </div>
       </nav>
       <div className="sidebar-user">
-        <div className="user-avatar">AK</div>
+        <div className="user-avatar">{initials || 'ST'}</div>
         <div className="user-info">
-          <div className="user-name">Ahmad Khan</div>
+          <div className="user-name">{displayName}</div>
           <div className="user-role">KLIA Terminal 1 • Admin</div>
         </div>
+        <button className="sidebar-signout" onClick={signOut} title="Sign out">Sign out</button>
       </div>
     </aside>
   )
@@ -106,16 +112,26 @@ function DashboardLayout({ children }) {
   return (
     <div className="app-layout">
       <Sidebar />
-      <main className="main-content">{children}</main>
+      <main className="main-content">
+        {children}
+      </main>
     </div>
   )
 }
 
 function AppRoutes() {
   const location = useLocation()
+  const { session, staffContext, loading } = useAuth()
   const isAuth = location.pathname === '/auth'
 
-  if (isAuth) return <Routes><Route path="/auth" element={<AuthPage />} /></Routes>
+  if (loading) return <div className="app-loading">Connecting to TravelEase…</div>
+
+  if (isAuth) {
+    if (session && staffContext) return <Navigate to="/dashboard" replace />
+    return <Routes><Route path="/auth" element={<AuthPage />} /></Routes>
+  }
+
+  if (!session || !staffContext) return <Navigate to="/auth" replace state={{ from: location.pathname }} />
 
   return (
     <DashboardLayout>
@@ -125,6 +141,7 @@ function AppRoutes() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/announcements" element={<AnnouncementPage />} />
         <Route path="/announcements/create" element={<CreateAnnouncementPage />} />
+        <Route path="/announcements/:id/edit" element={<CreateAnnouncementPage />} />
         <Route path="/queue" element={<QueueUpdatePage />} />
         <Route path="/queue/add" element={<AddQueueLinePage />} />
         <Route path="/requests" element={<AssistanceRequestPage />} />
@@ -142,7 +159,9 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AppRoutes />
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </BrowserRouter>
   )
 }
