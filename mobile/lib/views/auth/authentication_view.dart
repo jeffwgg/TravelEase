@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
+import '../../viewmodels/auth_viewmodel.dart';
+import '../../viewmodels/profile_viewmodel.dart';
 
 class AuthenticationView extends StatefulWidget {
   const AuthenticationView({super.key});
@@ -12,17 +14,25 @@ class AuthenticationView extends StatefulWidget {
 class _AuthenticationViewState extends State<AuthenticationView>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late final AuthViewModel _viewModel;
+  late final ProfileViewModel _profileViewModel;
   bool _obscurePassword = true;
+  bool _obscureRegistrationPassword = true;
+  bool _obscureConfirmationPassword = true;
 
   @override
   void initState() {
     super.initState();
+    _viewModel = AuthViewModel();
+    _profileViewModel = ProfileViewModel();
     _tabController = TabController(length: 2, vsync: this);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _viewModel.dispose();
+    _profileViewModel.dispose();
     super.dispose();
   }
 
@@ -105,8 +115,8 @@ class _AuthenticationViewState extends State<AuthenticationView>
               ),
               const SizedBox(height: 32),
               // Form
-              AnimatedBuilder(
-                animation: _tabController,
+              ListenableBuilder(
+                listenable: Listenable.merge([_tabController, _viewModel]),
                 builder: (context, _) {
                   return _tabController.index == 0
                       ? _buildLoginForm(context)
@@ -125,6 +135,10 @@ class _AuthenticationViewState extends State<AuthenticationView>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TextField(
+          controller: _viewModel.loginEmailController,
+          keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
+          enabled: !_viewModel.isLoading,
           decoration: const InputDecoration(
             hintText: 'Email address',
             prefixIcon: Icon(Icons.email_outlined, color: AppColors.textMuted),
@@ -132,6 +146,10 @@ class _AuthenticationViewState extends State<AuthenticationView>
         ),
         const SizedBox(height: 16),
         TextField(
+          controller: _viewModel.loginPasswordController,
+          textInputAction: TextInputAction.done,
+          enabled: !_viewModel.isLoading,
+          onSubmitted: (_) => _login(),
           obscureText: _obscurePassword,
           decoration: InputDecoration(
             hintText: 'Password',
@@ -155,9 +173,23 @@ class _AuthenticationViewState extends State<AuthenticationView>
         ),
         const SizedBox(height: 20),
         ElevatedButton(
-          onPressed: () => context.go('/home'),
-          child: const Text('Sign In'),
+          onPressed: _viewModel.isLoading ? null : _login,
+          child: _viewModel.isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Sign In'),
         ),
+        if (_viewModel.errorMessage != null) ...[
+          const SizedBox(height: 12),
+          _buildStatusMessage(_viewModel.errorMessage!, isError: true),
+        ],
+        if (_viewModel.successMessage != null) ...[
+          const SizedBox(height: 12),
+          _buildStatusMessage(_viewModel.successMessage!),
+        ],
         const SizedBox(height: 24),
         Row(
           children: [
@@ -177,7 +209,7 @@ class _AuthenticationViewState extends State<AuthenticationView>
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => context.go('/home'),
+                onPressed: _showUnsupportedSocialLogin,
                 icon: const Icon(Icons.g_mobiledata, size: 24),
                 label: const Text('Google'),
               ),
@@ -185,7 +217,7 @@ class _AuthenticationViewState extends State<AuthenticationView>
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => context.go('/home'),
+                onPressed: _showUnsupportedSocialLogin,
                 icon: const Icon(Icons.apple, size: 20),
                 label: const Text('Apple'),
               ),
@@ -226,6 +258,9 @@ class _AuthenticationViewState extends State<AuthenticationView>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TextField(
+          controller: _viewModel.registrationNameController,
+          textInputAction: TextInputAction.next,
+          enabled: !_viewModel.isLoading,
           decoration: const InputDecoration(
             hintText: 'Full Name',
             prefixIcon: Icon(Icons.person_outline, color: AppColors.textMuted),
@@ -233,6 +268,10 @@ class _AuthenticationViewState extends State<AuthenticationView>
         ),
         const SizedBox(height: 16),
         TextField(
+          controller: _viewModel.registrationEmailController,
+          keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
+          enabled: !_viewModel.isLoading,
           decoration: const InputDecoration(
             hintText: 'Email address',
             prefixIcon: Icon(Icons.email_outlined, color: AppColors.textMuted),
@@ -240,18 +279,49 @@ class _AuthenticationViewState extends State<AuthenticationView>
         ),
         const SizedBox(height: 16),
         TextField(
-          obscureText: true,
-          decoration: const InputDecoration(
+          controller: _viewModel.registrationPasswordController,
+          textInputAction: TextInputAction.next,
+          enabled: !_viewModel.isLoading,
+          obscureText: _obscureRegistrationPassword,
+          decoration: InputDecoration(
             hintText: 'Password',
-            prefixIcon: Icon(Icons.lock_outline, color: AppColors.textMuted),
+            prefixIcon: const Icon(Icons.lock_outline, color: AppColors.textMuted),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscureRegistrationPassword
+                    ? Icons.visibility_off
+                    : Icons.visibility,
+                color: AppColors.textMuted,
+              ),
+              onPressed: () => setState(() {
+                _obscureRegistrationPassword =
+                    !_obscureRegistrationPassword;
+              }),
+            ),
           ),
         ),
         const SizedBox(height: 16),
         TextField(
-          obscureText: true,
-          decoration: const InputDecoration(
+          controller: _viewModel.registrationConfirmPasswordController,
+          textInputAction: TextInputAction.done,
+          enabled: !_viewModel.isLoading,
+          onSubmitted: (_) => _register(),
+          obscureText: _obscureConfirmationPassword,
+          decoration: InputDecoration(
             hintText: 'Confirm Password',
-            prefixIcon: Icon(Icons.lock_outline, color: AppColors.textMuted),
+            prefixIcon: const Icon(Icons.lock_outline, color: AppColors.textMuted),
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscureConfirmationPassword
+                    ? Icons.visibility_off
+                    : Icons.visibility,
+                color: AppColors.textMuted,
+              ),
+              onPressed: () => setState(() {
+                _obscureConfirmationPassword =
+                    !_obscureConfirmationPassword;
+              }),
+            ),
           ),
         ),
         const SizedBox(height: 16),
@@ -283,11 +353,64 @@ class _AuthenticationViewState extends State<AuthenticationView>
         ),
         const SizedBox(height: 24),
         ElevatedButton(
-          onPressed: () => context.go('/home'),
-          child: const Text('Create Account'),
+          onPressed: _viewModel.isLoading ? null : _register,
+          child: _viewModel.isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Create Account'),
         ),
+        if (_viewModel.errorMessage != null) ...[
+          const SizedBox(height: 12),
+          _buildStatusMessage(_viewModel.errorMessage!, isError: true),
+        ],
+        if (_viewModel.successMessage != null) ...[
+          const SizedBox(height: 12),
+          _buildStatusMessage(_viewModel.successMessage!),
+        ],
         const SizedBox(height: 32),
       ],
+    );
+  }
+
+  Future<void> _login() async {
+    FocusScope.of(context).unfocus();
+    if (await _viewModel.login() && mounted) {
+      final destination = await _profileViewModel.authenticatedDestination();
+      if (mounted) context.go(destination);
+    }
+  }
+
+  Future<void> _register() async {
+    FocusScope.of(context).unfocus();
+    final result = await _viewModel.register();
+    if (!mounted || result == null) return;
+    if (result == RegistrationResult.authenticated) {
+      context.go('/profile-setup');
+      return;
+    }
+    final email = Uri.encodeQueryComponent(
+      _viewModel.registrationEmailController.text.trim(),
+    );
+    context.go('/check-email?email=$email');
+  }
+
+  void _showUnsupportedSocialLogin() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Social sign in is not available yet.')),
+    );
+  }
+
+  Widget _buildStatusMessage(String message, {bool isError = false}) {
+    return Text(
+      message,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: isError ? AppColors.emergency : AppColors.primaryDark,
+        fontWeight: FontWeight.w500,
+      ),
     );
   }
 }

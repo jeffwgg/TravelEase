@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
+import '../../viewmodels/auth_viewmodel.dart';
 
 class ProfileManagementView extends StatelessWidget {
   const ProfileManagementView({super.key});
@@ -173,7 +174,24 @@ class ProfileManagementView extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: () => context.go('/auth'),
+                        onPressed: () async {
+                          final viewModel = AuthViewModel();
+                          final didSignOut = await viewModel.logout();
+                          final errorMessage = viewModel.errorMessage;
+                          viewModel.dispose();
+                          if (!context.mounted) return;
+                          if (didSignOut) {
+                            context.go('/auth');
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  errorMessage ?? 'Unable to sign out.',
+                                ),
+                              ),
+                            );
+                          }
+                        },
                         icon: const Icon(Icons.logout, color: AppColors.emergency),
                         label: const Text('Sign Out', style: TextStyle(color: AppColors.emergency)),
                         style: OutlinedButton.styleFrom(
