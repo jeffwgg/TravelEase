@@ -48,4 +48,26 @@ class ProfileRepository {
       'profile_completed': true,
     });
   }
+
+  Future<void> updateCurrentUserProfile({
+    required String fullName,
+    required String nationality,
+    required String preferredCommunication,
+  }) async {
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      throw const AuthException('No authenticated user is available.');
+    }
+
+    await _client.from('user_profiles').update({
+      'full_name': fullName,
+      'nationality': nationality,
+      'preferred_communication': preferredCommunication,
+      'user_type': 'traveller',
+    }).eq('id', user.id);
+
+    await _client.auth.updateUser(
+      UserAttributes(data: {'full_name': fullName}),
+    );
+  }
 }

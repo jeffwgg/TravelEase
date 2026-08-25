@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../views/auth/authentication_view.dart';
 import '../views/auth/check_email_view.dart';
 import '../views/profile/profile_management_view.dart';
+import '../views/profile/edit_profile_view.dart';
 import '../views/profile/profile_setup_view.dart';
 import '../views/profile/preferences_view.dart';
 import '../views/emergency/emergency_contact_settings_view.dart';
@@ -70,7 +71,7 @@ final GoRouter appRouter = GoRouter(
     // Standalone routes
     GoRoute(
       path: '/profile/edit',
-      builder: (context, state) => const ProfileManagementView(),
+      builder: (context, state) => const EditProfileView(),
     ),
     GoRoute(
       path: '/preferences',

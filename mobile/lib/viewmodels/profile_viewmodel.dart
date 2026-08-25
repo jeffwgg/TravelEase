@@ -22,10 +22,31 @@ class ProfileViewModel extends ChangeNotifier {
   String? _preferredCommunication;
   bool _isLoading = false;
   String? _errorMessage;
+  Map<String, dynamic>? _profile;
 
   String? get preferredCommunication => _preferredCommunication;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  Map<String, dynamic>? get profile => _profile;
+  String get fullName => (_profile?['full_name'] as String?) ??
+      (_authRepository.currentUser?.userMetadata?['full_name'] as String?) ??
+      '';
+  String get email => _authRepository.currentUser?.email ?? '';
+  String get nationality => (_profile?['nationality'] as String?) ?? '';
+  String get preferredCommunicationValue =>
+      (_profile?['preferred_communication'] as String?) ?? '';
+  String get preferredCommunicationLabel {
+    switch (preferredCommunicationValue) {
+      case 'sign_language':
+        return 'Sign Language';
+      case 'speech_to_text':
+        return 'Speech to Text';
+      case 'text':
+        return 'Text / Chat';
+      default:
+        return 'Not set';
+    }
+  }
 
   void initializeFromAuthenticatedUser() {
     final metadata = _authRepository.currentUser?.userMetadata;
@@ -38,6 +59,24 @@ class ProfileViewModel extends ChangeNotifier {
   void setPreferredCommunication(String? value) {
     _preferredCommunication = value;
     _errorMessage = null;
+    notifyListeners();
+  }
+
+  Future<void> loadProfile() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      _profile = await _profileRepository.getCurrentUserProfile();
+      fullNameController.text = fullName;
+      nationalityController.text = nationality;
+      _preferredCommunication = preferredCommunicationValue.isEmpty
+          ? null
+          : preferredCommunicationValue;
+    } catch (_) {
+      _errorMessage = 'Unable to load your profile. Please try again.';
+    }
+    _isLoading = false;
     notifyListeners();
   }
 
@@ -100,6 +139,40 @@ class ProfileViewModel extends ChangeNotifier {
       return _fail('Your session has expired. Please sign in again.');
     } catch (_) {
       return _fail('Unable to save your profile. Please try again.');
+    }
+  }
+
+  Future<bool> updateProfile() async {
+    final fullName = fullNameController.text.trim();
+    final nationality = nationalityController.text.trim();
+    if (fullName.isEmpty) return _fail('Please enter your full name.');
+    if (nationality.isEmpty) return _fail('Please enter your nationality.');
+    if (_preferredCommunication == null) {
+      return _fail('Please select your preferred communication method.');
+    }
+
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      await _profileRepository.updateCurrentUserProfile(
+        fullName: fullName,
+        nationality: nationality,
+        preferredCommunication: _preferredCommunication!,
+      );
+      _profile = {
+        ...?_profile,
+        'full_name': fullName,
+        'nationality': nationality,
+        'preferred_communication': _preferredCommunication,
+      };
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } on PostgrestException catch (error) {
+      return _fail(_friendlyDatabaseError(error));
+    } catch (_) {
+      return _fail('Unable to update your profile. Please try again.');
     }
   }
 

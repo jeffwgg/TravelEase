@@ -2,9 +2,35 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../viewmodels/auth_viewmodel.dart';
+import '../../viewmodels/profile_viewmodel.dart';
 
-class ProfileManagementView extends StatelessWidget {
+class ProfileManagementView extends StatefulWidget {
   const ProfileManagementView({super.key});
+
+  @override
+  State<ProfileManagementView> createState() => _ProfileManagementViewState();
+}
+
+class _ProfileManagementViewState extends State<ProfileManagementView> {
+  late final ProfileViewModel _profileViewModel;
+
+  @override
+  void initState() {
+    super.initState();
+    _profileViewModel = ProfileViewModel();
+    _loadProfile();
+  }
+
+  @override
+  void dispose() {
+    _profileViewModel.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    await _profileViewModel.loadProfile();
+    if (mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +65,7 @@ class ProfileManagementView extends StatelessWidget {
                               ),
                         ),
                         IconButton(
-                          onPressed: () {},
+                          onPressed: () => context.push('/preferences'),
                           icon: const Icon(Icons.settings, color: Colors.white70),
                         ),
                       ],
@@ -75,18 +101,20 @@ class ProfileManagementView extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      'Jeff Wong',
-                      style: TextStyle(
+                    Text(
+                      _profileViewModel.fullName.isEmpty
+                          ? 'Traveller'
+                          : _profileViewModel.fullName,
+                      style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w700,
                         color: Colors.white,
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      'jeff.wong@email.com',
-                      style: TextStyle(
+                    Text(
+                      _profileViewModel.email,
+                      style: const TextStyle(
                         fontSize: 14,
                         color: Colors.white70,
                       ),
@@ -98,14 +126,14 @@ class ProfileManagementView extends StatelessWidget {
                         color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.hearing_disabled, size: 14, color: Colors.white),
-                          SizedBox(width: 6),
+                          const Icon(Icons.hearing_disabled, size: 14, color: Colors.white),
+                          const SizedBox(width: 6),
                           Text(
-                            'Hard of Hearing',
-                            style: TextStyle(
+                            '${_profileViewModel.nationality.isEmpty ? 'Not set' : _profileViewModel.nationality} • ${_profileViewModel.preferredCommunicationLabel}',
+                            style: const TextStyle(
                               fontSize: 12,
                               color: Colors.white,
                               fontWeight: FontWeight.w500,
@@ -123,7 +151,10 @@ class ProfileManagementView extends StatelessWidget {
                 child: Column(
                   children: [
                     _buildMenuSection(context, 'Account', [
-                      _MenuItem(Icons.person_outline, 'Edit Profile', () => context.push('/profile/edit')),
+                      _MenuItem(Icons.person_outline, 'Edit Profile', () async {
+                        await context.push('/profile/edit');
+                        await _loadProfile();
+                      }),
                       _MenuItem(Icons.tune, 'Accessibility Preferences', () => context.push('/preferences')),
                       _MenuItem(Icons.language, 'Language', () {}),
                     ]),
