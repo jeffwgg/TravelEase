@@ -34,6 +34,7 @@ class _TravelEaseAppState extends State<TravelEaseApp> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await StartupPermissionService.requestOnFirstEntry();
       await EnvironmentSoundMonitoringService.instance.initialize();
+    });
     WebRTCService.instance.init().then((_) {
       WebRTCService.instance.subscribeToGlobalSignaling();
     });

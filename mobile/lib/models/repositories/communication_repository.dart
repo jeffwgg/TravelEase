@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_client.dart';
 import '../entities/dialogue_session_entity.dart';
@@ -254,20 +258,14 @@ class CommunicationRepository {
         query = query.eq('translation_type', filterType);
       }
       final response = await query.order('created_at', ascending: false);
-      final logs = (response as List).map((l) => ConversationLog.fromJson(l)).toList();
-      if (logs.isNotEmpty) return logs;
+      return (response as List).map((l) => ConversationLog.fromJson(l)).toList();
     } catch (e) {
-      // continue to mock
+      final localLogs = await getLocalConversationLogs(userId: userId);
+      if (filterType != null && filterType.isNotEmpty && filterType != 'all') {
+        return localLogs.where((l) => l.translationType == filterType).toList();
+      }
+      return localLogs;
     }
-
-    if (_inMemoryLogs.isEmpty) {
-      _seedMockLogs(userId);
-    }
-
-    if (filterType != null && filterType.isNotEmpty && filterType != 'all') {
-      return _inMemoryLogs.where((l) => l.translationType == filterType).toList();
-    }
-    return _inMemoryLogs;
   }
 
   Future<bool> deleteConversationLog(String logId) async {
@@ -275,7 +273,75 @@ class CommunicationRepository {
       await _client.from('communication_saved_logs').delete().eq('id', logId);
     } catch (_) {}
     _inMemoryLogs.removeWhere((l) => l.id == logId);
+    await _deleteLocalConversationLog(logId);
     return true;
+  }
+
+  // --------------------------------------------------------------------------
+  // Local Device Storage for Conversation Text Logs (FR-M3-17, FR-M3-18)
+  // Persists full transcripts locally via shared_preferences so logs survive
+  // app restarts even when offline.
+  // --------------------------------------------------------------------------
+  static const String _localLogsKey = 'travelease_local_conversation_logs';
+
+  Future<ConversationLog> saveConversationLogLocally({
+    required String userId,
+    String? sessionId,
+    required String logTitle,
+    required String translationType,
+    String? summary,
+    required List<Map<String, dynamic>> fullTranscript,
+  }) async {
+    final log = ConversationLog(
+      id: 'local_${DateTime.now().millisecondsSinceEpoch}',
+      userId: userId,
+      sessionId: sessionId,
+      logTitle: logTitle,
+      translationType: translationType,
+      summary: summary,
+      fullTranscript: fullTranscript,
+      messageCount: fullTranscript.length,
+      createdAt: DateTime.now(),
+    );
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final existing = prefs.getString(_localLogsKey);
+      final logs = existing != null
+          ? List<Map<String, dynamic>>.from(jsonDecode(existing) as List)
+          : <Map<String, dynamic>>[];
+      logs.insert(0, log.toJson());
+      await prefs.setString(_localLogsKey, jsonEncode(logs));
+    } catch (e) {
+      debugPrint('Local conversation log save failed: $e');
+    }
+    return log;
+  }
+
+  Future<List<ConversationLog>> getLocalConversationLogs({required String userId}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_localLogsKey);
+      if (raw == null) return [];
+      final decoded = jsonDecode(raw) as List;
+      return decoded
+          .map((j) => ConversationLog.fromJson(Map<String, dynamic>.from(j)))
+          .where((l) => l.userId == userId)
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<void> _deleteLocalConversationLog(String logId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_localLogsKey);
+      if (raw == null) return;
+      final logs = List<Map<String, dynamic>>.from(jsonDecode(raw) as List);
+      logs.removeWhere((l) => l['id'] == logId);
+      await prefs.setString(_localLogsKey, jsonEncode(logs));
+    } catch (_) {}
   }
 
   // --------------------------------------------------------------------------
@@ -289,53 +355,7 @@ class CommunicationRepository {
           .order('display_order', ascending: true);
       return (response as List).map((q) => DialogueQuickPhrase.fromJson(q)).toList();
     } catch (e) {
-      return const [
-        DialogueQuickPhrase(
-          id: 'q1',
-          category: 'General',
-          textEn: 'Thank you very much',
-          textMs: 'Terima kasih banyak',
-          textZh: '非常感谢',
-          iconName: 'volunteer_activism',
-          displayOrder: 1,
-        ),
-        DialogueQuickPhrase(
-          id: 'q2',
-          category: 'Airport',
-          textEn: 'Where is my boarding gate?',
-          textMs: 'Di manakah pintu perlepasan saya?',
-          textZh: '我的登机口在哪里？',
-          iconName: 'flight_takeoff',
-          displayOrder: 2,
-        ),
-        DialogueQuickPhrase(
-          id: 'q3',
-          category: 'Emergency',
-          textEn: 'I need urgent help',
-          textMs: 'Saya perlukan bantuan segera',
-          textZh: '我需要紧急帮助',
-          iconName: 'sos',
-          displayOrder: 3,
-        ),
-        DialogueQuickPhrase(
-          id: 'q4',
-          category: 'Hotel',
-          textEn: 'I have a room reservation',
-          textMs: 'Saya mempunyai tempahan bilik',
-          textZh: '我有房间预订',
-          iconName: 'hotel',
-          displayOrder: 4,
-        ),
-        DialogueQuickPhrase(
-          id: 'q5',
-          category: 'General',
-          textEn: 'Please repeat slowly',
-          textMs: 'Sila ulang perlahan-lahan',
-          textZh: '请慢一点重复一次',
-          iconName: 'replay',
-          displayOrder: 5,
-        ),
-      ];
+      return const [];
     }
   }
 
@@ -365,49 +385,5 @@ class CommunicationRepository {
     } catch (e) {
       return true;
     }
-  }
-
-  void _seedMockLogs(String userId) {
-    _inMemoryLogs.addAll([
-      ConversationLog(
-        id: 'log_1',
-        userId: userId,
-        logTitle: 'Airport Gate & Check-in Dialogue',
-        translationType: 'two_way_dialogue',
-        summary: 'Deaf Traveler asked for Gate B5 directions and check-in help at KLIA T1.',
-        messageCount: 6,
-        createdAt: DateTime.now().subtract(const Duration(hours: 2)),
-        fullTranscript: [
-          {'sender': 'Deaf Traveler', 'role': 'traveler', 'text': 'Hello, I need help checking in. I am deaf.', 'modality': 'sign_to_text'},
-          {'sender': 'Staff', 'role': 'staff', 'text': 'Of course! May I see your passport and booking confirmation?', 'modality': 'speech_to_text'},
-          {'sender': 'Deaf Traveler', 'role': 'traveler', 'text': 'Here is my booking. Where do I go after check-in?', 'modality': 'typed_text'},
-          {'sender': 'Staff', 'role': 'staff', 'text': 'After check-in, head to Gate B5 on Level 2.', 'modality': 'speech_to_text'},
-        ],
-      ),
-      ConversationLog(
-        id: 'log_2',
-        userId: userId,
-        logTitle: 'Camera Sign Translation (BIM)',
-        translationType: 'sign_to_text',
-        summary: 'Translated live BIM gesture "Where is the gate?" with 94% confidence.',
-        messageCount: 1,
-        createdAt: DateTime.now().subtract(const Duration(days: 1)),
-        fullTranscript: [
-          {'sender': 'Deaf Traveler', 'text': 'Where is the gate?', 'confidence': 0.94, 'dialect': 'BIM'},
-        ],
-      ),
-      ConversationLog(
-        id: 'log_3',
-        userId: userId,
-        logTitle: 'Speech to ASL Sign Visualization',
-        translationType: 'speech_to_sign',
-        summary: 'Counter staff audio synthesized to American Sign Language animation.',
-        messageCount: 1,
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-        fullTranscript: [
-          {'sender': 'Staff', 'text': 'Your flight is on time at Gate 12', 'sign_gloss': 'FLIGHT TIME ON GATE 12', 'dialect': 'ASL'},
-        ],
-      ),
-    ]);
   }
 }
