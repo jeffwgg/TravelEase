@@ -7,6 +7,9 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:camera/camera.dart';
+import 'package:huawei_ml_language/huawei_ml_language.dart';
+
+import '../services/mandarin_speech_services.dart';
 
 /// Global Hardware & Device Sensors Helper
 class HardwareServices {
@@ -60,9 +63,85 @@ class HardwareServices {
       await _tts.setSpeechRate(0.5); // Normal speed
       await _tts.awaitSpeakCompletion(true);
       _isTtsInitialized = true;
+      // Pre-load available voices for gender selection
+      await _loadVoices();
     } catch (e) {
       debugPrint('TTS init error: $e');
     }
+  }
+
+  List<dynamic> _availableVoices = [];
+
+  /// Public getter for available voices (for UI to check gender support)
+  List<dynamic> get availableVoices => _availableVoices;
+
+  /// Public method to load/refresh voices
+  Future<void> loadVoices() => _loadVoices();
+
+  Future<void> _loadVoices() async {
+    try {
+      _availableVoices = await _tts.getVoices ?? [];
+      debugPrint('TTS available voices: ${_availableVoices.length}');
+    } catch (e) {
+      debugPrint('Failed to load TTS voices: $e');
+    }
+  }
+
+  /// Select a voice matching the requested gender (male/female/neutral)
+  Future<void> _setVoiceGender(String voiceGender, String language) async {
+    if (_availableVoices.isEmpty) {
+      await _loadVoices();
+    }
+    if (_availableVoices.isEmpty) {
+      debugPrint('TTS: No voices available for gender selection');
+      return;
+    }
+
+    // Debug: print all available voices with their structure
+    debugPrint('TTS: Available voices (${_availableVoices.length}):');
+    for (var i = 0; i < _availableVoices.length; i++) {
+      final v = _availableVoices[i];
+      debugPrint('  [$i] $v');
+    }
+
+    // Check if any voice has gender metadata
+    bool hasGenderInfo = _availableVoices.any((v) =>
+        (v['gender'] ?? v['Gender'] ?? '').toString().isNotEmpty);
+
+    if (!hasGenderInfo) {
+      debugPrint('TTS: Engine does not provide gender metadata - using default voice for language');
+      return;
+    }
+
+    // Voice data typically has: {name, locale, gender, ...}
+    // gender values: 'male', 'female', 'neutral' (or sometimes '0'=female, '1'=male)
+    for (final voice in _availableVoices) {
+      final gender = (voice['gender'] ?? voice['Gender'] ?? '').toString().toLowerCase();
+      final name = (voice['name'] ?? voice['Name'] ?? '').toString().toLowerCase();
+      final locale = (voice['locale'] ?? voice['Locale'] ?? '').toString().toLowerCase();
+
+      // Filter by language first - some engines require voice locale to match
+      final langMatch = language == 'ms' || language.toLowerCase().contains('my')
+          ? locale.contains('ms') || locale.contains('my')
+          : language == 'en' || locale.contains('en');
+
+      if (!langMatch) continue;
+
+      if (voiceGender == 'female' && (gender == 'female' || gender == '0' || name.contains('female'))) {
+        await _tts.setVoice(voice);
+        debugPrint('TTS voice set to female: ${voice['name'] ?? voice['Name']} (locale: $locale)');
+        return;
+      } else if (voiceGender == 'male' && (gender == 'male' || gender == '1' || name.contains('male'))) {
+        await _tts.setVoice(voice);
+        debugPrint('TTS voice set to male: ${voice['name'] ?? voice['Name']} (locale: $locale)');
+        return;
+      } else if (voiceGender == 'neutral' && (gender == 'neutral' || name.contains('neutral'))) {
+        await _tts.setVoice(voice);
+        debugPrint('TTS voice set to neutral: ${voice['name'] ?? voice['Name']} (locale: $locale)');
+        return;
+      }
+    }
+    debugPrint('No matching voice for gender: $voiceGender (language: $language)');
   }
 
   Future<void> _initCameras() async {
@@ -109,6 +188,27 @@ class HardwareServices {
   }) async {
     if (text.trim().isEmpty) return;
 
+    // Mandarin: the system engines on HarmonyOS expose no Chinese voice, so
+    // route through Huawei ML Kit and fall back to the system engine only if
+    // HMS is unavailable.
+    if (language == 'zh' || language.toLowerCase().contains('cn')) {
+      try {
+        String speaker = MLTtsConstants.TTS_SPEAKER_FEMALE_ZH;
+        if (voiceGender == 'male') {
+          speaker = MLTtsConstants.TTS_SPEAKER_MALE_ZH;
+        } else if (voiceGender == 'neutral') {
+          speaker = MLTtsConstants.TTS_SPEAKER_FEMALE_ZH; // neutral defaults to female
+        }
+        await MandarinTts.instance.speak(text, speed: speed, volume: volume, speaker: speaker);
+        return;
+      } on MandarinSpeechException catch (e) {
+        debugPrint('Mandarin (ML Kit) TTS unavailable (${e.error.name}) — '
+            'falling back to system engine');
+      } catch (e) {
+        debugPrint('Mandarin (ML Kit) TTS failed: $e — falling back');
+      }
+    }
+
     try {
       if (!_isTtsInitialized) {
         await _initTts();
@@ -127,7 +227,12 @@ class HardwareServices {
       for (final candidate in localeCandidates) {
         try {
           final result = await _tts.setLanguage(candidate);
-          if ('$result' == '1') {
+          // TextToSpeech.setLanguage codes: 2 = country+variant match,
+          // 1 = country match, 0 = language-only match, negative = missing
+          // data / unsupported. Any value >= 0 is usable.
+          final code = result is int ? result : int.tryParse('$result');
+          debugPrint('TTS setLanguage($candidate) -> $result');
+          if (code != null && code >= 0) {
             languageSet = true;
             break;
           }
@@ -143,6 +248,9 @@ class HardwareServices {
       final rate = (speed * 0.5).clamp(0.1, 1.0);
       await _tts.setSpeechRate(rate);
       await _tts.setVolume(volume.clamp(0.0, 1.0));
+
+      // Select voice matching requested gender (female/male/neutral) - AFTER language is set
+      await _setVoiceGender(voiceGender, language);
 
       // Some engines never fire the completion event for a missing voice
       // (e.g. no ms-MY TTS), which would hang the dialogue loop forever —

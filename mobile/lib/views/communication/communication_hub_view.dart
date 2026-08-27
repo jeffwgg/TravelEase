@@ -14,13 +14,19 @@ class CommunicationHubView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Accessible Communication'),
+        title: const Text('Accessible Communication Tools'),
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.emergency_outlined, color: AppColors.emergency),
             tooltip: 'Emergency SOS Card',
             onPressed: () => context.push('/emergency-card'),
+          ),
+          // TEMPORARY diagnostics entry (remove with the diagnostics screen).
+          IconButton(
+            icon: const Icon(Icons.bug_report_outlined),
+            tooltip: 'Speech Diagnostics',
+            onPressed: () => context.push('/speech-diagnostics'),
           ),
         ],
       ),
@@ -29,104 +35,37 @@ class CommunicationHubView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Quick Camera Translation Banner Card
-            InkWell(
-              onTap: () => context.push('/sign-camera'),
-              borderRadius: BorderRadius.circular(20),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [AppColors.primary, Color(0xFF0F766E)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.3),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.sign_language_rounded, color: Colors.white, size: 30),
-                    ),
-                    const SizedBox(width: 14),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Live Camera Sign Translation',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Real-time gesture AI across ASL, BIM, & CSL with Auto-Speak',
-                            style: TextStyle(color: Colors.white70, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white70, size: 16),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Accessible Communication Tools Section (Green Box items)
-            Text(
-              'Accessible Communication Tools',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 6),
             Text(
               'Multimodal speech, live dialogue, and sign reference engines for travelers',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
 
-            // 2x2 Grid of Communication Tools
+            // Grid of Communication Tools
             Row(
               children: [
                 Expanded(
                   child: _buildToolCard(
                     context: context,
-                    icon: Icons.mic_rounded,
-                    title: 'Speech to Sign',
-                    subtitle: 'Microphone captions & gloss',
+                    icon: Icons.sign_language_rounded,
+                    title: 'Live Camera Sign Translation',
+                    subtitle: 'Real-time gesture AI with Auto-Speak',
                     accentColor: AppColors.primary,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (ctx) => const SpeechToSignView()),
-                      );
-                    },
+                    onTap: () => context.push('/sign-camera'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _buildToolCard(
                     context: context,
-                    icon: Icons.chat_bubble_outline_rounded,
-                    title: '2-Way Dialogue',
-                    subtitle: 'Counter split-screen chat',
+                    icon: Icons.mic_rounded,
+                    title: 'Speech to Sign',
+                    subtitle: 'Microphone captions & gloss',
                     accentColor: AppColors.accent,
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (ctx) => const TwoWayDialogueView()),
+                        MaterialPageRoute(builder: (ctx) => const SpeechToSignView()),
                       );
                     },
                   ),
@@ -139,14 +78,14 @@ class CommunicationHubView extends StatelessWidget {
                 Expanded(
                   child: _buildToolCard(
                     context: context,
-                    icon: Icons.menu_book_rounded,
-                    title: 'Sign Dictionary',
-                    subtitle: 'BIM / ASL / CSL Library',
+                    icon: Icons.chat_bubble_outline_rounded,
+                    title: '2-Way Dialogue',
+                    subtitle: 'Counter split-screen chat',
                     accentColor: AppColors.secondary,
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (ctx) => const SignDictionaryView()),
+                        MaterialPageRoute(builder: (ctx) => const TwoWayDialogueView()),
                       );
                     },
                   ),
@@ -155,10 +94,30 @@ class CommunicationHubView extends StatelessWidget {
                 Expanded(
                   child: _buildToolCard(
                     context: context,
+                    icon: Icons.menu_book_rounded,
+                    title: 'Sign Dictionary',
+                    subtitle: 'BIM / ASL Library',
+                    accentColor: const Color(0xFF10B981),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (ctx) => const SignDictionaryView()),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildToolCard(
+                    context: context,
                     icon: Icons.star_rounded,
                     title: 'Favorites',
                     subtitle: 'Bookmarked quick phrases',
-                    accentColor: const Color(0xFF10B981),
+                    accentColor: AppColors.secondary,
                     onTap: () {
                       Navigator.push(
                         context,
@@ -167,6 +126,8 @@ class CommunicationHubView extends StatelessWidget {
                     },
                   ),
                 ),
+                const SizedBox(width: 12),
+                const Expanded(child: SizedBox()),
               ],
             ),
             const SizedBox(height: 24),
@@ -180,7 +141,7 @@ class CommunicationHubView extends StatelessWidget {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: SignLanguageType.values.map((lang) {
+                children: [SignLanguageType.bim, SignLanguageType.asl].map((lang) {
                   return Container(
                     margin: const EdgeInsets.only(right: 10),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
+import '../../core/hardware_services.dart';
 import '../../models/entities/dialogue_message_entity.dart';
 import '../../viewmodels/two_way_dialogue_viewmodel.dart';
 import 'communication_history_view.dart';
@@ -178,6 +179,7 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
     double speed = _viewModel.speechConfig.speed;
     double volume = _viewModel.speechConfig.volume;
     String gender = _viewModel.speechConfig.voiceGender;
+    bool genderSupported = true; // Will be updated after checking TTS voices
 
     showModalBottomSheet(
       context: context,
@@ -187,6 +189,16 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            // Check if gender is supported by trying to load voices
+            Future.microtask(() async {
+              final hw = HardwareServices();
+              await hw.initialize(); // handles TTS init internally
+              if (hw.availableVoices.isEmpty) await hw.loadVoices();
+              final hasGender = hw.availableVoices.any((v) =>
+                  (v['gender'] ?? v['Gender'] ?? '').toString().isNotEmpty);
+              if (mounted) setModalState(() => genderSupported = hasGender);
+            });
+
             return Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -231,18 +243,41 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                   // Voice Gender Selector (FR-M3-12)
                   const Text('Preferred Voice Gender:', style: TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 8),
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'female', label: Text('Female')),
-                      ButtonSegment(value: 'male', label: Text('Male')),
-                      ButtonSegment(value: 'neutral', label: Text('Neutral')),
-                    ],
-                    selected: {gender},
-                    onSelectionChanged: (val) {
-                      setModalState(() => gender = val.first);
-                      _viewModel.updateSpeechConfig(voiceGender: val.first);
-                    },
-                  ),
+                  if (!genderSupported)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceVariant,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.textMuted),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Voice gender selection not available on this device. '
+                              'The system TTS engine does not expose gender metadata. '
+                              'Download voice packages in Settings → Accessibility → Text-to-speech output.',
+                              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'female', label: Text('Female')),
+                        ButtonSegment(value: 'male', label: Text('Male')),
+                        ButtonSegment(value: 'neutral', label: Text('Neutral')),
+                      ],
+                      selected: {gender},
+                      onSelectionChanged: (val) {
+                        setModalState(() => gender = val.first);
+                        _viewModel.updateSpeechConfig(voiceGender: val.first);
+                      },
+                    ),
                   const SizedBox(height: 16),
 
                   SizedBox(
@@ -308,6 +343,86 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
           ],
         );
       },
+    );
+  }
+
+  void _openFavoritesSheet() {
+    if (_viewModel.isLoadingFavorites) return;
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Favorite Phrases', style: Theme.of(ctx).textTheme.titleLarge),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                ],
+              ),
+            ),
+            if (_viewModel.favoritePhrases.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(32),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(Icons.favorite_border_rounded, size: 48, color: AppColors.textMuted),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No favorite phrases yet.\nAdd phrases from the Sign Reference screen.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 14, color: AppColors.textMuted),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                  itemCount: _viewModel.favoritePhrases.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final fav = _viewModel.favoritePhrases[index];
+                    final phrase = fav.phrase;
+                    if (phrase == null) return const SizedBox.shrink();
+                    final text = phrase.getTextByLanguage(_viewModel.sourceLang);
+                    return ListTile(
+                      dense: true,
+                      leading: CircleAvatar(
+                        backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                        child: Text(
+                          '${index + 1}',
+                          style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary, fontSize: 12),
+                        ),
+                      ),
+                      title: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                        phrase.categoryId.toUpperCase(),
+                        style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                      ),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _viewModel.sendFavoritePhrase(fav);
+                      },
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -711,16 +826,25 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
             ],
           ),
           const SizedBox(height: 10),
-          // Big voice button with keyboard toggle
+          // Big voice button with keyboard (left), mic (centered), favorites+flip (right)
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _buildSmallActionButton(
-                icon: _showInputBar ? Icons.keyboard_hide_rounded : Icons.keyboard_rounded,
-                tooltip: _showInputBar ? 'Hide typing bar' : 'Type a message to translate',
-                onPressed: _toggleKeyboardInput,
+              // Left section: Keyboard button (fixed width)
+              SizedBox(
+                width: 56,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _buildSmallActionButton(
+                    icon: _showInputBar ? Icons.keyboard_hide_rounded : Icons.keyboard_rounded,
+                    tooltip: _showInputBar ? 'Hide typing bar' : 'Type a message to translate',
+                    onPressed: _toggleKeyboardInput,
+                  ),
+                ),
               ),
-              const SizedBox(width: 20),
+              const SizedBox(width: 16),
+              // Center: Mic button
               GestureDetector(
                 onTap: () async {
                   await _viewModel.toggleConversationMic();
@@ -753,17 +877,34 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                   ),
                 ),
               ),
-              const SizedBox(width: 20),
-              // Manual turn-flip button (only in manual mode); the invisible
-              // spacer in auto mode keeps the mic perfectly centered.
-              if (!_viewModel.isAutoTurnEnabled)
-                _buildSmallActionButton(
-                  icon: Icons.autorenew_rounded,
-                  tooltip: 'Flip turn — hand mic to the other language',
-                  onPressed: () => _viewModel.flipTurn(),
-                )
-              else
-                const SizedBox(width: 44),
+              const SizedBox(width: 16),
+              // Right section: Favorites + Flip turn (fixed width, matches left)
+              SizedBox(
+                width: 56,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _buildSmallActionButton(
+                        icon: Icons.favorite_rounded,
+                        tooltip: 'Favorite phrases for quick insertion',
+                        onPressed: _openFavoritesSheet,
+                      ),
+                      const SizedBox(width: 8),
+                      if (!_viewModel.isAutoTurnEnabled)
+                        _buildSmallActionButton(
+                          icon: Icons.autorenew_rounded,
+                          tooltip: 'Flip turn — hand mic to the other language',
+                          onPressed: () => _viewModel.flipTurn(),
+                        )
+                      else
+                        const SizedBox(width: 44),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),

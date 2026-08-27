@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 import '../models/entities/dialogue_session_entity.dart';
 import '../models/entities/dialogue_message_entity.dart';
 import '../models/entities/conversation_log_entity.dart';
+import '../models/entities/favorite_phrase_entity.dart';
 import '../models/repositories/communication_repository.dart';
+import '../models/repositories/sign_reference_repository.dart';
 import '../core/hardware_services.dart';
 import '../core/supabase_client.dart';
 import '../services/translation_service.dart';
@@ -45,6 +47,10 @@ class TwoWayDialogueViewModel extends ChangeNotifier {
     volume: 1.0,
     voiceGender: 'female',
   );
+
+  final SignReferenceRepository _signRepository = SignReferenceRepository();
+  List<FavoritePhrase> _favoritePhrases = [];
+  bool _isLoadingFavorites = false;
 
   /// Continuous Auto-Speak / Auto-TTS mode:
   /// Once enabled by the user, newly converted or incoming messages are automatically
@@ -111,6 +117,9 @@ class TwoWayDialogueViewModel extends ChangeNotifier {
   bool get isLoadingLogs => _isLoadingLogs;
   String? get statusMessage => _statusMessage;
 
+  List<FavoritePhrase> get favoritePhrases => _favoritePhrases;
+  bool get isLoadingFavorites => _isLoadingFavorites;
+
   String get currentUserId =>
       SupabaseClientHelper.client.auth.currentUser?.id ?? 'local_user';
 
@@ -137,10 +146,33 @@ class TwoWayDialogueViewModel extends ChangeNotifier {
       _statusMessage = null;
       _isLoading = false;
       notifyListeners();
+      loadFavorites();
     } catch (e) {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> loadFavorites() async {
+    _isLoadingFavorites = true;
+    notifyListeners();
+    try {
+      _favoritePhrases = await _signRepository.getFavoritePhrases(currentUserId);
+    } catch (e) {
+      _favoritePhrases = [];
+    }
+    _isLoadingFavorites = false;
+    notifyListeners();
+  }
+
+  Future<void> sendFavoritePhrase(FavoritePhrase fav) async {
+    if (fav.phrase == null) return;
+    final text = fav.phrase!.getTextByLanguage(_sourceLang);
+    await sendMessage(
+      text: text,
+      role: 'traveler',
+      modality: 'quick_phrase',
+    );
   }
 
   /// Toggle Auto-TTS: Once ON, all subsequent messages are automatically spoken aloud.
