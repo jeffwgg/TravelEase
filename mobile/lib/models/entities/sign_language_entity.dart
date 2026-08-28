@@ -1,7 +1,7 @@
-/// Enum representing the supported sign languages in TravelEase
+/// Enum representing the supported sign languages in TravelEase (ASL First)
 enum SignLanguageType {
-  bim('BIM', 'Malaysian Sign Language', 'Bahasa Isyarat Malaysia', 'MY', 'Malaysia', 'ms', '🇲🇾'),
   asl('ASL', 'American Sign Language', 'American Sign Language', 'US', 'United States', 'en', '🇺🇸'),
+  bim('BIM', 'Malaysian Sign Language', 'Bahasa Isyarat Malaysia', 'MY', 'Malaysia', 'ms', '🇲🇾'),
   csl('CSL', 'Chinese Sign Language', '中国手语 (Zhongguo Shouyu)', 'CN', 'China', 'zh', '🇨🇳');
 
   final String code;
@@ -23,11 +23,11 @@ enum SignLanguageType {
   );
 
   static SignLanguageType fromCode(String? code) {
-    if (code == null) return SignLanguageType.bim;
+    if (code == null) return SignLanguageType.asl;
     final upper = code.toUpperCase().trim();
     return SignLanguageType.values.firstWhere(
       (e) => e.code == upper,
-      orElse: () => SignLanguageType.bim,
+      orElse: () => SignLanguageType.asl,
     );
   }
 }
@@ -60,14 +60,14 @@ class SignLanguageInfo {
 
   factory SignLanguageInfo.fromJson(Map<String, dynamic> json) {
     return SignLanguageInfo(
-      id: json['id'] as String? ?? 'BIM',
-      name: json['name'] as String? ?? '',
-      nativeName: json['native_name'] as String? ?? '',
-      countryCode: json['country_code'] as String? ?? 'MY',
-      countryName: json['country_name'] as String? ?? 'Malaysia',
-      primarySpokenLanguage: json['primary_spoken_language'] as String? ?? 'ms',
+      id: json['id'] as String? ?? 'ASL',
+      name: json['name'] as String? ?? 'American Sign Language',
+      nativeName: json['native_name'] as String? ?? 'American Sign Language',
+      countryCode: json['country_code'] as String? ?? 'US',
+      countryName: json['country_name'] as String? ?? 'United States',
+      primarySpokenLanguage: json['primary_spoken_language'] as String? ?? 'en',
       description: json['description'] as String?,
-      flagEmoji: json['flag_emoji'] as String?,
+      flagEmoji: json['flag_emoji'] as String? ?? '🇺🇸',
       isActive: json['is_active'] as bool? ?? true,
     );
   }

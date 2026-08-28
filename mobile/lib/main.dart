@@ -6,8 +6,18 @@ import 'core/supabase_client.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: ".env");
-  await SupabaseClientHelper.initialize();
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint("Warning: Failed to load .env file: $e");
+  }
+
+  try {
+    await SupabaseClientHelper.initialize();
+  } catch (e) {
+    debugPrint("Warning: Failed to initialize Supabase: $e");
+  }
+
   runApp(const TravelEaseApp());
 }
 

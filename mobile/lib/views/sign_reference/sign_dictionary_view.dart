@@ -25,6 +25,7 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
     _CategoryItem('transit', 'Transit', Icons.directions_bus),
     _CategoryItem('medical', 'Medical', Icons.local_hospital),
     _CategoryItem('emergency', 'Emergency', Icons.warning_amber),
+    _CategoryItem('animal', 'Animals', Icons.pets),
     _CategoryItem('general', 'General', Icons.chat_bubble_outline),
   ];
 
