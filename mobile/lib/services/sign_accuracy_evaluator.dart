@@ -1,5 +1,7 @@
+import 'asl_tflite_service.dart';
 import 'sign_clip_recorder.dart';
 import 'geometric_sign_recognizer.dart';
+import 'sign_frame_data.dart';
 
 /// Per-clip result of the accuracy evaluation.
 class ClipEvaluation {
@@ -68,8 +70,9 @@ class AccuracyReport {
   }
 }
 
-/// Replays recorded clips through the live geometric recognizer and reports
-/// top-1 accuracy + confusions (Phase 0.2 harness).
+/// Replays recorded clips through the live recognizers and reports top-1
+/// accuracy + confusions (Phase 0.2 harness): [evaluate] exercises the
+/// geometric rule engine, [evaluateTflite] the TFLite model.
 class SignAccuracyEvaluator {
   const SignAccuracyEvaluator();
 
@@ -114,6 +117,63 @@ class SignAccuracyEvaluator {
         predictedSign: best,
         correct: correct,
         framesWithCommittedSign: framesWithSign,
+        totalFrames: clip.frames.length,
+      ));
+    }
+
+    return AccuracyReport(clips: evals, confusions: confusions);
+  }
+
+  /// Replays recorded clips through the TFLite model: builds the GISLR
+  /// 543x3 tensor per frame ([buildGislrTensor]) and majority-votes the
+  /// per-frame argmax across the clip — the same scoring as [evaluate].
+  ///
+  /// Loads the model on first use (no-op when already initialized); throws
+  /// [StateError] if the model cannot be loaded.
+  Future<AccuracyReport> evaluateTflite(List<SignClip> clips) async {
+    final tflite = AslTfliteService();
+    await tflite.initialize();
+    if (!tflite.isModelLoaded) {
+      throw StateError('ASL TFLite model failed to load: ${tflite.lastError}');
+    }
+
+    final evals = <ClipEvaluation>[];
+    final confusions = <String, int>{};
+
+    for (final clip in clips) {
+      final counts = <String, int>{};
+      int framesWithPrediction = 0;
+
+      for (final frame in clip.frames) {
+        final prediction = tflite.predictGesture(buildGislrTensor(frame));
+        final sign = prediction['character'] as String? ?? '';
+        if (sign.isNotEmpty) {
+          framesWithPrediction++;
+          counts[sign] = (counts[sign] ?? 0) + 1;
+        }
+      }
+
+      // Majority vote across the clip.
+      String best = '';
+      int bestN = 0;
+      counts.forEach((sign, n) {
+        if (n > bestN) {
+          best = sign;
+          bestN = n;
+        }
+      });
+
+      final correct = best == clip.label;
+      if (!correct && best.isNotEmpty) {
+        final key = '${clip.label} -> $best';
+        confusions[key] = (confusions[key] ?? 0) + 1;
+      }
+
+      evals.add(ClipEvaluation(
+        label: clip.label,
+        predictedSign: best,
+        correct: correct,
+        framesWithCommittedSign: framesWithPrediction,
         totalFrames: clip.frames.length,
       ));
     }

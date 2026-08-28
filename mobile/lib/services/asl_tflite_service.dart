@@ -88,23 +88,12 @@ class AslTfliteService {
     return null;
   }
 
-  /// Run inference on a temporal window of landmark frames.
+  /// Run inference on a single frame of 543x3 landmark values.
   ///
-  /// [frames] is a list of flat 543x3 tensors (one per frame), already
-  /// resampled and preprocessed by the caller to match the model's expected
-  /// frame count.
-  Map<String, dynamic> predictWindow(List<List<double>> frames) {
-    final flat = <double>[];
-    for (final f in frames) {
-      flat.addAll(f);
-    }
-    return predictGesture(flat);
-  }
-
-  /// Run inference on a flat list of landmark values.
-  ///
-  /// [landmarks] should match the model's expected input shape.
-  /// For the GISLR model this is typically 543 landmark points × 3 coords.
+  /// [landmarks] must contain exactly the model's input element count
+  /// (543*3 = 1629 for the GISLR model) in dataset column order — build it
+  /// with [buildGislrTensor]. Mismatched sizes are rejected instead of
+  /// silently truncated.
   ///
   /// Returns `{'character': String, 'confidence': double, 'index': int}`.
   Map<String, dynamic> predictGesture(List<double> landmarks) {
@@ -113,42 +102,9 @@ class AslTfliteService {
     }
 
     try {
-      final inputTensor  = _interpreter!.getInputTensor(0);
-      final outputTensor = _interpreter!.getOutputTensor(0);
-      final inputShape   = inputTensor.shape;
-      final outputShape  = outputTensor.shape;
+      final probs = _predictProbs(landmarks);
 
-      // Reshape input to match model expectations
-      final input = _reshapeInput(landmarks, inputShape);
-
-      // Prepare output buffer — handle both [250] and [1, 250] output shapes
-      final List<double> scores;
-      if (outputShape.length == 1) {
-        // Flat output: [numClasses]
-        final flatOutput = List<double>.filled(outputShape[0], 0.0);
-        _interpreter!.run(input, flatOutput);
-        scores = flatOutput;
-      } else {
-        // Batched output: [1, numClasses]
-        final batchOutput = List<List<double>>.generate(
-          1, (_) => List<double>.filled(outputShape.last, 0.0),
-        );
-        _interpreter!.run(input, batchOutput);
-        scores = batchOutput[0];
-      }
-
-      // Find top prediction
-      int bestIndex = 0;
-      double bestScore = scores[0];
-      for (int i = 1; i < scores.length; i++) {
-        if (scores[i] > bestScore) {
-          bestScore = scores[i];
-          bestIndex = i;
-        }
-      }
-
-      // Sort indices by score to find top 5
-      final indexedScores = List.generate(scores.length, (i) => MapEntry(i, scores[i]))
+      final indexedScores = List.generate(probs.length, (i) => MapEntry(i, probs[i]))
         ..sort((a, b) => b.value.compareTo(a.value));
 
       final top5 = indexedScores.take(5).map((e) {
@@ -158,11 +114,8 @@ class AslTfliteService {
 
       debugPrint('[AslTfliteService] Top 5 candidates: $top5');
 
-      // Apply softmax if scores don't look like probabilities
-      double confidence = bestScore;
-      if (bestScore > 1.0 || bestScore < 0.0) {
-        confidence = _softmaxMax(scores);
-      }
+      final bestIndex = indexedScores.first.key;
+      final confidence = indexedScores.first.value;
 
       final signWord = _indexToSign[bestIndex] ?? 'unknown';
       debugPrint('[AslTfliteService] Top sign: "$signWord" (index=$bestIndex, confidence=${confidence.toStringAsFixed(3)})');
@@ -178,6 +131,97 @@ class AslTfliteService {
     }
   }
 
+  /// Run per-frame inference over a closed gesture window.
+  ///
+  /// The GISLR model is a single-frame classifier (`[1, 543, 3]`): each
+  /// entry of [frames] is inferred on its own and the per-frame class
+  /// probabilities are averaged, approximating a temporal vote without a
+  /// temporal model. Frames must all be flat 543x3 tensors (see
+  /// [buildGislrTensor]); confidence is the winning class's mean
+  /// probability across frames.
+  Map<String, dynamic> predictFrames(List<List<double>> frames) {
+    if (!isModelLoaded || frames.isEmpty) {
+      return {'character': '', 'confidence': 0.0, 'index': -1};
+    }
+
+    try {
+      final numClasses = _interpreter!.getOutputTensor(0).shape.last;
+      final meanProbs = List<double>.filled(numClasses, 0.0);
+      int usedFrames = 0;
+
+      for (final frame in frames) {
+        try {
+          final probs = _predictProbs(frame);
+          for (int i = 0; i < numClasses; i++) {
+            meanProbs[i] += probs[i];
+          }
+          usedFrames++;
+        } catch (e) {
+          debugPrint('[AslTfliteService] Skipping malformed frame: $e');
+        }
+      }
+      if (usedFrames == 0) {
+        return {'character': '', 'confidence': 0.0, 'index': -1};
+      }
+      for (int i = 0; i < numClasses; i++) {
+        meanProbs[i] /= usedFrames;
+      }
+
+      int bestIndex = 0;
+      for (int i = 1; i < meanProbs.length; i++) {
+        if (meanProbs[i] > meanProbs[bestIndex]) bestIndex = i;
+      }
+
+      final signWord = _indexToSign[bestIndex] ?? 'unknown';
+      debugPrint('[AslTfliteService] Window of ${frames.length} frames '
+          '($usedFrames used) -> "$signWord" '
+          '(confidence=${meanProbs[bestIndex].toStringAsFixed(3)})');
+
+      return {
+        'character': signWord,
+        'confidence': meanProbs[bestIndex],
+        'index': bestIndex,
+      };
+    } catch (e) {
+      debugPrint('[AslTfliteService] Window prediction error: $e');
+      return {'character': '', 'confidence': 0.0, 'index': -1};
+    }
+  }
+
+  /// Run the model on one frame and return class probabilities.
+  ///
+  /// Throws [ArgumentError] on input-size mismatch so callers never infer
+  /// on silently truncated data.
+  List<double> _predictProbs(List<double> landmarks) {
+    final inputShape = _interpreter!.getInputTensor(0).shape;
+    final outputShape = _interpreter!.getOutputTensor(0).shape;
+    final totalElements = inputShape.fold<int>(1, (a, b) => a * b);
+    if (landmarks.length != totalElements) {
+      throw ArgumentError(
+        'Expected $totalElements landmark values ($inputShape), got '
+        '${landmarks.length}. Build one frame with buildGislrTensor() — '
+        'this model is single-frame, not temporal.',
+      );
+    }
+
+    final input = _reshapeInput(landmarks, inputShape);
+    final scores = _run(input, outputShape);
+    return _toProbabilities(scores);
+  }
+
+  List<double> _run(dynamic input, List<int> outputShape) {
+    if (outputShape.length == 1) {
+      final flatOutput = List<double>.filled(outputShape[0], 0.0);
+      _interpreter!.run(input, flatOutput);
+      return flatOutput;
+    }
+    final batchOutput = List<List<double>>.generate(
+      1, (_) => List<double>.filled(outputShape.last, 0.0),
+    );
+    _interpreter!.run(input, batchOutput);
+    return batchOutput[0];
+  }
+
   /// Decode a prediction index to the sign word label.
   String decodeIndex(int index) {
     return _indexToSign[index] ?? 'unknown';
@@ -188,28 +232,19 @@ class AslTfliteService {
     return _signToIndex[signWord.toLowerCase()];
   }
 
-  /// Reshape a flat landmark list into the tensor shape the model expects.
+  /// Reshape a size-validated flat landmark list into the tensor shape the
+  /// model expects. [_predictProbs] guarantees flat.length matches the
+  /// shape, so no padding or truncation happens here.
   dynamic _reshapeInput(List<double> flat, List<int> shape) {
-    // Pad or truncate to match expected flat size
-    int totalElements = shape.fold(1, (a, b) => a * b);
-    List<double> padded = List<double>.filled(totalElements, 0.0);
-    for (int i = 0; i < flat.length && i < totalElements; i++) {
-      padded[i] = flat[i];
-    }
-
-    // Reshape based on number of dimensions
     if (shape.length == 3) {
-      // [1, landmarks, 3] or [batch, seq, features]
-      return _reshape3D(padded, shape);
+      // [1, landmarks, 3]
+      return _reshape3D(flat, shape);
     } else if (shape.length == 4) {
       // [1, frames, landmarks, 3]
-      return _reshape4D(padded, shape);
-    } else if (shape.length == 2) {
-      // [1, features]
-      return [padded.sublist(0, shape[1])];
+      return _reshape4D(flat, shape);
     }
-
-    return [padded];
+    // [1, features] and any other rank: single flat batch entry.
+    return [flat];
   }
 
   List<List<List<double>>> _reshape3D(List<double> flat, List<int> shape) {
@@ -238,13 +273,24 @@ class AslTfliteService {
     });
   }
 
-  /// Compute softmax and return the maximum probability.
-  double _softmaxMax(List<double> logits) {
+  /// Convert raw model output to class probabilities. The GISLR model ends
+  /// in softmax (output already sums to ~1); anything else is treated as
+  /// logits and softmaxed here.
+  List<double> _toProbabilities(List<double> scores) {
+    double sum = 0;
+    for (final s in scores) {
+      if (s < 0.0 || s > 1.0) return _softmax(scores);
+      sum += s;
+    }
+    if (sum > 0.98 && sum < 1.02) return scores;
+    return _softmax(scores);
+  }
+
+  List<double> _softmax(List<double> logits) {
     final maxLogit = logits.reduce((a, b) => a > b ? a : b);
     final exps = logits.map((l) => math.exp((l - maxLogit).clamp(-80.0, 80.0))).toList();
     final sum = exps.reduce((a, b) => a + b);
-    final probs = exps.map((e) => e / sum).toList();
-    return probs.reduce((a, b) => a > b ? a : b);
+    return exps.map((e) => e / sum).toList();
   }
 
   void dispose() {

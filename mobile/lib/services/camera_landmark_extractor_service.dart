@@ -44,9 +44,10 @@ Map<String, dynamic> _buildNv21Params(List<dynamic> args) {
 /// Extracts body/hand landmarks from live camera frames using Google ML Kit
 /// Pose Detection and MediaPipe Hand Landmarker, then recognises signs via:
 ///
-///   1. TEMPORAL TFLITE path (primary): landmark ring buffer + motion gating;
-///      when a gesture window closes, the buffered 543-landmark sequence is
-///      resampled/preprocessed and run through the GISLR model.
+///   1. TFLITE path (primary): landmark ring buffer + motion gating; when a
+///      gesture window closes, its frames (543-landmark GISLR tensors) are
+///      resampled and each run through the single-frame GISLR model, with
+///      the per-frame class probabilities averaged.
 ///   2. GEOMETRIC path (fallback): rule-based shape+anchor matching.
 ///
 /// Also hosts the accuracy-harness clip recorder.
@@ -83,6 +84,10 @@ class CameraLandmarkExtractorService {
 
   /// Minimum TFLite softmax confidence to prefer the neural result.
   static const double _tfliteMinConfidence = 0.60;
+
+  /// Upper bound on frames inferred per closed gesture window (the model is
+  /// single-frame, so cost scales with window length).
+  static const int _maxInferenceFrames = 32;
 
   /// Sanity probe: if the model returns the same class at ~1.0 confidence for
   /// this many consecutive windows, it is judged degenerate (bad preprocessing
@@ -475,7 +480,7 @@ class CameraLandmarkExtractorService {
     _lastWristTs = ts;
 
     if (_inGesture) {
-      _windowTensor.add(_buildLandmarkTensorFromFrame(frame));
+      _windowTensor.add(buildGislrTensor(frame));
       _windowTimestamps.add(ts);
       if (_windowTensor.length > _maxWindowFrames) {
         _windowTensor.removeAt(0);
@@ -495,54 +500,19 @@ class CameraLandmarkExtractorService {
     }
   }
 
-  /// Build the 543x3 flat tensor from the current frame's hand + pose data.
-  ///
-  /// Layout follows the MediaPipe Holistic convention the GISLR model was
-  /// trained on: face 0-467 (sparse: key anchors only), left hand 468-488,
-  /// pose 489-521, right hand 522-542.
-  List<double> _buildLandmarkTensorFromFrame(SignFrameData frame) {
-    final tensor = List<double>.filled(543 * 3, 0.0);
-
-    void setPt(int landmarkIndex, SGPoint? p) {
-      if (p == null) return;
-      final idx = landmarkIndex * 3;
-      if (idx + 2 < tensor.length) {
-        tensor[idx] = p.x;
-        tensor[idx + 1] = p.y;
-        tensor[idx + 2] = p.z;
-      }
-    }
-
-    // Full pose (33 points) — ML Kit order maps 1:1 onto holistic pose order.
-    for (int i = 0; i < frame.pose.length && i < 33; i++) {
-      setPt(489 + i, frame.pose[i]);
-    }
-
-    // Dominant hand into the right-hand slot.
-    for (int i = 0; i < 21; i++) {
-      setPt(522 + i, frame.hand[i]);
-    }
-
-    return tensor;
-  }
-
-  /// Run the temporal model over the closed gesture window.
+  /// Run the single-frame GISLR model over the closed gesture window:
+  /// resample to at most [_maxInferenceFrames] frames, infer on each frame,
+  /// and average the class probabilities (see [AslTfliteService.predictFrames]).
   void _runTemporalInference() {
     if (!isTemporalPathEnabled) return;
     if (_aslTflite.lastError != null && !_aslTflite.isModelLoaded) return;
 
     try {
-      final targetFrames = _aslTflite.expectedFrameCount ?? 32;
-      final prepared = _preprocessWindow(_windowTensor, targetFrames);
+      final prepared = _preprocessWindow(_windowTensor, _maxInferenceFrames);
       if (prepared == null) return;
 
-      final flat = <double>[];
-      for (final f in prepared) {
-        flat.addAll(f);
-      }
-
       final sw = Stopwatch()..start();
-      final prediction = _aslTflite.predictGesture(flat);
+      final prediction = _aslTflite.predictFrames(prepared);
       sw.stop();
 
       final sign = prediction['character'] as String? ?? '';
@@ -584,18 +554,17 @@ class CameraLandmarkExtractorService {
 
   bool get isTemporalPathEnabled => _aslTflite.isModelLoaded && !_modelSuspect;
 
-  /// Resample the window to [target] frames and normalize.
+  /// Resample the window to at most [target] frames (linear interpolation)
+  /// so a long gesture costs a bounded number of per-frame inferences.
   ///
-  /// ⚠️ BEST-GUESS preprocessing (the model's training preprocessing is
-  /// unknown): center by the per-window mean of active landmarks, scale by
-  /// the per-window coordinate std. If the model stays degenerate (see
-  /// sanity probe), the temporal path auto-disables — the fix is then to
-  /// retrain (Phase 4) with known preprocessing.
+  /// No further normalization: the GISLR dataset stores raw MediaPipe
+  /// coordinates (x,y in 0..1, z as reported, zeros for missing landmarks)
+  /// and [buildGislrTensor] already produces exactly that.
   List<List<double>>? _preprocessWindow(List<List<double>> window, int target) {
-    if (window.length < 2 || target < 2) return null;
+    if (window.isEmpty) return null;
+    if (window.length <= target) return window;
 
-    // 1. Linear resample to target frame count.
-    final resampled = List<List<double>>.generate(target, (i) {
+    return List<List<double>>.generate(target, (i) {
       final t = i * (window.length - 1) / (target - 1);
       final i0 = t.floor();
       final i1 = math.min(i0 + 1, window.length - 1);
@@ -603,26 +572,6 @@ class CameraLandmarkExtractorService {
       final a = window[i0], b = window[i1];
       return List<double>.generate(a.length, (j) => a[j] + (b[j] - a[j]) * frac);
     });
-
-    // 2. Center + scale using ACTIVE (non-zero) coordinates only.
-    double sum = 0, sumSq = 0;
-    int n = 0;
-    for (final frame in resampled) {
-      for (final v in frame) {
-        if (v != 0.0) {
-          sum += v;
-          sumSq += v * v;
-          n++;
-        }
-      }
-    }
-    if (n < 100) return null; // mostly-empty window
-    final mean = sum / n;
-    final std = math.sqrt(math.max(1e-8, sumSq / n - mean * mean));
-
-    return resampled
-        .map((f) => f.map((v) => (v - mean) / std).toList())
-        .toList();
   }
 
   // =====================================================================

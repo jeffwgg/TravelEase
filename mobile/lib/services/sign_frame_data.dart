@@ -86,9 +86,9 @@ class SignAnchors {
 /// When [hasMediaPipeHand] is false the hand was synthesized from pose
 /// landmarks and finger angles are unreliable.
 ///
-/// [pose] holds up to 33 ML Kit pose landmarks (same order as
-/// [PoseLandmarkType] values is NOT guaranteed — the extractor fills the
-/// holistic pose indices it needs; null where undetected).
+/// [pose] holds up to 33 ML Kit pose landmarks in [PoseLandmarkType.values]
+/// order — identical to BlazePose order, i.e. the GISLR dataset's pose
+/// landmarks 0-32; null where undetected.
 class SignFrameData {
   final List<SGPoint> hand;
   final SignAnchors anchors;
@@ -127,4 +127,62 @@ class SignFrameData {
         isFrontCamera: j['isFrontCamera'] as bool? ?? true,
         timestampMs: j['timestampMs'] as int? ?? 0,
       );
+}
+
+/// Indices into [SignFrameData.pose] for the wrist entries (BlazePose order).
+const int kPoseLeftWristIndex = 15;
+const int kPoseRightWristIndex = 16;
+
+/// Builds the flat 543x3 landmark tensor in the Kaggle GISLR dataset column
+/// order the model was trained on:
+///
+///   pose 0-32 (33 pts), left hand 33-63 (21), right hand 64-93 (21),
+///   face 94-542 (449 — always zero here: the app has no face mesh).
+///
+/// Coordinates are the raw screen-normalized values already carried by
+/// [SignFrameData] (x,y in 0..1, mirror-compensated, z as reported) — the
+/// dataset itself stores raw MediaPipe coordinates with zeros for missing
+/// landmarks, so no extra normalization is applied.
+List<double> buildGislrTensor(SignFrameData frame) {
+  final tensor = List<double>.filled(543 * 3, 0.0);
+
+  void setPt(int landmarkIndex, SGPoint? p) {
+    if (p == null) return;
+    final idx = landmarkIndex * 3;
+    if (idx + 2 < tensor.length) {
+      tensor[idx] = p.x;
+      tensor[idx + 1] = p.y;
+      tensor[idx + 2] = p.z;
+    }
+  }
+
+  // Pose 0-32 — ML Kit's PoseLandmarkType order matches BlazePose order.
+  for (int i = 0; i < frame.pose.length && i < 33; i++) {
+    setPt(i, frame.pose[i]);
+  }
+
+  // Tracked hand into the slot matching its anatomical side.
+  final base = _isLeftHand(frame) ? 33 : 64;
+  for (int i = 0; i < frame.hand.length && i < 21; i++) {
+    setPt(base + i, frame.hand[i]);
+  }
+
+  return tensor;
+}
+
+/// True when [frame]'s hand is the signer's anatomical LEFT hand.
+///
+/// Hand and pose landmarks share the same mirror compensation, so
+/// nearest-wrist matching is orientation-safe. Falls back to screen side
+/// (after mirror compensation the signer's left side maps to x > 0.5).
+bool _isLeftHand(SignFrameData frame) {
+  if (frame.pose.length > kPoseRightWristIndex) {
+    final leftWrist = frame.pose[kPoseLeftWristIndex];
+    final rightWrist = frame.pose[kPoseRightWristIndex];
+    if (leftWrist != null && rightWrist != null) {
+      final wrist = frame.hand[0];
+      return wrist.dist2D(leftWrist) < wrist.dist2D(rightWrist);
+    }
+  }
+  return frame.hand[0].x > 0.5;
 }

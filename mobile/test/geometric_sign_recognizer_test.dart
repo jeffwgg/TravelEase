@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:travelease/models/services/sign_frame_data.dart';
-import 'package:travelease/models/services/sign_clip_recorder.dart';
-import 'package:travelease/models/services/geometric_sign_recognizer.dart';
-import 'package:travelease/models/services/sign_accuracy_evaluator.dart';
+import 'package:travelease/services/sign_frame_data.dart';
+import 'package:travelease/services/sign_clip_recorder.dart';
+import 'package:travelease/services/geometric_sign_recognizer.dart';
+import 'package:travelease/services/sign_accuracy_evaluator.dart';
 
 /// Synthetic hand/anchor geometry used to verify the geometric recognizer
 /// end-to-end (Phase 0.2 harness validation).

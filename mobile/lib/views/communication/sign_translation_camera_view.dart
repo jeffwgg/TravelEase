@@ -7,8 +7,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../models/entities/sign_language_entity.dart';
-import '../../models/services/camera_landmark_extractor_service.dart';
-import '../../models/services/sign_frame_data.dart';
+import '../../services/camera_landmark_extractor_service.dart';
+import '../../services/sign_frame_data.dart';
 import '../../viewmodels/sign_translation_camera_viewmodel.dart';
 import '../../viewmodels/speech_to_sign_viewmodel.dart';
 
