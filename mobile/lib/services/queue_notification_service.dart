@@ -1,7 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../models/queue_tracking.dart';
-import '../repositories/queue_repository.dart';
+import '../models/entities/queue_tracking.dart';
+import '../models/repositories/queue_repository.dart';
 import 'app_notification_service.dart';
 
 class QueueNotificationService {

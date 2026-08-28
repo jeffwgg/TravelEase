@@ -1,5 +1,5 @@
-import '../core/supabase_client.dart';
-import '../models/venue_search_result.dart';
+import '../../core/supabase_client.dart';
+import '../entities/venue_search_result.dart';
 
 class VenueRepository {
   Future<List<VenueSearchResult>> search(String query) async {

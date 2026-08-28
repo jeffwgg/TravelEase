@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/environment_sound.dart';
+
+import '../entities/environment_sound.dart';
 
 class EnvironmentSoundPreferences {
   static const _enabledKey = 'environment_sound_enabled';

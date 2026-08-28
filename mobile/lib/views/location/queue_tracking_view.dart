@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
-import '../../models/queue_tracking.dart';
-import '../../repositories/queue_repository.dart';
+import '../../models/entities/queue_tracking.dart';
+import '../../models/repositories/queue_repository.dart';
 import '../../services/queue_notification_service.dart';
 import '../../widgets/app_message_banner.dart';
 

@@ -1,6 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../core/supabase_client.dart';
-import '../models/queue_tracking.dart';
+import '../../core/supabase_client.dart';
+import '../entities/queue_tracking.dart';
 
 class QueueRepository {
   static const kliaTerminalOneId = '11111111-1111-4111-8111-111111111111';

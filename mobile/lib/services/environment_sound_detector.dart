@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
-import '../models/environment_sound.dart';
+import '../models/entities/environment_sound.dart';
 
 class EnvironmentSoundDetector {
   factory EnvironmentSoundDetector() => _instance;

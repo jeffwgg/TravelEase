@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
-import '../../models/announcement.dart';
-import '../../repositories/announcement_repository.dart';
-import '../../repositories/venue_repository.dart';
-import '../../models/venue_search_result.dart';
+import '../../models/entities/announcement.dart';
+import '../../models/repositories/announcement_repository.dart';
+import '../../models/repositories/venue_repository.dart';
+import '../../models/entities/venue_search_result.dart';
 import '../../widgets/app_message_banner.dart';
 
 class VenueIdentificationView extends StatefulWidget {

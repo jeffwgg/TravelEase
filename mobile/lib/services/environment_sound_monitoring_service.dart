@@ -1,6 +1,6 @@
 import 'dart:async';
-import '../models/environment_sound.dart';
-import '../repositories/environment_sound_repository.dart';
+import '../models/entities/environment_sound.dart';
+import '../models/repositories/environment_sound_repository.dart';
 import 'app_notification_service.dart';
 import 'environment_sound_detector.dart';
 

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
-import '../../models/announcement.dart';
-import '../../repositories/announcement_repository.dart';
+import '../../models/entities/announcement.dart';
+import '../../models/repositories/announcement_repository.dart';
 import '../../widgets/app_message_banner.dart';
 
 class AnnouncementView extends StatefulWidget {
