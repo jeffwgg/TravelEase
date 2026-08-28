@@ -2,6 +2,28 @@ import { supabase } from '../lib/supabase'
 
 const lineSelect = '*, queue_numbers(id, number, status, traveler_id, called_at, completed_at)'
 
+function queueNumberCandidates(number, prefix = '') {
+  const raw = number.trim().toUpperCase()
+  const compact = raw.replace(/[\s-]/g, '')
+  const cleanPrefix = prefix.trim().toUpperCase().replace(/[\s-]/g, '')
+  const candidates = new Set([raw, compact])
+  let numberPart = compact
+  let resolvedPrefix = cleanPrefix
+
+  if (cleanPrefix && compact.startsWith(cleanPrefix)) numberPart = compact.slice(cleanPrefix.length)
+  if (!cleanPrefix) {
+    const match = compact.match(/^([A-Z]+)(\d+)$/)
+    if (match) [, resolvedPrefix, numberPart] = match
+  }
+  if (resolvedPrefix && /^\d+$/.test(numberPart)) {
+    const padded = numberPart.padStart(3, '0')
+    candidates.add(`${resolvedPrefix}-${padded}`)
+    candidates.add(`${resolvedPrefix}${padded}`)
+    candidates.add(`${resolvedPrefix}-${numberPart}`)
+  }
+  return [...candidates].filter(Boolean)
+}
+
 export const queueRepository = {
   async getQueueLines(institutionId) {
     const { data, error } = await supabase
@@ -15,33 +37,11 @@ export const queueRepository = {
   },
 
   async createQueueLine(payload) {
-    const { data: line, error } = await supabase
-      .from('queue_lines')
-      .insert(payload)
-      .select()
-      .single()
-    if (error) throw error
-
-    const numbers = [...new Set([payload.current_number, payload.upcoming_number])]
-      .map((number) => ({
-        queue_line_id: line.id,
-        institution_id: line.institution_id,
-        number,
-        status: number === payload.current_number ? 'serving' : 'waiting',
-        called_at: number === payload.current_number ? new Date().toISOString() : null,
-      }))
-    const { error: numbersError } = await supabase.from('queue_numbers').insert(numbers)
-    if (numbersError) throw numbersError
-
-    const { error: eventError } = await supabase.from('queue_events').insert({
-      institution_id: line.institution_id,
-      queue_line_id: line.id,
-      event_type: 'created',
-      event_number: line.current_number,
-      created_by: payload.created_by,
+    const { data, error } = await supabase.functions.invoke('create-queue-line', {
+      body: { queueLine: payload },
     })
-    if (eventError) throw eventError
-    return line
+    if (error) throw await functionError(error, 'Unable to create the queue line.')
+    return data.queueLine
   },
 
   async updateQueueLine(id, payload, userId) {
@@ -65,6 +65,26 @@ export const queueRepository = {
     return line
   },
 
+  async deleteQueueLine(id, institutionId) {
+    const { data, error } = await supabase.functions.invoke('delete-queue-line', {
+      body: { queueLineId: id, institutionId },
+    })
+    if (error) {
+      let message = error.message
+      const response = error.context
+      if (response && typeof response.clone === 'function') {
+        try {
+          const payload = await response.clone().json()
+          message = payload?.error || payload?.message || message
+        } catch {
+          // Keep the SDK error if the function response is not JSON.
+        }
+      }
+      throw new Error(message)
+    }
+    return data
+  },
+
   async callNext(queueLineId) {
     const { data, error } = await supabase.rpc('queue_call_next', { p_queue_line_id: queueLineId })
     if (error) throw error
@@ -81,6 +101,18 @@ export const queueRepository = {
   },
 
   async markNumber(queueLineId, number, status) {
+    if (status === 'completed') {
+      const { data, error } = await supabase
+        .from('queue_numbers')
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
+        .eq('queue_line_id', queueLineId)
+        .eq('number', number.trim())
+        .select()
+        .single()
+      if (error) throw error
+      return { number: data, line: null }
+    }
+
     const { data, error } = await supabase.rpc('queue_mark_number_and_call_next', {
       p_queue_line_id: queueLineId,
       p_number: number.trim(),
@@ -90,14 +122,16 @@ export const queueRepository = {
     return data
   },
 
-  async findQueueNumber(institutionId, number) {
-    const { data, error } = await supabase
+  async findQueueNumber(institutionId, number, queueLine = null) {
+    let query = supabase
       .from('queue_numbers')
-      .select('*, queue_lines!inner(id, name, service_area, counter, current_number, upcoming_number, status)')
+      .select('*, queue_lines!inner(id, name, service_area, counter, prefix, current_number, upcoming_number, status)')
       .eq('institution_id', institutionId)
-      .eq('number', number.trim().toUpperCase())
+      .in('number', queueNumberCandidates(number, queueLine?.prefix))
       .order('updated_at', { ascending: false })
       .limit(1)
+    if (queueLine?.id) query = query.eq('queue_line_id', queueLine.id)
+    const { data, error } = await query
       .maybeSingle()
     if (error) throw error
     return data
@@ -118,4 +152,18 @@ export const queueRepository = {
 
     return () => supabase.removeChannel(channel)
   },
+}
+
+async function functionError(error, fallback) {
+  let message = error.message || fallback
+  const response = error.context
+  if (response && typeof response.clone === 'function') {
+    try {
+      const payload = await response.clone().json()
+      message = payload?.error || payload?.message || message
+    } catch {
+      // Keep the SDK error when the response is not JSON.
+    }
+  }
+  return new Error(message)
 }

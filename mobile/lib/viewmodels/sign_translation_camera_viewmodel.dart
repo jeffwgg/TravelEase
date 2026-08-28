@@ -1,8 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/entities/sign_language_entity.dart';
-import '../models/services/sign_frame_data.dart';
-import '../models/services/sign_translation_service.dart';
-import '../models/services/asl_tflite_service.dart';
+import '../services/sign_translation_service.dart';
 import '../models/repositories/communication_repository.dart';
 import '../core/hardware_services.dart';
 

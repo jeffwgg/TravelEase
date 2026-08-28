@@ -23,19 +23,46 @@ class QueueRepository {
   Future<QueueTrackingData?> trackNumber({
     required String number,
     String? queueLineId,
+    String? queuePrefix,
     String institutionId = kliaTerminalOneId,
   }) async {
     var query = _client
         .from('queue_numbers')
         .select('*, queue_lines!inner(*)')
         .eq('institution_id', institutionId)
-        .eq('number', number.trim().toUpperCase());
+        .inFilter('number', _numberCandidates(number, queuePrefix));
     if (queueLineId != null && queueLineId.isNotEmpty) {
       query = query.eq('queue_line_id', queueLineId);
     }
     final response = await query.limit(1).maybeSingle();
     if (response == null) return null;
     return QueueTrackingData.fromJson(Map<String, dynamic>.from(response));
+  }
+
+  List<String> _numberCandidates(String number, String? prefix) {
+    final raw = number.trim().toUpperCase();
+    final compact = raw.replaceAll(RegExp(r'[\s-]'), '');
+    final cleanPrefix = (prefix ?? '').trim().toUpperCase().replaceAll(RegExp(r'[\s-]'), '');
+    final candidates = <String>{raw, compact};
+    var resolvedPrefix = cleanPrefix;
+    var numberPart = compact;
+    if (cleanPrefix.isNotEmpty && compact.startsWith(cleanPrefix)) {
+      numberPart = compact.substring(cleanPrefix.length);
+    } else if (cleanPrefix.isEmpty) {
+      final match = RegExp(r'^([A-Z]+)(\d+)$').firstMatch(compact);
+      if (match != null) {
+        resolvedPrefix = match.group(1)!;
+        numberPart = match.group(2)!;
+      }
+    }
+    if (resolvedPrefix.isNotEmpty && RegExp(r'^\d+$').hasMatch(numberPart)) {
+      final padded = numberPart.padLeft(3, '0');
+      candidates
+        ..add('$resolvedPrefix-$padded')
+        ..add('$resolvedPrefix$padded')
+        ..add('$resolvedPrefix-$numberPart');
+    }
+    return candidates.where((value) => value.isNotEmpty).toList();
   }
 
   RealtimeChannel subscribeToTracking(

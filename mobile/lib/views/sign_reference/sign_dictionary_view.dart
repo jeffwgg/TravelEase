@@ -69,7 +69,7 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
           ),
           body: Column(
             children: [
-              // Search Bar & History Dropdown (FR-M4-13, FR-M4-15)
+              // Search Bar (FR-M4-13)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Column(
@@ -79,78 +79,21 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                       decoration: InputDecoration(
                         hintText: 'Search sign phrases, gloss, or keywords...',
                         prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
-                        suffixIcon: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (_searchController.text.isNotEmpty)
-                              IconButton(
+                        suffixIcon: _searchController.text.isNotEmpty
+                            ? IconButton(
                                 icon: const Icon(Icons.clear, size: 18),
                                 onPressed: () {
                                   _searchController.clear();
                                   _viewModel.search('');
                                 },
-                              ),
-                            IconButton(
-                              icon: Icon(
-                                _viewModel.showHistoryDrawer ? Icons.history_toggle_off : Icons.history,
-                                color: AppColors.primary,
-                              ),
-                              onPressed: _viewModel.toggleHistoryDrawer,
-                            ),
-                          ],
-                        ),
+                              )
+                            : null,
                         filled: true,
                         fillColor: AppColors.surfaceVariant,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                       ),
                       onSubmitted: (q) => _viewModel.search(q),
                     ),
-
-                    // Recent Searches Dropdown Drawer (FR-M4-15, FR-M4-16)
-                    if (_viewModel.showHistoryDrawer && _viewModel.searchHistory.isNotEmpty)
-                      Container(
-                        margin: const EdgeInsets.only(top: 6),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.cardBorder),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('Recent Search Queries', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-                                TextButton(
-                                  onPressed: _viewModel.clearSearchHistory,
-                                  child: const Text('Clear All', style: TextStyle(fontSize: 11, color: AppColors.emergency)),
-                                ),
-                              ],
-                            ),
-                            Wrap(
-                              spacing: 6,
-                              children: _viewModel.searchHistory.map((item) {
-                                return ActionChip(
-                                  label: Text(item.searchQuery, style: const TextStyle(fontSize: 12)),
-                                  onPressed: () {
-                                    _searchController.text = item.searchQuery;
-                                    _viewModel.search(item.searchQuery);
-                                  },
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                      ),
                   ],
                 ),
               ),
@@ -195,12 +138,12 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                 ),
               ),
 
-              // Sign Dialect Selector Tabs (BIM / ASL / CSL) (FR-M4-01)
+              // Sign Dialect Selector Tabs - FR-M4-01: toggle between BIM / ASL visual assets
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: Row(
                   children: [
-                    ...SignLanguageType.values.map((lang) {
+                    ...const [SignLanguageType.bim, SignLanguageType.asl].map((lang) {
                       final isSelected = _viewModel.selectedDialect == lang;
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
@@ -272,6 +215,9 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
   Widget _buildPhraseCard(SignPhrase phrase) {
     final isFav = _viewModel.isFavorite(phrase.id);
     final gloss = phrase.getGloss(_viewModel.selectedDialect);
+    final dialect = _viewModel.selectedDialect;
+    final primaryText = phrase.getPrimaryText(dialect);
+    final secondaryText = dialect == SignLanguageType.bim ? phrase.phraseEn : phrase.phraseMs;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -313,12 +259,12 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      phrase.phraseEn,
+                      primaryText,
                       style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      phrase.phraseMs,
+                      secondaryText,
                       style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 6),

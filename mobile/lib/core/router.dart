@@ -19,10 +19,12 @@ import '../views/sign_reference/sign_dictionary_view.dart';
 import '../views/sign_reference/favorite_phrases_view.dart';
 import '../views/sign_reference/sign_media_viewer_view.dart';
 import '../views/assistance/assistance_request_view.dart';
+import '../views/assistance/assistance_menu_view.dart';
 import '../views/assistance/request_tracking_view.dart';
 import '../views/assistance/chat_view.dart';
 import '../views/assistance/accessibility_issue_view.dart';
 import '../views/assistance/location_picker_view.dart';
+import '../views/debug/speech_diagnostics_view.dart';
 import '../views/home/home_view.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -124,6 +126,10 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => const RequestTrackingView(),
     ),
     GoRoute(
+      path: '/assistance-request/new',
+      builder: (context, state) => const AssistanceRequestView(),
+    ),
+    GoRoute(
       path: '/chat',
       builder: (context, state) {
         final requestId = state.uri.queryParameters['requestId'] ?? '';
@@ -137,6 +143,12 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/location-picker',
       builder: (context, state) => const LocationPickerView(),
+    ),
+    // TEMPORARY: device speech capability diagnostics (remove once Mandarin
+    // TTS/ASR strategy is confirmed).
+    GoRoute(
+      path: '/speech-diagnostics',
+      builder: (context, state) => const SpeechDiagnosticsView(),
     ),
   ],
 );
@@ -165,7 +177,7 @@ class _AssistanceTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const AssistanceRequestView();
+    return const AssistanceMenuView();
   }
 }
 

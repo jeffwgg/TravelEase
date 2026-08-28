@@ -1,4 +1,4 @@
-import '../entities/sign_language_entity.dart';
+import '../models/entities/sign_language_entity.dart';
 
 /// Result of a 3-way sign language translation pipeline
 class SignTranslationPipelineResult {

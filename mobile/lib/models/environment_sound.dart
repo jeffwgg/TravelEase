@@ -1,4 +1,10 @@
-enum EnvironmentSoundType { alarm, siren, vehicleHorn, doorbell }
+enum EnvironmentSoundType {
+  alarm,
+  siren,
+  vehicleHorn,
+  doorbell,
+  speechAnnouncement,
+}
 
 enum SoundSensitivity { high, balanced, low }
 
@@ -8,6 +14,7 @@ extension EnvironmentSoundTypeDetails on EnvironmentSoundType {
     EnvironmentSoundType.siren => 'Emergency Siren',
     EnvironmentSoundType.vehicleHorn => 'Vehicle Horn',
     EnvironmentSoundType.doorbell => 'Doorbell or Knock',
+    EnvironmentSoundType.speechAnnouncement => 'Spoken Announcement',
   };
 
   String get description => switch (this) {
@@ -16,6 +23,8 @@ extension EnvironmentSoundTypeDetails on EnvironmentSoundType {
     EnvironmentSoundType.vehicleHorn => 'Car, train, truck and air horns',
     EnvironmentSoundType.doorbell =>
       'Doorbells, entrance chimes and door knocks',
+    EnvironmentSoundType.speechAnnouncement =>
+      'Public-address speech and narrated announcements only',
   };
 }
 

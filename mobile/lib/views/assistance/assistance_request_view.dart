@@ -203,7 +203,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
             ),
             const SizedBox(height: 24),
 
-            // ── Communication preference (FIXED radio buttons) ──
+            // ── Communication preference (2 options: In-app Chat / Come to Location) ──
             Text('How should staff reach you?', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             Card(
@@ -211,7 +211,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                 children: [
                   RadioListTile<String>(
                     title: const Text('In-app Chat', style: TextStyle(fontSize: 14)),
-                    subtitle: const Text('Staff will message you here', style: TextStyle(fontSize: 11)),
+                    subtitle: const Text('Staff will message or call you in the app', style: TextStyle(fontSize: 11)),
                     value: 'chat',
                     groupValue: _viewModel.contactMethod,
                     activeColor: AppColors.primary,
@@ -222,15 +222,6 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                     title: const Text('Come to my location', style: TextStyle(fontSize: 14)),
                     subtitle: const Text('Staff will find you in person', style: TextStyle(fontSize: 11)),
                     value: 'location',
-                    groupValue: _viewModel.contactMethod,
-                    activeColor: AppColors.primary,
-                    onChanged: (value) => _viewModel.setContactMethod(value!),
-                  ),
-                  const Divider(height: 1, indent: 16),
-                  RadioListTile<String>(
-                    title: const Text('SMS / Text Message', style: TextStyle(fontSize: 14)),
-                    subtitle: const Text('Receive updates via text', style: TextStyle(fontSize: 11)),
-                    value: 'sms',
                     groupValue: _viewModel.contactMethod,
                     activeColor: AppColors.primary,
                     onChanged: (value) => _viewModel.setContactMethod(value!),

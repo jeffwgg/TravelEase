@@ -12,20 +12,27 @@ export default function QueueUpdatePage() {
   const [directLineId, setDirectLineId] = useState('')
   const [directNumber, setDirectNumber] = useState('')
   const [lookupNumber, setLookupNumber] = useState('')
+  const [lookupLineId, setLookupLineId] = useState('')
   const [lookupResult, setLookupResult] = useState(null)
   const [lookupError, setLookupError] = useState('')
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const operationalLines = lines.filter((line) => line.status !== 'closed')
 
   const loadLines = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
     try {
       const data = await queueRepository.getQueueLines(staffContext.institution_id)
       setLines(data)
-      setDirectLineId((current) => current || data[0]?.id || '')
-      setDirectNumber((current) => current || data[0]?.upcoming_number || '')
+      const firstOperational = data.find((line) => line.status !== 'closed')
+      setDirectLineId((current) => {
+        const validSelection = data.find((line) => line.id === current && line.status !== 'closed')
+        if (!validSelection) setDirectNumber(firstOperational?.upcoming_number || '')
+        else setDirectNumber((number) => number || validSelection.upcoming_number)
+        return validSelection?.id || firstOperational?.id || ''
+      })
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load queue lines.')
@@ -40,7 +47,7 @@ export default function QueueUpdatePage() {
   }, [loadLines, staffContext.institution_id])
 
   const openManage = (line) => {
-    setEditing({ ...line })
+    setEditing({ ...line, was_closed: line.status === 'closed' })
     setError('')
   }
 
@@ -112,10 +119,12 @@ export default function QueueUpdatePage() {
     setSuccess('')
     try {
       const result = await queueRepository.markNumber(queueLineId, number, status)
-      setSuccess(`${result.number.number} was marked ${result.number.status}. ${result.line.current_number} was called next.`)
+      setSuccess(result.line
+        ? `${result.number.number} was marked ${result.number.status}. ${result.line.current_number} was called next.`
+        : `${result.number.number} was marked ${result.number.status}.`)
       await loadLines(true)
       if (refreshLookup) {
-        const refreshed = await queueRepository.findQueueNumber(staffContext.institution_id, number)
+        const refreshed = await queueRepository.findQueueNumber(staffContext.institution_id, number, lines.find((line) => line.id === queueLineId) || null)
         setLookupResult(refreshed)
       }
     } catch (actionError) {
@@ -134,7 +143,7 @@ export default function QueueUpdatePage() {
     setLookupError('')
     setLookupResult(null)
     try {
-      const result = await queueRepository.findQueueNumber(staffContext.institution_id, lookupNumber)
+      const result = await queueRepository.findQueueNumber(staffContext.institution_id, lookupNumber, lines.find((line) => line.id === lookupLineId) || null)
       if (!result) {
         setLookupError(`Queue number ${lookupNumber.trim().toUpperCase()} was not found.`)
       } else {
@@ -158,10 +167,11 @@ export default function QueueUpdatePage() {
         {error && <div className="form-alert error" role="alert">{error}</div>}
         {success && <div className="form-alert success" role="status">{success}</div>}
         {loading ? <div className="card table-message">Loading queue lines…</div> : <>
-          <div className="grid-3" style={{ marginBottom: '24px' }}>
-            {lines.map((line) => {
+          <div className="queue-call-scroll" aria-label="Queue lines available to call">
+            {!operationalLines.length && <div className="form-alert info" role="note">No active or paused queue lines are available for calling.</div>}
+            {operationalLines.map((line) => {
               const waiting = line.queue_numbers?.filter((number) => number.status === 'waiting').length || 0
-              return <div key={line.id} className="card" style={{ background: 'linear-gradient(135deg, var(--dark-bg), var(--dark-surface))', color: '#fff' }}>
+              return <div key={line.id} className="card queue-call-card" style={{ background: 'linear-gradient(135deg, var(--dark-bg), var(--dark-surface))', color: '#fff' }}>
                 <div className="queue-card-heading">
                   <span>{line.counter}</span>
                   <button className="btn btn-outline btn-sm" onClick={() => openManage(line)}>Manage</button>
@@ -182,17 +192,18 @@ export default function QueueUpdatePage() {
           <div className="queue-tools-row">
             <div className="card queue-tool-card">
               <div className="card-header"><h3>Direct Call Number</h3></div>
-              <div className="form-group"><label htmlFor="direct-queue-line">Select Queue Line</label><select id="direct-queue-line" className="input" value={directLineId} onChange={(event) => { const id = event.target.value; setDirectLineId(id); setDirectNumber(lines.find((line) => line.id === id)?.upcoming_number || '') }}>{lines.map((line) => <option key={line.id} value={line.id}>{line.name} — {line.service_area}</option>)}</select></div>
+              <div className="form-group"><label htmlFor="direct-queue-line">Select Queue Line</label><select id="direct-queue-line" className="input" value={directLineId} onChange={(event) => { const id = event.target.value; setDirectLineId(id); setDirectNumber(lines.find((line) => line.id === id)?.upcoming_number || '') }}>{operationalLines.map((line) => <option key={line.id} value={line.id}>{line.name} — {line.service_area}</option>)}</select></div>
               <div className="form-group"><label htmlFor="direct-number">Number to Call</label><input id="direct-number" className="input" value={directNumber} onChange={(event) => setDirectNumber(event.target.value)} placeholder="e.g. A-047" /></div>
-              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busyId === 'direct' || !lines.length} onClick={notifyDirect}>{busyId === 'direct' ? 'Notifying…' : 'Notify Traveler Now'}</button>
+              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busyId === 'direct' || !operationalLines.length} onClick={notifyDirect}>{busyId === 'direct' ? 'Notifying…' : 'Notify Traveler Now'}</button>
             </div>
             <div className="card queue-lookup-card queue-tool-card">
             <div className="card-header"><div><h3>Queue Number Status Lookup</h3><div className="header-subtitle">Search a queue number to view its latest status and service information.</div></div></div>
             <div className="queue-lookup-form">
-              <div className="form-group"><label htmlFor="queue-status-number">Queue Number</label><input id="queue-status-number" className={`input ${lookupError ? 'invalid' : ''}`} value={lookupNumber} onChange={(event) => { setLookupNumber(event.target.value); setLookupResult(null); setLookupError('') }} onKeyDown={(event) => { if (event.key === 'Enter') searchNumberStatus() }} placeholder="e.g. A-047" /></div>
+              <div className="form-group"><label htmlFor="lookup-queue-line">Queue Line (Optional)</label><select id="lookup-queue-line" className="input" value={lookupLineId} onChange={(event) => { setLookupLineId(event.target.value); setLookupResult(null); setLookupError('') }}><option value="">Search all queue lines</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.name} — {line.service_area}</option>)}</select></div>
+              <div className="form-group"><label htmlFor="queue-status-number">Queue Number</label><input id="queue-status-number" className={`input ${lookupError ? 'invalid' : ''}`} value={lookupNumber} onChange={(event) => { setLookupNumber(event.target.value); setLookupResult(null); setLookupError('') }} onKeyDown={(event) => { if (event.key === 'Enter') searchNumberStatus() }} placeholder={lookupLineId ? 'e.g. 071, A071 or A-071' : 'e.g. A071 or A-071'} /></div>
               <button className="btn btn-outline" disabled={busyId === 'lookup'} onClick={searchNumberStatus}>{busyId === 'lookup' ? 'Searching…' : 'Search Status'}</button>
             </div>
-            {lookupError && <div className="queue-lookup-error" role="alert">{lookupError}</div>}
+            {lookupError && <div className="form-alert error compact" role="alert">{lookupError}</div>}
             {lookupResult && <div className="queue-lookup-result" role="status">
               <div><span>Queue Number</span><strong>{lookupResult.number}</strong></div>
               <div><span>Status</span><strong className={`queue-status-text ${lookupResult.status}`}>{labelStatus(lookupResult.status)}</strong></div>
@@ -227,17 +238,18 @@ export default function QueueUpdatePage() {
         <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="manage-queue-title" onMouseDown={(event) => event.stopPropagation()}>
           <div className="card-header"><div><h3 id="manage-queue-title">Manage {editing.name}</h3><div className="header-subtitle">View or edit the current queue-line information.</div></div><button className="modal-close" onClick={() => setEditing(null)} aria-label="Close">×</button></div>
           <div className="form-grid">
-            <div className="form-group"><label>Queue Line Name</label><input className="input" value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></div>
+            <div className="form-group"><label>Queue Line Name</label><input className="input" disabled={editing.was_closed} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></div>
             <div className="form-group"><label>Current Number</label><div className="input queue-readonly-value" aria-label="Current Number">{editing.current_number}</div></div>
             <div className="form-group"><label>Upcoming Number</label><div className="input queue-readonly-value" aria-label="Upcoming Number">{editing.upcoming_number}</div></div>
-            <div className="form-group"><label>Counter</label><input className="input" value={editing.counter} onChange={(event) => setEditing({ ...editing, counter: event.target.value })} /></div>
-            <div className="form-group"><label>Service Area</label><input className="input" value={editing.service_area} onChange={(event) => setEditing({ ...editing, service_area: event.target.value })} /></div>
-            <div className="form-group"><label>Estimated Service Time (Minutes)</label><input type="number" min="1" max="240" className="input" value={editing.estimated_service_minutes} onChange={(event) => setEditing({ ...editing, estimated_service_minutes: event.target.value })} /></div>
-            <div className="form-group"><label>Operating Hours</label><input className="input" value={editing.operating_hours || ''} onChange={(event) => setEditing({ ...editing, operating_hours: event.target.value })} placeholder="e.g. 6:00 AM – 11:00 PM" /></div>
+            <div className="form-group"><label>Counter</label><input className="input" disabled={editing.was_closed} value={editing.counter} onChange={(event) => setEditing({ ...editing, counter: event.target.value })} /></div>
+            <div className="form-group"><label>Service Area</label><input className="input" disabled={editing.was_closed} value={editing.service_area} onChange={(event) => setEditing({ ...editing, service_area: event.target.value })} /></div>
+            <div className="form-group"><label>Estimated Service Time (Minutes)</label><input type="number" min="1" max="240" className="input" disabled={editing.was_closed} value={editing.estimated_service_minutes} onChange={(event) => setEditing({ ...editing, estimated_service_minutes: event.target.value })} /></div>
+            <div className="form-group"><label>Operating Hours</label><input className="input" disabled={editing.was_closed} value={editing.operating_hours || ''} onChange={(event) => setEditing({ ...editing, operating_hours: event.target.value })} placeholder="e.g. 6:00 AM – 11:00 PM" /></div>
             <div className="form-group"><label>Queue Line Status</label><select className="input" value={editing.status} onChange={(event) => setEditing({ ...editing, status: event.target.value })}><option value="active">Active</option><option value="paused">Paused</option><option value="closed">Closed</option></select></div>
           </div>
-          <div className="form-group"><label>Staff Notes (Optional)</label><textarea className="input" rows={3} value={editing.staff_notes || ''} onChange={(event) => setEditing({ ...editing, staff_notes: event.target.value })} /></div>
-          <div className="modal-actions"><button className="btn btn-outline" onClick={() => setEditing(null)}>Close</button><button className="btn btn-primary" disabled={busyId === editing.id} onClick={saveLine}>{busyId === editing.id ? 'Saving…' : 'Save Queue Information'}</button></div>
+          <div className="form-group"><label>Staff Notes (Optional)</label><textarea className="input" rows={3} disabled={editing.was_closed} value={editing.staff_notes || ''} onChange={(event) => setEditing({ ...editing, staff_notes: event.target.value })} /></div>
+          {editing.was_closed && <div className="form-alert info compact" role="note">This queue line is closed. Only its status can be changed.</div>}
+          <div className="modal-actions queue-manage-actions"><button className="btn btn-outline" onClick={() => setEditing(null)}>Close</button><button className="btn btn-primary" disabled={busyId === editing.id} onClick={saveLine}>{busyId === editing.id ? 'Saving…' : 'Save Queue Information'}</button></div>
         </div>
       </div>}
     </div>

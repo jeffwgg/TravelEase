@@ -8,6 +8,11 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 import '../models/environment_sound.dart';
 
 class EnvironmentSoundDetector {
+  factory EnvironmentSoundDetector() => _instance;
+  EnvironmentSoundDetector._();
+  static final EnvironmentSoundDetector _instance =
+      EnvironmentSoundDetector._();
+
   static const _sampleRate = 16000;
   static const _frameLength = 15600;
   static const _frameHop = 7800;
@@ -32,7 +37,6 @@ class EnvironmentSoundDetector {
   int _candidateHits = 0;
   int? _trailingByte;
   bool _processing = false;
-  bool _disposed = false;
 
   Stream<SoundDetectionSnapshot> get snapshots => _snapshotController.stream;
   Stream<EnvironmentSoundDetection> get alerts => _alertController.stream;
@@ -108,7 +112,7 @@ class EnvironmentSoundDetector {
     await subscription?.cancel();
     if (await _recorder.isRecording()) await _recorder.stop();
     _samples.clear();
-    if (!_disposed) _snapshotController.add(SoundDetectionSnapshot.idle);
+    _snapshotController.add(SoundDetectionSnapshot.idle);
   }
 
   void _acceptAudio(Uint8List bytes) {
@@ -242,6 +246,11 @@ class EnvironmentSoundDetector {
 
   EnvironmentSoundType? _mapLabel(String label) {
     final value = label.toLowerCase();
+    if (value.contains('public speaking') ||
+        value.contains('narration, monologue') ||
+        value.contains('speech synthesizer')) {
+      return EnvironmentSoundType.speechAnnouncement;
+    }
     if (value.contains('siren')) return EnvironmentSoundType.siren;
     if (value.contains('vehicle horn') ||
         value.contains('car horn') ||
@@ -279,17 +288,11 @@ class EnvironmentSoundDetector {
   }
 
   void _emitError(String message) {
-    if (!_disposed) _errorController.add(message);
+    _errorController.add(message);
   }
 
   Future<void> dispose() async {
-    await stop();
-    _disposed = true;
-    _interpreter?.close();
-    await _recorder.dispose();
-    await _snapshotController.close();
-    await _alertController.close();
-    await _errorController.close();
+    // App-scoped singleton: monitoring may continue after the settings page closes.
   }
 }
 

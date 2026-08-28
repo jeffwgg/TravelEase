@@ -5,6 +5,8 @@ import '../../core/theme.dart';
 import '../../models/environment_sound.dart';
 import '../../repositories/environment_sound_repository.dart';
 import '../../services/environment_sound_detector.dart';
+import '../../services/app_notification_service.dart';
+import '../../widgets/app_message_banner.dart';
 
 class EnvironmentSoundAlertView extends StatefulWidget {
   const EnvironmentSoundAlertView({super.key});
@@ -28,6 +30,8 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   bool _enabled = false;
   bool _loading = true;
   bool _changingMonitoring = false;
+  String? _message;
+  AppMessageType _messageType = AppMessageType.information;
 
   @override
   void initState() {
@@ -41,10 +45,9 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
       setState(() {
         _enabled = false;
         _changingMonitoring = false;
+        _message = message;
+        _messageType = AppMessageType.error;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
     });
     _loadPreferences();
   }
@@ -74,14 +77,16 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   Future<void> _setMonitoring(bool enabled) async {
     if (_changingMonitoring) return;
     if (enabled && _enabledTypes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select at least one sound to detect.')),
-      );
+      setState(() {
+        _message = 'Select at least one sound to detect.';
+        _messageType = AppMessageType.information;
+      });
       return;
     }
     setState(() => _changingMonitoring = true);
     try {
       if (enabled) {
+        await AppNotificationService.instance.requestPermission();
         await _detector.start(
           enabledTypes: _enabledTypes,
           sensitivity: _sensitivity,
@@ -90,44 +95,34 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
         await _detector.stop();
       }
       if (!mounted) return;
-      setState(() => _enabled = enabled);
+      setState(() {
+        _enabled = enabled;
+        _message = enabled
+            ? 'Important sound monitoring is active.'
+            : 'Important sound monitoring is off.';
+        _messageType = enabled
+            ? AppMessageType.success
+            : AppMessageType.information;
+      });
       await _saveSettings();
     } on EnvironmentSoundException catch (error) {
       if (!mounted) return;
-      setState(() => _enabled = false);
-      await _showPermissionMessage(error.message);
+      setState(() {
+        _enabled = false;
+        _message =
+            '${error.message} Allow microphone access in device settings, then try again.';
+        _messageType = AppMessageType.error;
+      });
     } catch (error) {
       if (!mounted) return;
-      setState(() => _enabled = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unable to start sound detection: $error')),
-      );
+      setState(() {
+        _enabled = false;
+        _message = 'Unable to start sound detection: $error';
+        _messageType = AppMessageType.error;
+      });
     } finally {
       if (mounted) setState(() => _changingMonitoring = false);
     }
-  }
-
-  Future<void> _showPermissionMessage(String message) {
-    return showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(
-          Icons.mic_off_outlined,
-          color: AppColors.emergency,
-          size: 36,
-        ),
-        title: const Text('Microphone permission needed'),
-        content: Text(
-          '$message\n\nAllow microphone access in your device settings, then switch detection on again.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _saveSettings() {
@@ -216,7 +211,6 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     unawaited(_snapshotSubscription?.cancel());
     unawaited(_alertSubscription?.cancel());
     unawaited(_errorSubscription?.cancel());
-    unawaited(_detector.dispose());
     super.dispose();
   }
 
@@ -230,6 +224,14 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
               padding: const EdgeInsets.all(16),
               children: [
                 _buildIntroduction(),
+                if (_message != null) ...[
+                  const SizedBox(height: 12),
+                  AppMessageBanner(
+                    message: _message!,
+                    type: _messageType,
+                    onDismiss: () => setState(() => _message = null),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 _buildMonitoringCard(),
                 const SizedBox(height: 20),
@@ -318,7 +320,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
                   ..._history.take(10).map(_buildHistoryItem),
                 const SizedBox(height: 20),
                 Text(
-                  'Sound recognition runs on this device and does not save microphone recordings. Keep this page open while monitoring. Detection may be affected by background noise and should not replace official safety systems.',
+                  'Sound recognition runs on this device and does not save microphone recordings. Monitoring continues while the app is in the background, but stops if the operating system terminates the app. Detection may be affected by background noise and should not replace official safety systems.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
@@ -482,6 +484,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     EnvironmentSoundType.siren => Icons.emergency_outlined,
     EnvironmentSoundType.vehicleHorn => Icons.directions_car_outlined,
     EnvironmentSoundType.doorbell => Icons.doorbell_outlined,
+    EnvironmentSoundType.speechAnnouncement => Icons.campaign_outlined,
   };
 
   Color _colorFor(EnvironmentSoundType type) => switch (type) {
@@ -489,6 +492,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     EnvironmentSoundType.siren => AppColors.emergency,
     EnvironmentSoundType.vehicleHorn => AppColors.secondaryDark,
     EnvironmentSoundType.doorbell => AppColors.accent,
+    EnvironmentSoundType.speechAnnouncement => AppColors.primary,
   };
 
   String _timeLabel(DateTime dateTime) {

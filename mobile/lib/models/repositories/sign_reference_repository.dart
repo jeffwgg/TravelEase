@@ -2,324 +2,141 @@ import '../../core/supabase_client.dart';
 import '../entities/sign_language_entity.dart';
 import '../entities/sign_phrase_entity.dart';
 import '../entities/favorite_phrase_entity.dart';
-import '../entities/search_history_entity.dart';
 
 /// Repository for Module 4: Sign-Language Reference Engine Module (FR-M4-01 to FR-M4-19)
 class SignReferenceRepository {
   final _client = SupabaseClientHelper.client;
 
-  // Local fallback database populated with all 250 ASL model signs
-  // organised into travel-relevant categories with multilingual translations.
-  static final List<SignPhrase> _inMemoryPhrases = _buildModelSignPhrases();
-
-  /// Bridge: look up dictionary phrases that match a model-recognised sign word.
-  List<SignPhrase> findPhrasesByModelSign(String signWord) {
-    final lower = signWord.toLowerCase().trim();
-    return _inMemoryPhrases.where((p) {
-      return p.phraseEn.toLowerCase().contains(lower) ||
-          (p.glossAsl?.toLowerCase().contains(lower.toUpperCase()) ?? false);
-    }).toList();
-  }
-
-  /// Build the full 250-sign dictionary from the TFLite model vocabulary.
-  static List<SignPhrase> _buildModelSignPhrases() {
-    // Category assignment based on sign word semantics for travel context
-    String getCategory(String sign) {
-      const airport = {'airplane', 'go', 'fast', 'time', 'wait', 'first', 'will', 'tomorrow', 'yesterday', 'flag', 'high'};
-      const hotel = {'bed', 'bedroom', 'room', 'sleep', 'sleepy', 'nap', 'wake', 'awake', 'night', 'morning', 'shower', 'bath', 'closet', 'drawer', 'lamp', 'pajamas', 'backyard', 'home', 'table', 'chair', 'refrigerator', 'dryer', 'vacuum', 'stairs', 'glasswindow', 'pool'};
-      const restaurant = {'food', 'drink', 'water', 'milk', 'apple', 'carrot', 'cereal', 'chocolate', 'frenchfries', 'icecream', 'pizza', 'snack', 'nuts', 'gum', 'orange', 'cookie', 'taste', 'hungry', 'thirsty'};
-      const transit = {'car', 'boat', 'ride', 'helicopter', 'horse', 'up', 'down', 'on', 'into', 'outside', 'there', 'where', 'store'};
-      const medical = {'sick', 'owie', 'tooth', 'toothbrush', 'hot', 'cold'};
-      const emergency = {'callonphone', 'police', 'fireman', 'loud', 'noisy', 'drop', 'fall', 'stuck', 'quiet'};
-      const animal = {'dog', 'cat', 'bird', 'fish', 'frog', 'cow', 'pig', 'horse', 'duck', 'goose', 'hen', 'mouse', 'elephant', 'giraffe', 'lion', 'tiger', 'wolf', 'zebra', 'alligator', 'owl', 'bee', 'bug', 'donkey', 'puppy', 'kitty'};
-      if (airport.contains(sign)) return 'airport';
-      if (hotel.contains(sign)) return 'hotel';
-      if (restaurant.contains(sign)) return 'restaurant';
-      if (transit.contains(sign)) return 'transit';
-      if (medical.contains(sign)) return 'medical';
-      if (emergency.contains(sign)) return 'emergency';
-      if (animal.contains(sign)) return 'animal';
-      return 'general';
-    }
-
-    // Multilingual translations for all 250 model signs
-    const Map<String, Map<String, String>> translations = {
-      'tv': {'en': 'TV / Television', 'ms': 'TV / Televisyen', 'zh': '电视'},
-      'after': {'en': 'After', 'ms': 'Selepas', 'zh': '之后'},
-      'airplane': {'en': 'Airplane', 'ms': 'Kapal terbang', 'zh': '飞机'},
-      'all': {'en': 'All / Everything', 'ms': 'Semua', 'zh': '全部'},
-      'alligator': {'en': 'Alligator', 'ms': 'Buaya', 'zh': '鳄鱼'},
-      'animal': {'en': 'Animal', 'ms': 'Haiwan', 'zh': '动物'},
-      'another': {'en': 'Another', 'ms': 'Lagi satu', 'zh': '另一个'},
-      'any': {'en': 'Any', 'ms': 'Mana-mana', 'zh': '任何'},
-      'apple': {'en': 'Apple', 'ms': 'Epal', 'zh': '苹果'},
-      'arm': {'en': 'Arm', 'ms': 'Lengan', 'zh': '手臂'},
-      'aunt': {'en': 'Aunt', 'ms': 'Makcik', 'zh': '阿姨'},
-      'awake': {'en': 'Awake', 'ms': 'Terjaga', 'zh': '醒着'},
-      'backyard': {'en': 'Backyard', 'ms': 'Halaman belakang', 'zh': '后院'},
-      'bad': {'en': 'Bad', 'ms': 'Buruk', 'zh': '坏'},
-      'balloon': {'en': 'Balloon', 'ms': 'Belon', 'zh': '气球'},
-      'bath': {'en': 'Bath', 'ms': 'Mandi', 'zh': '洗澡'},
-      'because': {'en': 'Because', 'ms': 'Kerana', 'zh': '因为'},
-      'bed': {'en': 'Bed', 'ms': 'Katil', 'zh': '床'},
-      'bedroom': {'en': 'Bedroom', 'ms': 'Bilik tidur', 'zh': '卧室'},
-      'bee': {'en': 'Bee', 'ms': 'Lebah', 'zh': '蜜蜂'},
-      'before': {'en': 'Before', 'ms': 'Sebelum', 'zh': '之前'},
-      'beside': {'en': 'Beside', 'ms': 'Di sebelah', 'zh': '旁边'},
-      'better': {'en': 'Better', 'ms': 'Lebih baik', 'zh': '更好'},
-      'bird': {'en': 'Bird', 'ms': 'Burung', 'zh': '鸟'},
-      'black': {'en': 'Black', 'ms': 'Hitam', 'zh': '黑色'},
-      'blow': {'en': 'Blow', 'ms': 'Tiup', 'zh': '吹'},
-      'blue': {'en': 'Blue', 'ms': 'Biru', 'zh': '蓝色'},
-      'boat': {'en': 'Boat', 'ms': 'Bot / Perahu', 'zh': '船'},
-      'book': {'en': 'Book', 'ms': 'Buku', 'zh': '书'},
-      'boy': {'en': 'Boy', 'ms': 'Budak lelaki', 'zh': '男孩'},
-      'brother': {'en': 'Brother', 'ms': 'Abang / Adik lelaki', 'zh': '兄弟'},
-      'brown': {'en': 'Brown', 'ms': 'Coklat', 'zh': '棕色'},
-      'bug': {'en': 'Bug / Insect', 'ms': 'Serangga', 'zh': '虫子'},
-      'bye': {'en': 'Bye / Goodbye', 'ms': 'Selamat tinggal', 'zh': '再见'},
-      'callonphone': {'en': 'Call on Phone', 'ms': 'Panggilan telefon', 'zh': '打电话'},
-      'can': {'en': 'Can / Able to', 'ms': 'Boleh', 'zh': '可以'},
-      'car': {'en': 'Car', 'ms': 'Kereta', 'zh': '汽车'},
-      'carrot': {'en': 'Carrot', 'ms': 'Lobak merah', 'zh': '胡萝卜'},
-      'cat': {'en': 'Cat', 'ms': 'Kucing', 'zh': '猫'},
-      'cereal': {'en': 'Cereal', 'ms': 'Bijirin', 'zh': '麦片'},
-      'chair': {'en': 'Chair', 'ms': 'Kerusi', 'zh': '椅子'},
-      'cheek': {'en': 'Cheek', 'ms': 'Pipi', 'zh': '脸颊'},
-      'child': {'en': 'Child', 'ms': 'Kanak-kanak', 'zh': '孩子'},
-      'chin': {'en': 'Chin', 'ms': 'Dagu', 'zh': '下巴'},
-      'chocolate': {'en': 'Chocolate', 'ms': 'Coklat', 'zh': '巧克力'},
-      'clean': {'en': 'Clean', 'ms': 'Bersih', 'zh': '干净'},
-      'close': {'en': 'Close / Shut', 'ms': 'Tutup', 'zh': '关闭'},
-      'closet': {'en': 'Closet', 'ms': 'Almari', 'zh': '衣柜'},
-      'cloud': {'en': 'Cloud', 'ms': 'Awan', 'zh': '云'},
-      'clown': {'en': 'Clown', 'ms': 'Badut', 'zh': '小丑'},
-      'cow': {'en': 'Cow', 'ms': 'Lembu', 'zh': '牛'},
-      'cowboy': {'en': 'Cowboy', 'ms': 'Koboi', 'zh': '牛仔'},
-      'cry': {'en': 'Cry', 'ms': 'Menangis', 'zh': '哭'},
-      'cut': {'en': 'Cut', 'ms': 'Potong', 'zh': '剪'},
-      'cute': {'en': 'Cute', 'ms': 'Comel', 'zh': '可爱'},
-      'dad': {'en': 'Dad / Father', 'ms': 'Ayah', 'zh': '爸爸'},
-      'dance': {'en': 'Dance', 'ms': 'Tari', 'zh': '跳舞'},
-      'dirty': {'en': 'Dirty', 'ms': 'Kotor', 'zh': '脏'},
-      'dog': {'en': 'Dog', 'ms': 'Anjing', 'zh': '狗'},
-      'doll': {'en': 'Doll', 'ms': 'Anak patung', 'zh': '玩偶'},
-      'donkey': {'en': 'Donkey', 'ms': 'Keldai', 'zh': '驴'},
-      'down': {'en': 'Down', 'ms': 'Bawah', 'zh': '下面'},
-      'drawer': {'en': 'Drawer', 'ms': 'Laci', 'zh': '抽屉'},
-      'drink': {'en': 'Drink', 'ms': 'Minum', 'zh': '喝'},
-      'drop': {'en': 'Drop', 'ms': 'Jatuhkan', 'zh': '掉落'},
-      'dry': {'en': 'Dry', 'ms': 'Kering', 'zh': '干'},
-      'dryer': {'en': 'Dryer', 'ms': 'Pengering', 'zh': '烘干机'},
-      'duck': {'en': 'Duck', 'ms': 'Itik', 'zh': '鸭子'},
-      'ear': {'en': 'Ear', 'ms': 'Telinga', 'zh': '耳朵'},
-      'elephant': {'en': 'Elephant', 'ms': 'Gajah', 'zh': '大象'},
-      'empty': {'en': 'Empty', 'ms': 'Kosong', 'zh': '空'},
-      'every': {'en': 'Every', 'ms': 'Setiap', 'zh': '每个'},
-      'eye': {'en': 'Eye', 'ms': 'Mata', 'zh': '眼睛'},
-      'face': {'en': 'Face', 'ms': 'Muka', 'zh': '脸'},
-      'fall': {'en': 'Fall', 'ms': 'Jatuh', 'zh': '摔倒'},
-      'farm': {'en': 'Farm', 'ms': 'Ladang', 'zh': '农场'},
-      'fast': {'en': 'Fast / Quick', 'ms': 'Cepat', 'zh': '快'},
-      'feet': {'en': 'Feet', 'ms': 'Kaki', 'zh': '脚'},
-      'find': {'en': 'Find', 'ms': 'Cari / Jumpa', 'zh': '找到'},
-      'fine': {'en': 'Fine / OK', 'ms': 'Baik', 'zh': '好的'},
-      'finger': {'en': 'Finger', 'ms': 'Jari', 'zh': '手指'},
-      'finish': {'en': 'Finish / Done', 'ms': 'Selesai', 'zh': '完成'},
-      'fireman': {'en': 'Fireman', 'ms': 'Anggota bomba', 'zh': '消防员'},
-      'first': {'en': 'First', 'ms': 'Pertama', 'zh': '第一'},
-      'fish': {'en': 'Fish', 'ms': 'Ikan', 'zh': '鱼'},
-      'flag': {'en': 'Flag', 'ms': 'Bendera', 'zh': '旗帜'},
-      'flower': {'en': 'Flower', 'ms': 'Bunga', 'zh': '花'},
-      'food': {'en': 'Food', 'ms': 'Makanan', 'zh': '食物'},
-      'for': {'en': 'For', 'ms': 'Untuk', 'zh': '为了'},
-      'frenchfries': {'en': 'French Fries', 'ms': 'Kentang goreng', 'zh': '薯条'},
-      'frog': {'en': 'Frog', 'ms': 'Katak', 'zh': '青蛙'},
-      'garbage': {'en': 'Garbage / Trash', 'ms': 'Sampah', 'zh': '垃圾'},
-      'gift': {'en': 'Gift / Present', 'ms': 'Hadiah', 'zh': '礼物'},
-      'giraffe': {'en': 'Giraffe', 'ms': 'Zirafah', 'zh': '长颈鹿'},
-      'girl': {'en': 'Girl', 'ms': 'Budak perempuan', 'zh': '女孩'},
-      'give': {'en': 'Give', 'ms': 'Beri', 'zh': '给'},
-      'glasswindow': {'en': 'Glass Window', 'ms': 'Tingkap kaca', 'zh': '玻璃窗'},
-      'go': {'en': 'Go', 'ms': 'Pergi', 'zh': '走'},
-      'goose': {'en': 'Goose', 'ms': 'Angsa', 'zh': '鹅'},
-      'grandma': {'en': 'Grandma', 'ms': 'Nenek', 'zh': '奶奶'},
-      'grandpa': {'en': 'Grandpa', 'ms': 'Datuk', 'zh': '爷爷'},
-      'grass': {'en': 'Grass', 'ms': 'Rumput', 'zh': '草'},
-      'green': {'en': 'Green', 'ms': 'Hijau', 'zh': '绿色'},
-      'gum': {'en': 'Gum', 'ms': 'Gula-gula getah', 'zh': '口香糖'},
-      'hair': {'en': 'Hair', 'ms': 'Rambut', 'zh': '头发'},
-      'happy': {'en': 'Happy', 'ms': 'Gembira', 'zh': '开心'},
-      'hat': {'en': 'Hat', 'ms': 'Topi', 'zh': '帽子'},
-      'hate': {'en': 'Hate / Dislike', 'ms': 'Benci', 'zh': '讨厌'},
-      'have': {'en': 'Have', 'ms': 'Ada', 'zh': '有'},
-      'haveto': {'en': 'Have to / Must', 'ms': 'Mesti', 'zh': '必须'},
-      'head': {'en': 'Head', 'ms': 'Kepala', 'zh': '头'},
-      'hear': {'en': 'Hear / Listen', 'ms': 'Dengar', 'zh': '听'},
-      'helicopter': {'en': 'Helicopter', 'ms': 'Helikopter', 'zh': '直升机'},
-      'hello': {'en': 'Hello', 'ms': 'Halo', 'zh': '你好'},
-      'hen': {'en': 'Hen / Chicken', 'ms': 'Ayam', 'zh': '母鸡'},
-      'hesheit': {'en': 'He / She / It', 'ms': 'Dia', 'zh': '他/她/它'},
-      'hide': {'en': 'Hide', 'ms': 'Sembunyi', 'zh': '藏'},
-      'high': {'en': 'High', 'ms': 'Tinggi', 'zh': '高'},
-      'home': {'en': 'Home', 'ms': 'Rumah', 'zh': '家'},
-      'horse': {'en': 'Horse', 'ms': 'Kuda', 'zh': '马'},
-      'hot': {'en': 'Hot', 'ms': 'Panas', 'zh': '热'},
-      'hungry': {'en': 'Hungry', 'ms': 'Lapar', 'zh': '饿'},
-      'icecream': {'en': 'Ice Cream', 'ms': 'Aiskrim', 'zh': '冰淇淋'},
-      'if': {'en': 'If', 'ms': 'Jika', 'zh': '如果'},
-      'into': {'en': 'Into', 'ms': 'Ke dalam', 'zh': '进入'},
-      'jacket': {'en': 'Jacket', 'ms': 'Jaket', 'zh': '夹克'},
-      'jeans': {'en': 'Jeans', 'ms': 'Seluar jeans', 'zh': '牛仔裤'},
-      'jump': {'en': 'Jump', 'ms': 'Lompat', 'zh': '跳'},
-      'kiss': {'en': 'Kiss', 'ms': 'Cium', 'zh': '亲'},
-      'kitty': {'en': 'Kitty / Kitten', 'ms': 'Anak kucing', 'zh': '小猫'},
-      'lamp': {'en': 'Lamp', 'ms': 'Lampu', 'zh': '灯'},
-      'later': {'en': 'Later', 'ms': 'Nanti', 'zh': '待会'},
-      'like': {'en': 'Like', 'ms': 'Suka', 'zh': '喜欢'},
-      'lion': {'en': 'Lion', 'ms': 'Singa', 'zh': '狮子'},
-      'lips': {'en': 'Lips', 'ms': 'Bibir', 'zh': '嘴唇'},
-      'listen': {'en': 'Listen', 'ms': 'Dengar', 'zh': '听'},
-      'look': {'en': 'Look / See', 'ms': 'Lihat', 'zh': '看'},
-      'loud': {'en': 'Loud', 'ms': 'Bising', 'zh': '大声'},
-      'mad': {'en': 'Mad / Angry', 'ms': 'Marah', 'zh': '生气'},
-      'make': {'en': 'Make', 'ms': 'Buat', 'zh': '做'},
-      'man': {'en': 'Man', 'ms': 'Lelaki', 'zh': '男人'},
-      'many': {'en': 'Many / A lot', 'ms': 'Banyak', 'zh': '很多'},
-      'milk': {'en': 'Milk', 'ms': 'Susu', 'zh': '牛奶'},
-      'minemy': {'en': 'Mine / My', 'ms': 'Milik saya', 'zh': '我的'},
-      'mitten': {'en': 'Mitten', 'ms': 'Sarung tangan', 'zh': '连指手套'},
-      'mom': {'en': 'Mom / Mother', 'ms': 'Ibu', 'zh': '妈妈'},
-      'moon': {'en': 'Moon', 'ms': 'Bulan', 'zh': '月亮'},
-      'morning': {'en': 'Morning', 'ms': 'Pagi', 'zh': '早上'},
-      'mouse': {'en': 'Mouse', 'ms': 'Tikus', 'zh': '老鼠'},
-      'mouth': {'en': 'Mouth', 'ms': 'Mulut', 'zh': '嘴巴'},
-      'nap': {'en': 'Nap', 'ms': 'Tidur sekejap', 'zh': '小睡'},
-      'napkin': {'en': 'Napkin', 'ms': 'Napkin / Tuala', 'zh': '餐巾'},
-      'night': {'en': 'Night', 'ms': 'Malam', 'zh': '晚上'},
-      'no': {'en': 'No', 'ms': 'Tidak', 'zh': '不'},
-      'noisy': {'en': 'Noisy', 'ms': 'Bising', 'zh': '吵闹'},
-      'nose': {'en': 'Nose', 'ms': 'Hidung', 'zh': '鼻子'},
-      'not': {'en': 'Not', 'ms': 'Bukan', 'zh': '不是'},
-      'now': {'en': 'Now', 'ms': 'Sekarang', 'zh': '现在'},
-      'nuts': {'en': 'Nuts', 'ms': 'Kacang', 'zh': '坚果'},
-      'old': {'en': 'Old', 'ms': 'Tua / Lama', 'zh': '老/旧'},
-      'on': {'en': 'On', 'ms': 'Di atas', 'zh': '在…上面'},
-      'open': {'en': 'Open', 'ms': 'Buka', 'zh': '打开'},
-      'orange': {'en': 'Orange', 'ms': 'Oren', 'zh': '橙子'},
-      'outside': {'en': 'Outside', 'ms': 'Luar', 'zh': '外面'},
-      'owie': {'en': 'Owie / Hurt', 'ms': 'Sakit', 'zh': '痛'},
-      'owl': {'en': 'Owl', 'ms': 'Burung hantu', 'zh': '猫头鹰'},
-      'pajamas': {'en': 'Pajamas', 'ms': 'Pijama', 'zh': '睡衣'},
-      'pen': {'en': 'Pen', 'ms': 'Pen', 'zh': '笔'},
-      'pencil': {'en': 'Pencil', 'ms': 'Pensel', 'zh': '铅笔'},
-      'penny': {'en': 'Penny / Coin', 'ms': 'Syiling', 'zh': '硬币'},
-      'person': {'en': 'Person', 'ms': 'Orang', 'zh': '人'},
-      'pig': {'en': 'Pig', 'ms': 'Babi', 'zh': '猪'},
-      'pizza': {'en': 'Pizza', 'ms': 'Pizza', 'zh': '披萨'},
-      'please': {'en': 'Please', 'ms': 'Tolong / Sila', 'zh': '请'},
-      'police': {'en': 'Police', 'ms': 'Polis', 'zh': '警察'},
-      'pool': {'en': 'Pool / Swimming Pool', 'ms': 'Kolam renang', 'zh': '游泳池'},
-      'potty': {'en': 'Potty / Restroom', 'ms': 'Tandas', 'zh': '厕所'},
-      'pretend': {'en': 'Pretend', 'ms': 'Berpura-pura', 'zh': '假装'},
-      'pretty': {'en': 'Pretty / Beautiful', 'ms': 'Cantik', 'zh': '漂亮'},
-      'puppy': {'en': 'Puppy', 'ms': 'Anak anjing', 'zh': '小狗'},
-      'puzzle': {'en': 'Puzzle', 'ms': 'Teka-teki', 'zh': '拼图'},
-      'quiet': {'en': 'Quiet', 'ms': 'Senyap', 'zh': '安静'},
-      'radio': {'en': 'Radio', 'ms': 'Radio', 'zh': '收音机'},
-      'rain': {'en': 'Rain', 'ms': 'Hujan', 'zh': '雨'},
-      'read': {'en': 'Read', 'ms': 'Baca', 'zh': '读'},
-      'red': {'en': 'Red', 'ms': 'Merah', 'zh': '红色'},
-      'refrigerator': {'en': 'Refrigerator', 'ms': 'Peti sejuk', 'zh': '冰箱'},
-      'ride': {'en': 'Ride', 'ms': 'Naik', 'zh': '骑'},
-      'room': {'en': 'Room', 'ms': 'Bilik', 'zh': '房间'},
-      'sad': {'en': 'Sad', 'ms': 'Sedih', 'zh': '伤心'},
-      'same': {'en': 'Same', 'ms': 'Sama', 'zh': '一样'},
-      'say': {'en': 'Say / Tell', 'ms': 'Cakap', 'zh': '说'},
-      'scissors': {'en': 'Scissors', 'ms': 'Gunting', 'zh': '剪刀'},
-      'see': {'en': 'See', 'ms': 'Lihat', 'zh': '看见'},
-      'shhh': {'en': 'Shhh / Be Quiet', 'ms': 'Shhh / Diam', 'zh': '嘘'},
-      'shirt': {'en': 'Shirt', 'ms': 'Baju', 'zh': '衬衫'},
-      'shoe': {'en': 'Shoe', 'ms': 'Kasut', 'zh': '鞋子'},
-      'shower': {'en': 'Shower', 'ms': 'Mandi pancuran', 'zh': '淋浴'},
-      'sick': {'en': 'Sick / Unwell', 'ms': 'Sakit', 'zh': '生病'},
-      'sleep': {'en': 'Sleep', 'ms': 'Tidur', 'zh': '睡觉'},
-      'sleepy': {'en': 'Sleepy', 'ms': 'Mengantuk', 'zh': '困'},
-      'smile': {'en': 'Smile', 'ms': 'Senyum', 'zh': '微笑'},
-      'snack': {'en': 'Snack', 'ms': 'Snek', 'zh': '零食'},
-      'snow': {'en': 'Snow', 'ms': 'Salji', 'zh': '雪'},
-      'stairs': {'en': 'Stairs', 'ms': 'Tangga', 'zh': '楼梯'},
-      'stay': {'en': 'Stay', 'ms': 'Tinggal', 'zh': '留下'},
-      'sticky': {'en': 'Sticky', 'ms': 'Melekit', 'zh': '粘的'},
-      'store': {'en': 'Store / Shop', 'ms': 'Kedai', 'zh': '商店'},
-      'story': {'en': 'Story', 'ms': 'Cerita', 'zh': '故事'},
-      'stuck': {'en': 'Stuck', 'ms': 'Tersekat', 'zh': '卡住'},
-      'sun': {'en': 'Sun', 'ms': 'Matahari', 'zh': '太阳'},
-      'table': {'en': 'Table', 'ms': 'Meja', 'zh': '桌子'},
-      'talk': {'en': 'Talk', 'ms': 'Bercakap', 'zh': '说话'},
-      'taste': {'en': 'Taste', 'ms': 'Rasa', 'zh': '尝'},
-      'thankyou': {'en': 'Thank You', 'ms': 'Terima kasih', 'zh': '谢谢'},
-      'that': {'en': 'That', 'ms': 'Itu', 'zh': '那个'},
-      'there': {'en': 'There', 'ms': 'Di sana', 'zh': '那里'},
-      'think': {'en': 'Think', 'ms': 'Fikir', 'zh': '想'},
-      'thirsty': {'en': 'Thirsty', 'ms': 'Dahaga', 'zh': '渴'},
-      'tiger': {'en': 'Tiger', 'ms': 'Harimau', 'zh': '老虎'},
-      'time': {'en': 'Time', 'ms': 'Masa', 'zh': '时间'},
-      'tomorrow': {'en': 'Tomorrow', 'ms': 'Esok', 'zh': '明天'},
-      'tongue': {'en': 'Tongue', 'ms': 'Lidah', 'zh': '舌头'},
-      'tooth': {'en': 'Tooth', 'ms': 'Gigi', 'zh': '牙齿'},
-      'toothbrush': {'en': 'Toothbrush', 'ms': 'Berus gigi', 'zh': '牙刷'},
-      'touch': {'en': 'Touch', 'ms': 'Sentuh', 'zh': '触摸'},
-      'toy': {'en': 'Toy', 'ms': 'Mainan', 'zh': '玩具'},
-      'tree': {'en': 'Tree', 'ms': 'Pokok', 'zh': '树'},
-      'uncle': {'en': 'Uncle', 'ms': 'Pakcik', 'zh': '叔叔'},
-      'underwear': {'en': 'Underwear', 'ms': 'Seluar dalam', 'zh': '内衣'},
-      'up': {'en': 'Up', 'ms': 'Atas', 'zh': '上面'},
-      'vacuum': {'en': 'Vacuum', 'ms': 'Vakum', 'zh': '吸尘器'},
-      'wait': {'en': 'Wait', 'ms': 'Tunggu', 'zh': '等'},
-      'wake': {'en': 'Wake up', 'ms': 'Bangun', 'zh': '醒来'},
-      'water': {'en': 'Water', 'ms': 'Air', 'zh': '水'},
-      'wet': {'en': 'Wet', 'ms': 'Basah', 'zh': '湿'},
-      'weus': {'en': 'We / Us', 'ms': 'Kami / Kita', 'zh': '我们'},
-      'where': {'en': 'Where', 'ms': 'Di mana', 'zh': '哪里'},
-      'white': {'en': 'White', 'ms': 'Putih', 'zh': '白色'},
-      'who': {'en': 'Who', 'ms': 'Siapa', 'zh': '谁'},
-      'why': {'en': 'Why', 'ms': 'Kenapa', 'zh': '为什么'},
-      'will': {'en': 'Will / Future', 'ms': 'Akan', 'zh': '将要'},
-      'wolf': {'en': 'Wolf', 'ms': 'Serigala', 'zh': '狼'},
-      'yellow': {'en': 'Yellow', 'ms': 'Kuning', 'zh': '黄色'},
-      'yes': {'en': 'Yes', 'ms': 'Ya', 'zh': '是'},
-      'yesterday': {'en': 'Yesterday', 'ms': 'Semalam', 'zh': '昨天'},
-      'yourself': {'en': 'Yourself', 'ms': 'Diri sendiri', 'zh': '你自己'},
-      'yucky': {'en': 'Yucky / Gross', 'ms': 'Menjijikkan', 'zh': '恶心'},
-      'zebra': {'en': 'Zebra', 'ms': 'Kuda belang', 'zh': '斑马'},
-      'zipper': {'en': 'Zipper', 'ms': 'Zip', 'zh': '拉链'},
-    };
-
-    final phrases = <SignPhrase>[];
-    int index = 0;
-    for (final entry in translations.entries) {
-      final sign = entry.key;
-      final t = entry.value;
-      final cat = getCategory(sign);
-      phrases.add(SignPhrase(
-        id: 'model_sign_${index.toString().padLeft(3, '0')}_$sign',
-        categoryId: cat,
-        phraseEn: t['en'] ?? sign,
-        phraseMs: t['ms'] ?? sign,
-        phraseZh: t['zh'] ?? sign,
-        glossAsl: sign.toUpperCase(),
-        glossBim: (t['ms'] ?? sign).toUpperCase(),
-        glossCsl: t['zh'] ?? sign,
-        scenario: 'ASL Model Sign #$index',
-      ));
-      index++;
-    }
-    return phrases;
-  }
+  // Local fallback mock database for instant offline and rich sample experience
+  static final List<SignPhrase> _inMemoryPhrases = [
+    SignPhrase(
+      id: 'a1111111-1111-1111-1111-111111111111',
+      categoryId: 'airport',
+      phraseEn: 'Where is the gate?',
+      phraseMs: 'Di mana pintu masuk / perlepasan?',
+      phraseZh: '登机口在哪里？',
+      glossAsl: 'GATE WHERE ?',
+      glossBim: 'PINTU MANA ?',
+      glossCsl: '登机口 在哪 ?',
+      scenario: 'Airport Departure / Boarding Area',
+      stepInstructions: const [
+        SignMovementStep(step: 1, title: 'Raise Open Palms', description: 'Raise both hands with open palms facing upward at chest level.'),
+        SignMovementStep(step: 2, title: 'Move Hands Outward', description: 'Move both hands gently apart in an inquisitive questioning motion.'),
+        SignMovementStep(step: 3, title: 'Point & Facial Expression', description: 'Point forward with dominant index finger while raising eyebrows.'),
+      ],
+      // Video playback is resolved per gloss word from assets/signs/<lang>/<word>.mp4
+    ),
+    SignPhrase(
+      id: 'a2222222-2222-2222-2222-222222222222',
+      categoryId: 'airport',
+      phraseEn: 'I need to check in',
+      phraseMs: 'Saya perlu daftar masuk',
+      phraseZh: '我需要办理值机',
+      glossAsl: 'I NEED CHECK-IN',
+      glossBim: 'SAYA PERLU DAFTAR MASUK',
+      glossCsl: '我 需要 办理 值机',
+      scenario: 'Airport Counter / Terminal Entrance',
+      stepInstructions: const [
+        SignMovementStep(step: 1, title: 'Indicate Self', description: 'Tap chest with index finger to indicate yourself.'),
+        SignMovementStep(step: 2, title: 'Sign Need / Require', description: 'Form a bent index finger and tap downward twice firmly.'),
+        SignMovementStep(step: 3, title: 'Sign Pass Registration', description: 'Slide flat hand into open palm like presenting a boarding pass.'),
+      ],
+    ),
+    SignPhrase(
+      id: 'a3333333-3333-3333-3333-333333333333',
+      categoryId: 'airport',
+      phraseEn: 'My flight is delayed',
+      phraseMs: 'Penerbangan saya tertangguh',
+      phraseZh: '我的航班延误了',
+      glossAsl: 'MY FLIGHT DELAY',
+      glossBim: 'PENERBANGAN SAYA TANGGUH',
+      glossCsl: '我 航班 延误',
+      scenario: 'Flight Information Display',
+      stepInstructions: const [
+        SignMovementStep(step: 1, title: 'Sign Airplane', description: 'Extend thumb, index, and pinky (ILY shape) moving forward.'),
+        SignMovementStep(step: 2, title: 'Sign Delay', description: 'Hold both hands in F-shape and move dominant hand forward slowly.'),
+      ],
+    ),
+    SignPhrase(
+      id: 'a4444444-4444-4444-4444-444444444444',
+      categoryId: 'hotel',
+      phraseEn: 'I have a reservation',
+      phraseMs: 'Saya ada tempahan bilik',
+      phraseZh: '我有房间预订',
+      glossAsl: 'I HAVE ROOM RESERVATION',
+      glossBim: 'SAYA ADA TEMPAH BILIK',
+      glossCsl: '我 有 预订 房间',
+      scenario: 'Hotel Reception Desk',
+    ),
+    SignPhrase(
+      id: 'a5555555-5555-5555-5555-555555555555',
+      categoryId: 'restaurant',
+      phraseEn: 'Can I get the menu?',
+      phraseMs: 'Boleh saya dapatkan menu?',
+      phraseZh: '可以给我菜单吗？',
+      glossAsl: 'CAN I SEE MENU ?',
+      glossBim: 'BOLEH SAYA LIHAT MENU ?',
+      glossCsl: '可以 给我 菜单 吗 ?',
+      scenario: 'Dining Counter',
+    ),
+    SignPhrase(
+      id: 'a6666666-6666-6666-6666-666666666666',
+      categoryId: 'emergency',
+      phraseEn: 'I need help / SOS',
+      phraseMs: 'Saya perlukan bantuan kecemasan',
+      phraseZh: '我需要紧急帮助',
+      glossAsl: 'I NEED HELP SOS',
+      glossBim: 'SAYA PERLU BANTUAN KECEMASAN',
+      glossCsl: '我 需要 紧急 帮助',
+      scenario: 'Emergency Incident / First Aid',
+    ),
+    SignPhrase(
+      id: 'a7777777-7777-7777-7777-777777777777',
+      categoryId: 'general',
+      phraseEn: 'Thank you very much',
+      phraseMs: 'Terima kasih banyak',
+      phraseZh: '非常感谢',
+      glossAsl: 'THANK-YOU MUCH',
+      glossBim: 'TERIMA KASIH BANYAK',
+      glossCsl: '非常 谢谢 你',
+      scenario: 'General Conversation',
+    ),
+    SignPhrase(
+      id: 'a8888888-8888-8888-8888-888888888888',
+      categoryId: 'general',
+      phraseEn: 'Hello, nice to meet you',
+      phraseMs: 'Halo, selamat berkenalan',
+      phraseZh: '你好，很高兴认识你',
+      glossAsl: 'HELLO NICE-TO-MEET-YOU',
+      glossBim: 'HALO GEMBIRA JUMPA AWAK',
+      glossCsl: '你好 很高兴 认识 你',
+      scenario: 'General Greeting',
+    ),
+    SignPhrase(
+      id: 'a9999999-9999-9999-9999-999999999999',
+      categoryId: 'transit',
+      phraseEn: 'Which bus to the city center?',
+      phraseMs: 'Bas mana pergi ke pusat bandar?',
+      phraseZh: '哪趟巴士去市中心？',
+      glossAsl: 'WHICH BUS GO CITY ?',
+      glossBim: 'BAS MANA PUSAT BANDAR ?',
+      glossCsl: '哪个 巴士 去 市中心 ?',
+      scenario: 'Bus Terminal',
+    ),
+    SignPhrase(
+      id: 'baaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      categoryId: 'medical',
+      phraseEn: 'I feel sick and need a doctor',
+      phraseMs: 'Saya rasa tidak sihat, perlu doktor',
+      phraseZh: '我感觉不舒服，需要医生',
+      glossAsl: 'I SICK NEED DOCTOR',
+      glossBim: 'SAYA SAKIT PERLU DOKTOR',
+      glossCsl: '我 生病 需要 医生',
+      scenario: 'Clinic & Pharmacy',
+    ),
+  ];
 
   static final List<FavoritePhrase> _inMemoryFavorites = [];
-  static final List<SearchHistoryItem> _inMemorySearchHistory = [];
 
   // --------------------------------------------------------------------------
   // 1. Browse & Search Sign Dictionary (FR-M4-01, FR-M4-04, FR-M4-13, FR-M4-14)
@@ -489,7 +306,7 @@ class SignReferenceRepository {
   }
 
   Future<bool> isFavorite(String userId, String phraseId) async {
-    return _inMemoryFavorites.any((f) => f.phraseId == phraseId);
+    return _inMemoryFavorites.any((f) => f.phraseId == phraseId && (f.userId == userId || f.userId == 'demo_user'));
   }
 
   Future<void> reorderFavorites(String userId, int oldIndex, int newIndex) async {
@@ -498,70 +315,6 @@ class SignReferenceRepository {
     }
     final item = _inMemoryFavorites.removeAt(oldIndex);
     _inMemoryFavorites.insert(newIndex, item);
-  }
-
-  // --------------------------------------------------------------------------
-  // 3. Search History (FR-M4-15, FR-M4-16)
-  // --------------------------------------------------------------------------
-  Future<List<SearchHistoryItem>> getSearchHistory(String userId) async {
-    try {
-      final response = await _client
-          .from('dictionary_search_history')
-          .select()
-          .eq('user_id', userId)
-          .order('created_at', ascending: false)
-          .limit(10);
-      final items = (response as List).map((s) => SearchHistoryItem.fromJson(s)).toList();
-      if (items.isNotEmpty) return items;
-    } catch (_) {}
-
-    if (_inMemorySearchHistory.isEmpty) {
-      _inMemorySearchHistory.addAll([
-        SearchHistoryItem(id: 'h1', userId: userId, searchQuery: 'Gate', categoryId: 'airport', createdAt: DateTime.now().subtract(const Duration(minutes: 10))),
-        SearchHistoryItem(id: 'h2', userId: userId, searchQuery: 'Check in', categoryId: 'airport', createdAt: DateTime.now().subtract(const Duration(hours: 1))),
-        SearchHistoryItem(id: 'h3', userId: userId, searchQuery: 'Thank you', categoryId: 'general', createdAt: DateTime.now().subtract(const Duration(days: 1))),
-      ]);
-    }
-    return _inMemorySearchHistory;
-  }
-
-  Future<void> addSearchHistoryItem({
-    required String userId,
-    required String query,
-    String? categoryId,
-    String? signLanguageId,
-    int resultCount = 1,
-  }) async {
-    try {
-      await _client.from('dictionary_search_history').insert({
-        'user_id': userId,
-        'search_query': query,
-        'category_id': categoryId,
-        'sign_language_id': signLanguageId,
-        'result_count': resultCount,
-      });
-    } catch (_) {}
-
-    _inMemorySearchHistory.insert(
-      0,
-      SearchHistoryItem(
-        id: 'h_${DateTime.now().millisecondsSinceEpoch}',
-        userId: userId,
-        searchQuery: query,
-        categoryId: categoryId,
-        signLanguageId: signLanguageId,
-        resultCount: resultCount,
-        createdAt: DateTime.now(),
-      ),
-    );
-  }
-
-  Future<bool> clearSearchHistory(String userId) async {
-    try {
-      await _client.from('dictionary_search_history').delete().eq('user_id', userId);
-    } catch (_) {}
-    _inMemorySearchHistory.clear();
-    return true;
   }
 
   // --------------------------------------------------------------------------
