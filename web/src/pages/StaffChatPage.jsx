@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { 
   MapPin, 
   Mic, 
@@ -18,12 +19,18 @@ import {
   AlertTriangle,
   Star,
   AlertCircle,
-  MessageSquare
+  MessageSquare,
+  ShieldCheck
 } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import { useWebRTC } from '../hooks/useWebRTC'
+import { useNotifications } from '../context/NotificationContext'
 
 export default function StaffChatPage() {
+  const location = useLocation()
+  const targetRequestId = location.state?.requestId
+  const { setActiveChatId } = useNotifications()
+
   const [requests, setRequests] = useState([])
   const [selectedReq, setSelectedReq] = useState(null)
   const [messages, setMessages] = useState([])
@@ -33,6 +40,30 @@ export default function StaffChatPage() {
   const [searchQuery, setSearchQuery] = useState('')
 
   const [chatFilter, setChatFilter] = useState('unsolved') // 'unsolved' | 'solved' | 'all'
+
+  const messagesEndRef = useRef(null)
+
+  const scrollToBottom = (smooth = true) => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' })
+    }
+  }
+
+  // Scroll to bottom when conversation loads or changes
+  useEffect(() => {
+    scrollToBottom(false)
+  }, [selectedReq?.id])
+
+  // Scroll to bottom whenever messages are added/received
+  useEffect(() => {
+    scrollToBottom(true)
+  }, [messages])
+
+  // Let NotificationProvider know which conversation is open to suppress popups for this chat
+  useEffect(() => {
+    setActiveChatId(selectedReq?.id ?? null)
+    return () => setActiveChatId(null)
+  }, [selectedReq?.id, setActiveChatId])
 
   const handleIncomingCall = React.useCallback((reqId) => {
     setRequests((prev) => {
@@ -114,8 +145,19 @@ export default function StaffChatPage() {
       return new Date(b.created_at || 0) - new Date(a.created_at || 0)
     })
 
-  // Keep selected request in sync with filtered list
+  // Keep selected request in sync with filtered list or route state
   useEffect(() => {
+    if (targetRequestId && requests.length > 0) {
+      const match = requests.find((r) => r.id === targetRequestId)
+      if (match) {
+        const isSolved = match.status === 'resolved' || match.status === 'closed'
+        if (isSolved && chatFilter === 'unsolved') setChatFilter('solved')
+        if (!isSolved && chatFilter === 'solved') setChatFilter('unsolved')
+        setSelectedReq(match)
+        return
+      }
+    }
+
     if (filteredChatRequests.length > 0) {
       const exists = filteredChatRequests.some((r) => r.id === selectedReq?.id)
       if (!exists) {
@@ -124,7 +166,7 @@ export default function StaffChatPage() {
     } else {
       setSelectedReq(null)
     }
-  }, [filteredChatRequests.length, chatFilter])
+  }, [filteredChatRequests.length, chatFilter, targetRequestId, requests])
 
   // ── Subscribe to WebRTC signaling whenever selected request changes ────────
   useEffect(() => {
@@ -756,6 +798,7 @@ export default function StaffChatPage() {
                     )
                   })
                 )}
+                <div ref={messagesEndRef} />
               </div>
 
               {/* Quick response templates */}

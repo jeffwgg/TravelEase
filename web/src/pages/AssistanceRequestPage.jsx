@@ -465,7 +465,7 @@ export default function AssistanceRequestPage() {
                             <button
                               className="btn btn-primary btn-sm"
                               style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                              onClick={() => navigate('/chat')}
+                              onClick={() => navigate('/chat', { state: { requestId: req.id } })}
                             >
                               <MessageSquare size={14} /> Open Chat
                             </button>
@@ -473,7 +473,7 @@ export default function AssistanceRequestPage() {
                         ) : (
                           <button
                             className="btn btn-secondary btn-sm"
-                            onClick={() => navigate('/chat')}
+                            onClick={() => navigate('/chat', { state: { requestId: req.id } })}
                           >
                             View Chat
                           </button>

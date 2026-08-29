@@ -30,11 +30,23 @@ export function useWebRTC(requestId, onIncomingCall) {
 
   const pcRef = useRef(null)          // RTCPeerConnection
   const localStreamRef = useRef(null) // local MediaStream
+  const remoteStreamRef = useRef(null)// remote MediaStream
+  const iceCandidateQueueRef = useRef([]) // early ICE candidates buffer
   const channelRef = useRef(null)     // Supabase Broadcast channel
   const globalChannelRef = useRef(null) // Global Broadcast channel
 
   const localVideoRef = useRef(null)  // attach to <video> element
   const remoteVideoRef = useRef(null) // attach to <video> element
+
+  // Ensure video element srcObjects are attached when callState changes or elements mount
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current
+    }
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current
+    }
+  }, [callState, callType])
 
   // ─── Signaling helpers ─────────────────────────────────────────────────────
 
@@ -63,6 +75,19 @@ export function useWebRTC(requestId, onIncomingCall) {
     }
     if (globalChannelRef.current) {
       await globalChannelRef.current.send({ type: 'broadcast', event, payload: payloadWithId })
+    }
+  }
+
+  async function flushIceCandidates() {
+    if (!pcRef.current || !pcRef.current.remoteDescription || !pcRef.current.remoteDescription.type) return
+    const queued = [...iceCandidateQueueRef.current]
+    iceCandidateQueueRef.current = []
+    for (const payload of queued) {
+      try {
+        await pcRef.current.addIceCandidate(new RTCIceCandidate(payload))
+      } catch (err) {
+        console.error('Error adding queued ICE candidate on web:', err)
+      }
     }
   }
 
@@ -110,20 +135,29 @@ export function useWebRTC(requestId, onIncomingCall) {
       }
     }
 
-    function handleCallAnswer(payload) {
+    async function handleCallAnswer(payload) {
       if (pcRef.current && payload.sdp) {
-        pcRef.current
-          .setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }))
-          .then(() => setCallState('connected'))
-          .catch(console.error)
+        try {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }))
+          await flushIceCandidates()
+          setCallState('connected')
+        } catch (err) {
+          console.error('handleCallAnswer error on web:', err)
+        }
       }
     }
 
-    function handleIceCandidate(payload) {
-      if (pcRef.current && payload.candidate) {
-        pcRef.current
-          .addIceCandidate(new RTCIceCandidate(payload))
-          .catch(console.error)
+    async function handleIceCandidate(payload) {
+      if (!payload || !payload.candidate) return
+      if (pcRef.current && pcRef.current.remoteDescription && pcRef.current.remoteDescription.type) {
+        try {
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(payload))
+        } catch (err) {
+          console.error('handleIceCandidate error on web:', err)
+        }
+      } else {
+        // Buffer candidate until remote description is set
+        iceCandidateQueueRef.current.push(payload)
       }
     }
 
@@ -151,8 +185,10 @@ export function useWebRTC(requestId, onIncomingCall) {
     }
 
     pc.ontrack = (e) => {
-      if (remoteVideoRef.current && e.streams[0]) {
-        remoteVideoRef.current.srcObject = e.streams[0]
+      const stream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track])
+      remoteStreamRef.current = stream
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream
       }
     }
 
@@ -165,6 +201,7 @@ export function useWebRTC(requestId, onIncomingCall) {
   const startCall = useCallback(async (type = 'video') => {
     setCallType(type)
     setCallState('calling')
+    iceCandidateQueueRef.current = []
 
     try {
       const constraints = type === 'video'
@@ -223,6 +260,8 @@ export function useWebRTC(requestId, onIncomingCall) {
         new RTCSessionDescription({ type: 'offer', sdp: incomingOffer.sdp })
       )
 
+      await flushIceCandidates()
+
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
 
@@ -240,6 +279,7 @@ export function useWebRTC(requestId, onIncomingCall) {
   const rejectCall = useCallback(async () => {
     await sendSignal('call_reject', { reason: 'rejected' })
     setIncomingOffer(null)
+    cleanupPeer()
     setCallState('idle')
   }, [])
 
@@ -258,6 +298,11 @@ export function useWebRTC(requestId, onIncomingCall) {
       localStreamRef.current.getTracks().forEach((t) => t.stop())
       localStreamRef.current = null
     }
+    if (remoteStreamRef.current) {
+      remoteStreamRef.current.getTracks().forEach((t) => t.stop())
+      remoteStreamRef.current = null
+    }
+    iceCandidateQueueRef.current = []
     if (pcRef.current) {
       pcRef.current.close()
       pcRef.current = null
