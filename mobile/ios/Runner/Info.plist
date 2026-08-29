@@ -45,11 +45,16 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app needs access to location when open to help staff find you.</string>
+
+	<!-- Camera, Microphone & Location Permissions for Multimodal Accessible Communication -->
 	<key>NSCameraUsageDescription</key>
-	<string>TravelEase uses your camera for video calls with assistance staff.</string>
+	<string>TravelEase requires camera access to capture and translate live sign language gestures into text.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>TravelEase uses your microphone for voice calls with assistance staff.</string>
+	<string>TravelEase requires microphone access to transcribe incoming spoken voice into live captions for deaf travelers.TravelEase uses your camera for video calls with assistance staff.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>TravelEase uses speech recognition to convert spoken conversations into on-screen captions.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TravelEase uses your location to identify airport venues, terminals, and emergency zones.</string>
+
 </dict>
 </plist>

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
+import '../../models/entities/sign_language_entity.dart';
+import '../../models/entities/sign_phrase_entity.dart';
+import '../../viewmodels/sign_dictionary_viewmodel.dart';
+import 'sign_media_viewer_view.dart';
+import 'favorite_phrases_view.dart';
 
 class SignDictionaryView extends StatefulWidget {
   const SignDictionaryView({super.key});
@@ -10,132 +14,230 @@ class SignDictionaryView extends StatefulWidget {
 }
 
 class _SignDictionaryViewState extends State<SignDictionaryView> {
-  String _selectedCategory = 'All';
-  
-  final _categories = [
-    _CategoryItem('All', Icons.grid_view),
-    _CategoryItem('Airport', Icons.flight_takeoff),
-    _CategoryItem('Hotel', Icons.hotel),
-    _CategoryItem('Restaurant', Icons.restaurant),
-    _CategoryItem('Transit', Icons.directions_bus),
-    _CategoryItem('Medical', Icons.local_hospital),
-    _CategoryItem('Emergency', Icons.warning_amber),
-  ];
+  late final SignDictionaryViewModel _viewModel;
+  final _searchController = TextEditingController();
 
-  final _phrases = [
-    const _Phrase('Hello / Greeting', 'General', Icons.waving_hand_outlined),
-    const _Phrase('Thank you', 'General', Icons.volunteer_activism_outlined),
-    const _Phrase('Where is the gate?', 'Airport', Icons.flight_takeoff_outlined),
-    const _Phrase('I need to check in', 'Airport', Icons.confirmation_number_outlined),
-    const _Phrase('My flight is delayed', 'Airport', Icons.schedule_outlined),
-    const _Phrase('I have a reservation', 'Hotel', Icons.hotel_outlined),
-    const _Phrase('Where is the bathroom?', 'General', Icons.wc_outlined),
-    const _Phrase('I need help', 'Emergency', Icons.sos_outlined),
-    const _Phrase('How much does it cost?', 'General', Icons.payments_outlined),
-    const _Phrase('Can I get the menu?', 'Restaurant', Icons.restaurant_menu_outlined),
-    const _Phrase('Which bus to take?', 'Transit', Icons.directions_bus_outlined),
-    const _Phrase('I feel sick', 'Medical', Icons.local_hospital_outlined),
+  final _categories = const [
+    _CategoryItem('all', 'All', Icons.grid_view),
+    _CategoryItem('airport', 'Airport', Icons.flight_takeoff),
+    _CategoryItem('hotel', 'Hotel', Icons.hotel),
+    _CategoryItem('restaurant', 'Food & Dining', Icons.restaurant),
+    _CategoryItem('transit', 'Transit', Icons.directions_bus),
+    _CategoryItem('medical', 'Medical', Icons.local_hospital),
+    _CategoryItem('emergency', 'Emergency', Icons.warning_amber),
+    _CategoryItem('general', 'General', Icons.chat_bubble_outline),
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _viewModel = SignDictionaryViewModel();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _viewModel.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sign Dictionary'),
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.favorite_border),
-            onPressed: () => context.push('/favorite-phrases'),
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Sign Dictionary'),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.pop(context),
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.star_rounded, color: AppColors.secondary),
+                tooltip: 'Bookmarked Favorites',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (ctx) => const FavoritePhrasesView()),
+                  ).then((_) => _viewModel.loadDictionary());
+                },
+              ),
+            ],
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Search
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Search signs and phrases...',
-                prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
-                suffixIcon: Container(
-                  margin: const EdgeInsets.all(6),
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(8)),
-                  child: const Icon(Icons.tune, color: Colors.white, size: 18),
+          body: Column(
+            children: [
+              // Search Bar (FR-M4-13)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search sign phrases, gloss, or keywords...',
+                        prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+                        suffixIcon: _searchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  _viewModel.search('');
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: AppColors.surfaceVariant,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      ),
+                      onSubmitted: (q) => _viewModel.search(q),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ),
-          // Categories
-          SizedBox(
-            height: 52,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              itemCount: _categories.length,
-              itemBuilder: (context, i) {
-                final cat = _categories[i];
-                final selected = cat.name == _selectedCategory;
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedCategory = cat.name),
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(
-                      color: selected ? AppColors.primary : AppColors.surfaceVariant,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(cat.icon, size: 16, color: selected ? Colors.white : AppColors.textSecondary),
-                        const SizedBox(width: 6),
-                        Text(
-                          cat.name,
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: selected ? Colors.white : AppColors.textSecondary),
+
+              // Categories Horizontal Selector (FR-M4-14)
+              SizedBox(
+                height: 52,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  itemCount: _categories.length,
+                  itemBuilder: (context, i) {
+                    final cat = _categories[i];
+                    final selected = cat.id == _viewModel.selectedCategory;
+                    return GestureDetector(
+                      onTap: () => _viewModel.selectCategory(cat.id),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: selected ? AppColors.primary : AppColors.surfaceVariant,
+                          borderRadius: BorderRadius.circular(20),
                         ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(cat.icon, size: 16, color: selected ? Colors.white : AppColors.textSecondary),
+                            const SizedBox(width: 6),
+                            Text(
+                              cat.name,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: selected ? Colors.white : AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              // Sign Dialect Selector Tabs - FR-M4-01: toggle between BIM / ASL visual assets
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  children: [
+                    ...const [SignLanguageType.bim, SignLanguageType.asl].map((lang) {
+                      final isSelected = _viewModel.selectedDialect == lang;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          onTap: () => _viewModel.switchDialect(lang),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isSelected ? AppColors.primary.withValues(alpha: 0.12) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: isSelected ? AppColors.primary : AppColors.cardBorder),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(lang.flagEmoji, style: const TextStyle(fontSize: 14)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${lang.code} (${lang.countryCode})',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                    const Spacer(),
+                    Text('${_viewModel.phrases.length} signs', style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Phrases List with Gloss Notations (FR-M4-02, FR-M4-04)
+              Expanded(
+                child: _viewModel.isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _viewModel.phrases.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.search_off_rounded, size: 54, color: AppColors.textMuted.withValues(alpha: 0.4)),
+                                const SizedBox(height: 12),
+                                const Text('No matching sign phrases found'),
+                                const SizedBox(height: 4),
+                                Text('Try another keyword or category filter', style: Theme.of(context).textTheme.bodySmall),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: _viewModel.phrases.length,
+                            itemBuilder: (context, i) => _buildPhraseCard(_viewModel.phrases[i]),
+                          ),
+              ),
+            ],
           ),
-          // Language toggle
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                _buildLangToggle('BIM (Malaysia)', true),
-                const SizedBox(width: 8),
-                _buildLangToggle('ASL (USA)', false),
-                const Spacer(),
-                Text('${_phrases.length} phrases', style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Phrases list
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _phrases.length,
-              itemBuilder: (context, i) => _buildPhraseCard(context, _phrases[i]),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildPhraseCard(BuildContext context, _Phrase phrase) {
+  Widget _buildPhraseCard(SignPhrase phrase) {
+    final isFav = _viewModel.isFavorite(phrase.id);
+    final gloss = phrase.getGloss(_viewModel.selectedDialect);
+    final dialect = _viewModel.selectedDialect;
+    final primaryText = phrase.getPrimaryText(dialect);
+    final secondaryText = dialect == SignLanguageType.bim ? phrase.phraseEn : phrase.phraseMs;
+
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: AppColors.cardBorder),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => context.push('/sign-media'),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (ctx) => SignMediaViewerView(
+                phrase: phrase,
+                initialDialect: _viewModel.selectedDialect,
+              ),
+            ),
+          );
+        },
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
@@ -148,34 +250,64 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 alignment: Alignment.center,
-                child: Icon(phrase.icon, color: AppColors.primary, size: 24),
+                child: const Icon(Icons.sign_language_rounded, color: AppColors.primary, size: 24),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(phrase.text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                    Text(
+                      primaryText,
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                    ),
                     const SizedBox(height: 2),
+                    Text(
+                      secondaryText,
+                      style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 6),
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(4)),
-                          child: Text(phrase.category, style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            'Gloss: $gloss',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.accent,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.play_circle_outline, size: 14, color: AppColors.textMuted),
-                        const SizedBox(width: 4),
-                        Text('Video + Audio', style: Theme.of(context).textTheme.bodySmall),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceVariant,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            phrase.categoryId.toUpperCase(),
+                            style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.textMuted),
+                          ),
+                        ),
                       ],
                     ),
                   ],
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.favorite_border, size: 20, color: AppColors.textMuted),
-                onPressed: () {},
+                icon: Icon(
+                  isFav ? Icons.star_rounded : Icons.star_outline_rounded,
+                  color: isFav ? AppColors.secondary : AppColors.textMuted,
+                  size: 24,
+                ),
+                onPressed: () => _viewModel.toggleFavorite(phrase.id),
               ),
             ],
           ),
@@ -183,29 +315,11 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
       ),
     );
   }
-
-  Widget _buildLangToggle(String label, bool selected) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: selected ? AppColors.primary.withValues(alpha: 0.1) : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: selected ? AppColors.primary : AppColors.cardBorder),
-      ),
-      child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: selected ? AppColors.primary : AppColors.textMuted)),
-    );
-  }
 }
 
 class _CategoryItem {
+  final String id;
   final String name;
   final IconData icon;
-  const _CategoryItem(this.name, this.icon);
-}
-
-class _Phrase {
-  final String text;
-  final String category;
-  final IconData icon;
-  const _Phrase(this.text, this.category, this.icon);
+  const _CategoryItem(this.id, this.name, this.icon);
 }

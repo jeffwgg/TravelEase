@@ -11,6 +11,7 @@ import '../views/location/announcement_view.dart';
 import '../views/location/emergency_alert_view.dart';
 import '../views/location/queue_tracking_view.dart';
 import '../views/location/notification_history_view.dart';
+import '../views/communication/communication_hub_view.dart';
 import '../views/communication/sign_translation_camera_view.dart';
 import '../views/communication/speech_to_sign_view.dart';
 import '../views/communication/two_way_dialogue_view.dart';
@@ -23,6 +24,7 @@ import '../views/assistance/request_tracking_view.dart';
 import '../views/assistance/chat_view.dart';
 import '../views/assistance/accessibility_issue_view.dart';
 import '../views/assistance/location_picker_view.dart';
+import '../views/debug/speech_diagnostics_view.dart';
 import '../views/home/home_view.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -142,6 +144,12 @@ final GoRouter appRouter = GoRouter(
       path: '/location-picker',
       builder: (context, state) => const LocationPickerView(),
     ),
+    // TEMPORARY: device speech capability diagnostics (remove once Mandarin
+    // TTS/ASR strategy is confirmed).
+    GoRoute(
+      path: '/speech-diagnostics',
+      builder: (context, state) => const SpeechDiagnosticsView(),
+    ),
   ],
 );
 
@@ -160,7 +168,7 @@ class _CommunicateTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SignTranslationCameraView();
+    return const CommunicationHubView();
   }
 }
 

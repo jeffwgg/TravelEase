@@ -46,8 +46,9 @@ class _HomeViewState extends State<HomeView> {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildNavItem(Icons.explore_rounded, 'Explore', 0),
-                _buildNavItem(Icons.sign_language_rounded, 'Communicate', 1),
-                _buildSosButton(context),
+                _buildNavItem(Icons.forum_outlined, 'Communicate', 1),
+                // Middle Sign Language Camera Translation Button
+                _buildSignTranslateButton(context),
                 _buildNavItem(Icons.support_agent_rounded, 'Assistance', 2),
                 _buildNavItem(Icons.person_rounded, 'Profile', 3),
               ],
@@ -97,81 +98,45 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
-  Widget _buildSosButton(BuildContext context) {
+  Widget _buildSignTranslateButton(BuildContext context) {
     return GestureDetector(
-      onLongPress: () {
-        _showSosActivated(context);
+      onTap: () {
+        context.push('/sign-camera');
       },
       child: Container(
-        width: 56,
-        height: 56,
+        width: 60,
+        height: 60,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [AppColors.emergency, const Color(0xFFDC2626)],
+          gradient: const LinearGradient(
+            colors: [AppColors.primary, Color(0xFF0F766E)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: AppColors.emergency.withValues(alpha: 0.4),
-              blurRadius: 12,
+              color: AppColors.primary.withValues(alpha: 0.4),
+              blurRadius: 14,
               offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: Column(
+        child: const Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.sos_rounded, color: Colors.white, size: 20),
-            const Text(
-              'SOS',
+            Icon(Icons.sign_language_rounded, color: Colors.white, size: 24),
+            SizedBox(height: 2),
+            Text(
+              'Translate',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 9,
+                fontSize: 8.5,
                 fontWeight: FontWeight.w800,
-                letterSpacing: 1,
+                letterSpacing: 0.2,
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showSosActivated(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.emergencyLight.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.warning_rounded, color: AppColors.emergency, size: 24),
-            ),
-            const SizedBox(width: 12),
-            const Text('SOS Activated'),
-          ],
-        ),
-        content: const Text(
-          'Emergency alert has been sent to your contacts and the current institution.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.emergency),
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Confirm SOS'),
-          ),
-        ],
       ),
     );
   }
