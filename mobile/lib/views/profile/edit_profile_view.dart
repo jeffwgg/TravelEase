@@ -49,30 +49,82 @@ class _EditProfileViewState extends State<EditProfileView> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _viewModel.nationalityController,
-                  enabled: !_viewModel.isLoading,
+                DropdownButtonFormField<String>(
+                  key: ValueKey(_viewModel.nationality),
+                  initialValue: _viewModel.nationality.isEmpty
+                      ? null
+                      : _viewModel.nationality,
                   decoration: const InputDecoration(
                     labelText: 'Nationality',
                     prefixIcon: Icon(Icons.public),
                   ),
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  key: ValueKey(_viewModel.preferredCommunication),
-                  initialValue: _viewModel.preferredCommunication,
-                  decoration: const InputDecoration(
-                    labelText: 'Preferred Communication',
-                    prefixIcon: Icon(Icons.forum_outlined),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'text', child: Text('Text / Chat')),
-                    DropdownMenuItem(value: 'sign_language', child: Text('Sign Language')),
-                    DropdownMenuItem(value: 'speech_to_text', child: Text('Speech to Text')),
-                  ],
+                  items: _nationalityOptions(_viewModel.nationality)
+                      .map(
+                        (nationality) => DropdownMenuItem(
+                          value: nationality,
+                          child: Text(nationality),
+                        ),
+                      )
+                      .toList(),
                   onChanged: _viewModel.isLoading
                       ? null
-                      : _viewModel.setPreferredCommunication,
+                      : (value) {
+                          if (value != null) {
+                            _viewModel.nationalityController.text = value;
+                          }
+                        },
+                ),
+                const SizedBox(height: 28),
+                Text(
+                  'Change Password',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _viewModel.currentPasswordController,
+                  enabled: !_viewModel.isChangingPassword,
+                  obscureText: true,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Current Password',
+                    prefixIcon: Icon(Icons.lock_person_outlined),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _viewModel.newPasswordController,
+                  enabled: !_viewModel.isChangingPassword,
+                  obscureText: true,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'New Password',
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _viewModel.confirmPasswordController,
+                  enabled: !_viewModel.isChangingPassword,
+                  obscureText: true,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _changePassword(),
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm New Password',
+                    prefixIcon: Icon(Icons.lock_reset),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton(
+                  onPressed: _viewModel.isChangingPassword
+                      ? null
+                      : _changePassword,
+                  child: _viewModel.isChangingPassword
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Change Password'),
                 ),
                 if (_viewModel.errorMessage != null) ...[
                   const SizedBox(height: 16),
@@ -101,8 +153,51 @@ class _EditProfileViewState extends State<EditProfileView> {
     );
   }
 
+  List<String> _nationalityOptions(String currentNationality) {
+    const nationalities = [
+      'Malaysian',
+      'Australian',
+      'Bangladeshi',
+      'British',
+      'Bruneian',
+      'Cambodian',
+      'Canadian',
+      'Chinese',
+      'Filipino',
+      'French',
+      'German',
+      'Indian',
+      'Indonesian',
+      'Japanese',
+      'Myanmar',
+      'Nepalese',
+      'New Zealander',
+      'Pakistani',
+      'Singaporean',
+      'South Korean',
+      'Sri Lankan',
+      'Thai',
+      'Vietnamese',
+      'Other',
+    ];
+    if (currentNationality.isEmpty ||
+        nationalities.contains(currentNationality)) {
+      return nationalities;
+    }
+    return [currentNationality, ...nationalities];
+  }
+
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
     if (await _viewModel.updateProfile() && mounted) context.pop();
+  }
+
+  Future<void> _changePassword() async {
+    FocusScope.of(context).unfocus();
+    if (await _viewModel.changePassword() && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password changed successfully.')),
+      );
+    }
   }
 }

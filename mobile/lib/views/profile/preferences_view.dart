@@ -17,7 +17,6 @@ class PreferencesView extends StatefulWidget {
 class _PreferencesViewState extends State<PreferencesView> {
   late final AccessibilityPreferencesViewModel _viewModel;
   final _alertService = AccessibilityAlertService();
-  String _commMethod = 'sign';
 
   @override
   void initState() {
@@ -50,22 +49,6 @@ class _PreferencesViewState extends State<PreferencesView> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _buildSectionHeader('Communication Method'),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildRadioOption('Sign Language', 'sign'),
-                      _buildRadioOption('Written Text', 'text'),
-                      _buildRadioOption('Speech-to-Text', 'stt'),
-                      _buildRadioOption('Combined (All)', 'all'),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
               _buildSectionHeader('Alert Preferences'),
               Card(
                 child: Column(
@@ -304,7 +287,7 @@ class _PreferencesViewState extends State<PreferencesView> {
       subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
       secondary: Icon(icon, color: AppColors.primary, size: 22),
       value: value,
-      activeColor: AppColors.primary,
+      activeThumbColor: AppColors.primary,
       onChanged: onChanged,
     );
   }
@@ -408,20 +391,6 @@ class _PreferencesViewState extends State<PreferencesView> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Widget _buildRadioOption(String title, String value) {
-    return RadioListTile<String>(
-      title: Text(title, style: const TextStyle(fontSize: 15)),
-      value: value,
-      groupValue: _commMethod,
-      activeColor: AppColors.primary,
-      onChanged: (selected) {
-        if (selected != null) setState(() => _commMethod = selected);
-      },
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-    );
   }
 
   Future<void> _save() async {

@@ -250,6 +250,10 @@ class _EmergencyContactSettingsViewState
                     contact.phoneNumber,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
+                  Text(
+                    contact.email,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
@@ -309,14 +313,15 @@ class _EmergencyContactSettingsViewState
   }
 
   Future<void> _showVerification(EmergencyContact contact) async {
-    final testCode = _viewModel.createVerificationCode(contact.id);
+    if (!await _viewModel.requestVerification(contact.id)) {
+      _showError();
+      return;
+    }
+    if (!mounted) return;
     final verified = await showDialog<bool>(
       context: context,
-      builder: (_) => _OtpVerificationDialog(
-        contact: contact,
-        testCode: testCode,
-        viewModel: _viewModel,
-      ),
+      builder: (_) =>
+          _OtpVerificationDialog(contact: contact, viewModel: _viewModel),
     );
     if (verified == true) {
       _showMessage('${contact.name} has been verified.');
@@ -405,6 +410,7 @@ class _ContactFormSheetState extends State<_ContactFormSheet> {
   late final TextEditingController _nameController;
   late final TextEditingController _relationshipController;
   late final TextEditingController _phoneController;
+  late final TextEditingController _emailController;
   bool _isSubmitting = false;
 
   @override
@@ -415,6 +421,7 @@ class _ContactFormSheetState extends State<_ContactFormSheet> {
       text: widget.contact?.relationship,
     );
     _phoneController = TextEditingController(text: widget.contact?.phoneNumber);
+    _emailController = TextEditingController(text: widget.contact?.email);
   }
 
   @override
@@ -422,6 +429,7 @@ class _ContactFormSheetState extends State<_ContactFormSheet> {
     _nameController.dispose();
     _relationshipController.dispose();
     _phoneController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
@@ -478,6 +486,18 @@ class _ContactFormSheetState extends State<_ContactFormSheet> {
                 keyboardType: TextInputType.phone,
                 validator: (value) => _required(value, 'Enter a phone number.'),
               ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  hintText: 'Email Address',
+                  prefixIcon: Icon(Icons.email_outlined),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.email],
+                validator: _validateEmail,
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _isSubmitting ? null : _submit,
@@ -493,6 +513,15 @@ class _ContactFormSheetState extends State<_ContactFormSheet> {
   String? _required(String? value, String message) =>
       value == null || value.trim().isEmpty ? message : null;
 
+  String? _validateEmail(String? value) {
+    final email = value?.trim() ?? '';
+    if (email.isEmpty) return 'Enter an email address.';
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      return 'Enter a valid email address.';
+    }
+    return null;
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSubmitting = true);
@@ -502,12 +531,14 @@ class _ContactFormSheetState extends State<_ContactFormSheet> {
             name: _nameController.text.trim(),
             relationship: _relationshipController.text.trim(),
             phoneNumber: _phoneController.text.trim(),
+            email: _emailController.text.trim().toLowerCase(),
           )
         : await widget.viewModel.updateContact(
             id: contact.id,
             name: _nameController.text.trim(),
             relationship: _relationshipController.text.trim(),
             phoneNumber: _phoneController.text.trim(),
+            email: _emailController.text.trim().toLowerCase(),
           );
     if (!mounted) return;
     if (succeeded) {
@@ -522,12 +553,10 @@ class _ContactFormSheetState extends State<_ContactFormSheet> {
 class _OtpVerificationDialog extends StatefulWidget {
   const _OtpVerificationDialog({
     required this.contact,
-    required this.testCode,
     required this.viewModel,
   });
 
   final EmergencyContact contact;
-  final String testCode;
   final EmergencyContactViewModel viewModel;
 
   @override
@@ -553,12 +582,7 @@ class _OtpVerificationDialogState extends State<_OtpVerificationDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Enter the 6-digit code for ${widget.contact.phoneNumber}.'),
-          const SizedBox(height: 12),
-          Text(
-            'Development test code: ${widget.testCode}',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text('Enter the 6-digit code sent to ${widget.contact.email}.'),
           const SizedBox(height: 12),
           TextField(
             controller: _controller,

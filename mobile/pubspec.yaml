@@ -16,6 +16,7 @@ dependencies:
   google_fonts: ^8.2.0
   record: 6.2.1
   shared_preferences: ^2.5.5
+  share_plus: ^13.3.0
   speech_to_text: ^7.4.0
   supabase_flutter: ^2.8.0
   google_maps_flutter: ^2.10.0

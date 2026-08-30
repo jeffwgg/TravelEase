@@ -59,27 +59,23 @@ class _AuthenticationViewState extends State<AuthenticationView>
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(22),
-                  child: Image.asset(
-                    'assets/logo.png',
-                    width: 88,
-                    height: 88,
-                  ),
+                  child: Image.asset('assets/logo.png', width: 88, height: 88),
                 ),
               ),
               const SizedBox(height: 24),
               Text(
                 'TravelEase',
                 style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
                 'Accessible Travel for Everyone',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
+                  color: AppColors.textSecondary,
+                ),
               ),
               const SizedBox(height: 40),
               // Tab bar
@@ -106,7 +102,10 @@ class _AuthenticationViewState extends State<AuthenticationView>
                   dividerColor: Colors.transparent,
                   labelColor: AppColors.textPrimary,
                   unselectedLabelColor: AppColors.textMuted,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
                   tabs: const [
                     Tab(text: 'Sign In'),
                     Tab(text: 'Register'),
@@ -153,13 +152,17 @@ class _AuthenticationViewState extends State<AuthenticationView>
           obscureText: _obscurePassword,
           decoration: InputDecoration(
             hintText: 'Password',
-            prefixIcon: const Icon(Icons.lock_outline, color: AppColors.textMuted),
+            prefixIcon: const Icon(
+              Icons.lock_outline,
+              color: AppColors.textMuted,
+            ),
             suffixIcon: IconButton(
               icon: Icon(
                 _obscurePassword ? Icons.visibility_off : Icons.visibility,
                 color: AppColors.textMuted,
               ),
-              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+              onPressed: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
             ),
           ),
         ),
@@ -167,7 +170,7 @@ class _AuthenticationViewState extends State<AuthenticationView>
         Align(
           alignment: Alignment.centerRight,
           child: TextButton(
-            onPressed: () {},
+            onPressed: _viewModel.isLoading ? null : _showForgotPasswordDialog,
             child: const Text('Forgot Password?'),
           ),
         ),
@@ -231,18 +234,24 @@ class _AuthenticationViewState extends State<AuthenticationView>
           decoration: BoxDecoration(
             color: AppColors.primaryLight.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.primaryLight.withValues(alpha: 0.3)),
+            border: Border.all(
+              color: AppColors.primaryLight.withValues(alpha: 0.3),
+            ),
           ),
           child: Row(
             children: [
-              const Icon(Icons.accessibility_new, color: AppColors.primary, size: 20),
+              const Icon(
+                Icons.accessibility_new,
+                color: AppColors.primary,
+                size: 20,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   'TravelEase is designed for deaf and hard-of-hearing travelers',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.primaryDark,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: AppColors.primaryDark),
                 ),
               ),
             ],
@@ -285,7 +294,10 @@ class _AuthenticationViewState extends State<AuthenticationView>
           obscureText: _obscureRegistrationPassword,
           decoration: InputDecoration(
             hintText: 'Password',
-            prefixIcon: const Icon(Icons.lock_outline, color: AppColors.textMuted),
+            prefixIcon: const Icon(
+              Icons.lock_outline,
+              color: AppColors.textMuted,
+            ),
             suffixIcon: IconButton(
               icon: Icon(
                 _obscureRegistrationPassword
@@ -294,8 +306,7 @@ class _AuthenticationViewState extends State<AuthenticationView>
                 color: AppColors.textMuted,
               ),
               onPressed: () => setState(() {
-                _obscureRegistrationPassword =
-                    !_obscureRegistrationPassword;
+                _obscureRegistrationPassword = !_obscureRegistrationPassword;
               }),
             ),
           ),
@@ -309,7 +320,10 @@ class _AuthenticationViewState extends State<AuthenticationView>
           obscureText: _obscureConfirmationPassword,
           decoration: InputDecoration(
             hintText: 'Confirm Password',
-            prefixIcon: const Icon(Icons.lock_outline, color: AppColors.textMuted),
+            prefixIcon: const Icon(
+              Icons.lock_outline,
+              color: AppColors.textMuted,
+            ),
             suffixIcon: IconButton(
               icon: Icon(
                 _obscureConfirmationPassword
@@ -318,38 +332,10 @@ class _AuthenticationViewState extends State<AuthenticationView>
                 color: AppColors.textMuted,
               ),
               onPressed: () => setState(() {
-                _obscureConfirmationPassword =
-                    !_obscureConfirmationPassword;
+                _obscureConfirmationPassword = !_obscureConfirmationPassword;
               }),
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        // Hearing status
-        DropdownButtonFormField<String>(
-          decoration: const InputDecoration(
-            hintText: 'Hearing Status',
-            prefixIcon: Icon(Icons.hearing_disabled, color: AppColors.textMuted),
-          ),
-          items: const [
-            DropdownMenuItem(value: 'deaf', child: Text('Deaf')),
-            DropdownMenuItem(value: 'hoh', child: Text('Hard of Hearing')),
-            DropdownMenuItem(value: 'hearing', child: Text('Hearing')),
-          ],
-          onChanged: (_) {},
-        ),
-        const SizedBox(height: 16),
-        // Preferred sign language
-        DropdownButtonFormField<String>(
-          decoration: const InputDecoration(
-            hintText: 'Preferred Sign Language',
-            prefixIcon: Icon(Icons.sign_language, color: AppColors.textMuted),
-          ),
-          items: const [
-            DropdownMenuItem(value: 'bim', child: Text('BIM (Malaysian Sign Language)')),
-            DropdownMenuItem(value: 'asl', child: Text('ASL (American Sign Language)')),
-          ],
-          onChanged: (_) {},
         ),
         const SizedBox(height: 24),
         ElevatedButton(
@@ -401,6 +387,74 @@ class _AuthenticationViewState extends State<AuthenticationView>
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Social sign in is not available yet.')),
     );
+  }
+
+  Future<void> _showForgotPasswordDialog() async {
+    _viewModel.clearMessages();
+    _viewModel.resetEmailController.text = _viewModel.loginEmailController.text
+        .trim();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => ListenableBuilder(
+        listenable: _viewModel,
+        builder: (context, _) => AlertDialog(
+          title: const Text('Reset Password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Enter your account email and we will send you a secure reset link.',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _viewModel.resetEmailController,
+                enabled: !_viewModel.isLoading,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _requestPasswordReset(),
+                decoration: const InputDecoration(
+                  labelText: 'Email address',
+                  prefixIcon: Icon(Icons.email_outlined),
+                ),
+              ),
+              if (_viewModel.errorMessage != null) ...[
+                const SizedBox(height: 12),
+                _buildStatusMessage(_viewModel.errorMessage!, isError: true),
+              ],
+              if (_viewModel.successMessage != null) ...[
+                const SizedBox(height: 12),
+                _buildStatusMessage(_viewModel.successMessage!),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: _viewModel.isLoading
+                  ? null
+                  : () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
+            ElevatedButton(
+              onPressed: _viewModel.isLoading ? null : _requestPasswordReset,
+              child: _viewModel.isLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Send Reset Link'),
+            ),
+          ],
+        ),
+      ),
+    );
+    _viewModel.clearMessages();
+  }
+
+  Future<void> _requestPasswordReset() async {
+    FocusScope.of(context).unfocus();
+    await _viewModel.sendPasswordResetEmail();
   }
 
   Widget _buildStatusMessage(String message, {bool isError = false}) {

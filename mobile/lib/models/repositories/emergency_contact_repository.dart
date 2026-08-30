@@ -39,6 +39,7 @@ class EmergencyContactRepository {
     required String name,
     required String relationship,
     required String phoneNumber,
+    required String email,
   }) async {
     try {
       final response = await _client
@@ -48,6 +49,7 @@ class EmergencyContactRepository {
             'name': name,
             'relationship': relationship,
             'phone_number': phoneNumber,
+            'email': email,
           })
           .select()
           .single();
@@ -63,21 +65,18 @@ class EmergencyContactRepository {
     required String name,
     required String relationship,
     required String phoneNumber,
-    required bool resetVerification,
+    required String email,
   }) async {
     try {
-      final changes = <String, dynamic>{
-        'name': name,
-        'relationship': relationship,
-        'phone_number': phoneNumber,
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      if (resetVerification) {
-        changes.addAll({'is_verified': false, 'is_primary': false});
-      }
       final response = await _client
           .from('emergency_contacts')
-          .update(changes)
+          .update({
+            'name': name,
+            'relationship': relationship,
+            'phone_number': phoneNumber,
+            'email': email,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
           .eq('id', id)
           .eq('user_id', _userId)
           .select()
@@ -114,23 +113,51 @@ class EmergencyContactRepository {
     }
   }
 
-  Future<EmergencyContact> markVerified(String id) async {
+  Future<void> requestVerification(String id) async {
+    final response = await _invokeFunction(
+      'request-emergency-contact-otp',
+      body: {'contact_id': id},
+    );
+    _throwForFunctionError(response);
+  }
+
+  Future<EmergencyContact> verifyContact({
+    required String id,
+    required String code,
+  }) async {
+    final response = await _invokeFunction(
+      'verify-emergency-contact-otp',
+      body: {'contact_id': id, 'code': code},
+    );
+    _throwForFunctionError(response);
+    final data = Map<String, dynamic>.from(response.data as Map);
+    return EmergencyContact.fromJson(
+      Map<String, dynamic>.from(data['contact'] as Map),
+    );
+  }
+
+  Future<FunctionResponse> _invokeFunction(
+    String name, {
+    required Map<String, dynamic> body,
+  }) async {
     try {
-      final response = await _client
-          .from('emergency_contacts')
-          .update({
-            'is_verified': true,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', id)
-          .eq('user_id', _userId)
-          .select()
-          .single();
-      return EmergencyContact.fromJson(response);
-    } on PostgrestException catch (error) {
-      _logSupabaseException('verify', error);
-      rethrow;
+      return await _client.functions.invoke(name, body: body);
+    } on FunctionException catch (error) {
+      final details = error.details;
+      final message = details is Map && details['error'] is String
+          ? details['error'] as String
+          : 'Unable to verify this contact.';
+      throw EmergencyContactRepositoryException(message);
     }
+  }
+
+  void _throwForFunctionError(FunctionResponse response) {
+    if (response.status < 400) return;
+    final data = response.data;
+    final message = data is Map && data['error'] is String
+        ? data['error'] as String
+        : 'Unable to verify this contact.';
+    throw EmergencyContactRepositoryException(message);
   }
 
   void _logSupabaseException(String operation, PostgrestException error) {
@@ -140,4 +167,12 @@ class EmergencyContactRepository {
       'details=${error.details} hint=${error.hint}',
     );
   }
+}
+
+class EmergencyContactRepositoryException implements Exception {
+  const EmergencyContactRepositoryException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
 }

@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import {
-  Accessibility,
   LayoutDashboard,
   Megaphone,
   ListOrdered,
@@ -15,6 +14,9 @@ import {
 } from 'lucide-react'
 import './index.css'
 import AuthPage from './pages/AuthPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
+import AuthCallbackPage from './pages/AuthCallbackPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import ProfilePage from './pages/ProfilePage'
 import AnnouncementPage from './pages/AnnouncementPage'
 import CreateAnnouncementPage from './pages/CreateAnnouncementPage'
@@ -122,13 +124,21 @@ function DashboardLayout({ children }) {
 function AppRoutes() {
   const location = useLocation()
   const { session, staffContext, loading } = useAuth()
-  const isAuth = location.pathname === '/auth'
+  const publicAuthRoutes = new Set(['/auth', '/verify-email', '/auth/callback', '/reset-password'])
+  const isPublicAuthRoute = publicAuthRoutes.has(location.pathname)
 
   if (loading) return <div className="app-loading">Connecting to TravelEase…</div>
 
-  if (isAuth) {
-    if (session && staffContext) return <Navigate to="/dashboard" replace />
-    return <Routes><Route path="/auth" element={<AuthPage />} /></Routes>
+  if (isPublicAuthRoute) {
+    if (location.pathname === '/auth' && session && staffContext) return <Navigate to="/dashboard" replace />
+    return (
+      <Routes>
+        <Route path="/auth" element={<AuthPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+      </Routes>
+    )
   }
 
   if (!session || !staffContext) return <Navigate to="/auth" replace state={{ from: location.pathname }} />

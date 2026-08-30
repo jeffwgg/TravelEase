@@ -3,10 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_client.dart';
 
 class AuthRepository {
-  static const emailCallbackUrl = 'travelease://auth/callback';
-
   AuthRepository({SupabaseClient? client})
-      : _client = client ?? SupabaseClientHelper.client;
+    : _client = client ?? SupabaseClientHelper.client;
 
   final SupabaseClient _client;
 
@@ -18,7 +16,7 @@ class AuthRepository {
     return _client.auth.signUp(
       email: email,
       password: password,
-      emailRedirectTo: emailCallbackUrl,
+      emailRedirectTo: 'travelease://auth/callback',
       data: {'full_name': fullName},
     );
   }
@@ -27,10 +25,18 @@ class AuthRepository {
     required String email,
     required String password,
   }) {
-    return _client.auth.signInWithPassword(
-      email: email,
-      password: password,
+    return _client.auth.signInWithPassword(email: email, password: password);
+  }
+
+  Future<void> sendPasswordResetEmail(String email) {
+    return _client.auth.resetPasswordForEmail(
+      email,
+      redirectTo: 'travelease://auth/reset-password',
     );
+  }
+
+  Future<UserResponse> updatePassword(String password) {
+    return _client.auth.updateUser(UserAttributes(password: password));
   }
 
   Future<void> signOut() => _client.auth.signOut();

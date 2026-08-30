@@ -50,16 +50,6 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
                   ),
                   const SizedBox(height: 28),
                   TextField(
-                    controller: _viewModel.fullNameController,
-                    enabled: !_viewModel.isLoading,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Full Name',
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
                     controller: _viewModel.nationalityController,
                     enabled: !_viewModel.isLoading,
                     textInputAction: TextInputAction.next,

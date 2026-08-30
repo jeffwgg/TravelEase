@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -18,7 +16,6 @@ class EmergencyContactViewModel extends ChangeNotifier {
   bool isSaving = false;
   String? errorMessage;
   bool _isDisposed = false;
-  final Map<String, String> _verificationCodes = {};
 
   Future<void> loadContacts() async {
     debugPrint('[EmergencyContacts] Loading contacts');
@@ -41,6 +38,7 @@ class EmergencyContactViewModel extends ChangeNotifier {
     required String name,
     required String relationship,
     required String phoneNumber,
+    required String email,
   }) async {
     if (contacts.length >= maximumContacts) {
       return _fail('You can save up to 5 emergency contacts.');
@@ -50,6 +48,7 @@ class EmergencyContactViewModel extends ChangeNotifier {
         name: name,
         relationship: relationship,
         phoneNumber: phoneNumber,
+        email: email,
       );
       contacts = [...contacts, contact];
     });
@@ -60,6 +59,7 @@ class EmergencyContactViewModel extends ChangeNotifier {
     required String name,
     required String relationship,
     required String phoneNumber,
+    required String email,
   }) {
     return _save('edit', () async {
       final updated = await _repository.updateContact(
@@ -67,9 +67,7 @@ class EmergencyContactViewModel extends ChangeNotifier {
         name: name,
         relationship: relationship,
         phoneNumber: phoneNumber,
-        resetVerification: contacts.any(
-          (item) => item.id == id && item.phoneNumber != phoneNumber,
-        ),
+        email: email,
       );
       contacts = [
         for (final item in contacts)
@@ -104,30 +102,23 @@ class EmergencyContactViewModel extends ChangeNotifier {
     });
   }
 
-  String createVerificationCode(String contactId) {
-    final code = (Random.secure().nextInt(900000) + 100000).toString();
-    _verificationCodes[contactId] = code;
-    debugPrint('[EmergencyContacts] Test OTP for $contactId: $code');
-    return code;
+  Future<bool> requestVerification(String contactId) {
+    return _save('request verification', () async {
+      await _repository.requestVerification(contactId);
+    });
   }
 
   Future<bool> verifyContact(String contactId, String enteredCode) async {
-    final expectedCode = _verificationCodes[contactId];
-    if (expectedCode == null) {
-      return _fail('Request a new verification code.');
-    }
-    if (enteredCode.trim() != expectedCode) {
-      return _fail('The verification code is incorrect.');
-    }
-    final succeeded = await _save('verify', () async {
-      final verified = await _repository.markVerified(contactId);
+    return _save('verify', () async {
+      final verified = await _repository.verifyContact(
+        id: contactId,
+        code: enteredCode.trim(),
+      );
       contacts = [
         for (final item in contacts)
           if (item.id == contactId) verified else item,
       ];
     });
-    if (succeeded) _verificationCodes.remove(contactId);
-    return succeeded;
   }
 
   Future<bool> _save(
@@ -171,6 +162,7 @@ class EmergencyContactViewModel extends ChangeNotifier {
     if (error is PostgrestException && error.code == '42P01') {
       return 'Emergency contacts are not configured in Supabase yet.';
     }
+    if (error is EmergencyContactRepositoryException) return error.message;
     return fallback;
   }
 

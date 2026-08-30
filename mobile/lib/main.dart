@@ -18,7 +18,11 @@ void main() async {
   await dotenv.load(fileName: ".env");
   await SupabaseClientHelper.initialize();
   await AuthDeepLinkService.instance.initialize(
-    onVerifiedSession: () async {
+    onAuthSession: (isPasswordRecovery) async {
+      if (isPasswordRecovery) {
+        appRouter.go('/reset-password');
+        return;
+      }
       final viewModel = ProfileViewModel();
       final destination = await viewModel.authenticatedDestination();
       viewModel.dispose();
@@ -59,9 +63,7 @@ class _TravelEaseAppState extends State<TravelEaseApp> {
       theme: AppTheme.lightTheme,
       routerConfig: appRouter,
       builder: (context, child) {
-        return IncomingCallOverlay(
-          child: child ?? const SizedBox.shrink(),
-        );
+        return IncomingCallOverlay(child: child ?? const SizedBox.shrink());
       },
     );
   }

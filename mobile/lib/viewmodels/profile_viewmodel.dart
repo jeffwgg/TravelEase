@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/repositories/auth_repository.dart';
@@ -8,49 +9,58 @@ class ProfileViewModel extends ChangeNotifier {
   ProfileViewModel({
     ProfileRepository? profileRepository,
     AuthRepository? authRepository,
-  })  : _profileRepository = profileRepository ?? ProfileRepository(),
-        _authRepository = authRepository ?? AuthRepository();
+    ImagePicker? imagePicker,
+  }) : _profileRepository = profileRepository ?? ProfileRepository(),
+       _authRepository = authRepository ?? AuthRepository(),
+       _imagePicker = imagePicker ?? ImagePicker();
 
   final ProfileRepository _profileRepository;
   final AuthRepository _authRepository;
+  final ImagePicker _imagePicker;
 
   final fullNameController = TextEditingController();
   final nationalityController = TextEditingController();
   final primaryLanguageController = TextEditingController();
   final secondaryLanguageController = TextEditingController();
+  final currentPasswordController = TextEditingController();
+  final newPasswordController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
 
   String? _preferredCommunication;
   bool _isLoading = false;
+  bool _isChangingPassword = false;
+  bool _isUploadingAvatar = false;
   String? _errorMessage;
   Map<String, dynamic>? _profile;
 
   String? get preferredCommunication => _preferredCommunication;
   bool get isLoading => _isLoading;
+  bool get isChangingPassword => _isChangingPassword;
+  bool get isUploadingAvatar => _isUploadingAvatar;
   String? get errorMessage => _errorMessage;
   Map<String, dynamic>? get profile => _profile;
-  String get fullName => (_profile?['full_name'] as String?) ??
+  String get fullName =>
+      (_profile?['full_name'] as String?) ??
       (_authRepository.currentUser?.userMetadata?['full_name'] as String?) ??
       '';
   String get email => _authRepository.currentUser?.email ?? '';
   String get nationality => (_profile?['nationality'] as String?) ?? '';
+  String get avatarUrl =>
+      (_profile?['avatar_url'] as String?) ??
+      (_authRepository.currentUser?.userMetadata?['avatar_url'] as String?) ??
+      '';
   String get preferredCommunicationValue =>
       (_profile?['preferred_communication'] as String?) ?? '';
-  String get preferredCommunicationLabel {
-    switch (preferredCommunicationValue) {
-      case 'sign_language':
-        return 'Sign Language';
-      case 'speech_to_text':
-        return 'Speech to Text';
-      case 'text':
-        return 'Text / Chat';
-      default:
-        return 'Not set';
-    }
-  }
+  String get preferredCommunicationLabel =>
+      switch (preferredCommunicationValue) {
+        'sign_language' => 'Sign Language',
+        'speech_to_text' => 'Speech to Text',
+        'text' => 'Text / Chat',
+        _ => 'Not set',
+      };
 
   void initializeFromAuthenticatedUser() {
-    final metadata = _authRepository.currentUser?.userMetadata;
-    final fullName = metadata?['full_name'];
+    final fullName = _authRepository.currentUser?.userMetadata?['full_name'];
     if (fullName is String && fullNameController.text.isEmpty) {
       fullNameController.text = fullName;
     }
@@ -85,14 +95,11 @@ class ProfileViewModel extends ChangeNotifier {
         _authRepository.currentSession == null) {
       return '/auth';
     }
-
     try {
-      final isComplete =
-          await _profileRepository.isCurrentUserProfileComplete();
-      return isComplete ? '/home' : '/profile-setup';
+      return await _profileRepository.isCurrentUserProfileComplete()
+          ? '/home'
+          : '/profile-setup';
     } catch (_) {
-      // A missing profile or a profile that predates completion tracking must
-      // go through setup rather than bypassing required traveller data.
       return '/profile-setup';
     }
   }
@@ -102,7 +109,6 @@ class ProfileViewModel extends ChangeNotifier {
     final nationality = nationalityController.text.trim();
     final primaryLanguage = primaryLanguageController.text.trim();
     final secondaryLanguage = secondaryLanguageController.text.trim();
-
     if (fullName.isEmpty) return _fail('Please enter your full name.');
     if (nationality.isEmpty) return _fail('Please enter your nationality.');
     if (primaryLanguage.isEmpty) {
@@ -111,32 +117,24 @@ class ProfileViewModel extends ChangeNotifier {
     if (_preferredCommunication == null) {
       return _fail('Please select your preferred communication method.');
     }
-
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
-
     try {
       await _profileRepository.saveTravellerProfile(
         fullName: fullName,
         nationality: nationality,
         primaryLanguage: primaryLanguage,
-        secondaryLanguage:
-            secondaryLanguage.isEmpty ? null : secondaryLanguage,
+        secondaryLanguage: secondaryLanguage.isEmpty ? null : secondaryLanguage,
         preferredCommunication: _preferredCommunication!,
       );
       _isLoading = false;
       notifyListeners();
       return true;
-    } on PostgrestException catch (error) {
-      debugPrint('POSTGREST ERROR');
-      debugPrint('Message: ${error.message}');
-      debugPrint('Code: ${error.code}');
-      debugPrint('Details: ${error.details}');
-      debugPrint('Hint: ${error.hint}');
-      return _fail(_friendlyDatabaseError(error));
     } on AuthException {
       return _fail('Your session has expired. Please sign in again.');
+    } on PostgrestException catch (error) {
+      return _fail(_friendlyDatabaseError(error));
     } catch (_) {
       return _fail('Unable to save your profile. Please try again.');
     }
@@ -147,10 +145,6 @@ class ProfileViewModel extends ChangeNotifier {
     final nationality = nationalityController.text.trim();
     if (fullName.isEmpty) return _fail('Please enter your full name.');
     if (nationality.isEmpty) return _fail('Please enter your nationality.');
-    if (_preferredCommunication == null) {
-      return _fail('Please select your preferred communication method.');
-    }
-
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -158,13 +152,11 @@ class ProfileViewModel extends ChangeNotifier {
       await _profileRepository.updateCurrentUserProfile(
         fullName: fullName,
         nationality: nationality,
-        preferredCommunication: _preferredCommunication!,
       );
       _profile = {
         ...?_profile,
         'full_name': fullName,
         'nationality': nationality,
-        'preferred_communication': _preferredCommunication,
       };
       _isLoading = false;
       notifyListeners();
@@ -176,8 +168,131 @@ class ProfileViewModel extends ChangeNotifier {
     }
   }
 
+  Future<bool> changePassword() async {
+    final currentPassword = currentPasswordController.text;
+    final password = newPasswordController.text;
+    final confirmation = confirmPasswordController.text;
+    if (currentPassword.isEmpty) {
+      return _passwordFail('Please enter your current password.');
+    }
+    if (password.length < 8) {
+      return _passwordFail('Use at least 8 characters for your new password.');
+    }
+    if (!RegExp(r'[A-Z]').hasMatch(password) ||
+        !RegExp(r'[a-z]').hasMatch(password) ||
+        !RegExp(r'[0-9]').hasMatch(password)) {
+      return _passwordFail(
+        'New password must include uppercase, lowercase, and a number.',
+      );
+    }
+    if (password == currentPassword) {
+      return _passwordFail(
+        'New password must be different from your current password.',
+      );
+    }
+    if (password != confirmation) {
+      return _passwordFail('The password confirmation does not match.');
+    }
+    _isChangingPassword = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      await _profileRepository.changePassword(
+        currentPassword: currentPassword,
+        newPassword: password,
+      );
+      currentPasswordController.clear();
+      newPasswordController.clear();
+      confirmPasswordController.clear();
+      _isChangingPassword = false;
+      notifyListeners();
+      return true;
+    } on AuthException catch (error) {
+      final message = error.message.toLowerCase();
+      return _passwordFail(
+        message.contains('invalid login credentials')
+            ? 'Your current password is incorrect.'
+            : message.contains('session')
+            ? 'Please sign in again before changing your password.'
+            : message.contains('same')
+            ? 'New password must be different from your current password.'
+            : 'Unable to change your password. Check the password requirements.',
+      );
+    } catch (_) {
+      return _passwordFail('Unable to change your password.');
+    }
+  }
+
+  Future<bool> pickAndUploadAvatar(ImageSource source) async {
+    debugPrint('[AvatarUpload] Opening ${source.name} image picker');
+    final XFile? image;
+    try {
+      image = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1200,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('[AvatarUpload] Image selection failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _errorMessage = 'Unable to open the image picker.';
+      notifyListeners();
+      return false;
+    }
+    if (image == null) {
+      debugPrint('[AvatarUpload] Image selection cancelled');
+      return false;
+    }
+    debugPrint('[AvatarUpload] Image selected: name=${image.name}');
+    _isUploadingAvatar = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final extension = image.name.split('.').last.toLowerCase();
+      final contentType = extension == 'png' ? 'image/png' : 'image/jpeg';
+      final bytes = await image.readAsBytes();
+      debugPrint(
+        '[AvatarUpload] Image bytes ready: bytes=${bytes.length} '
+        'contentType=$contentType',
+      );
+      final url = await _profileRepository.uploadAvatar(
+        bytes: bytes,
+        contentType: contentType,
+      );
+      _profile = {...?_profile, 'avatar_url': url};
+      _isUploadingAvatar = false;
+      notifyListeners();
+      debugPrint('[AvatarUpload] Avatar flow completed successfully: $url');
+      return true;
+    } on StorageException catch (error) {
+      _isUploadingAvatar = false;
+      _errorMessage =
+          'Storage upload failed (${error.statusCode ?? 'unknown'}): '
+          '${error.message}';
+      debugPrint(
+        '[AvatarUpload] Storage failure surfaced to ViewModel: $error',
+      );
+      notifyListeners();
+      return false;
+    } catch (error, stackTrace) {
+      _isUploadingAvatar = false;
+      _errorMessage = 'Unable to upload your profile image.';
+      debugPrint('[AvatarUpload] Avatar flow failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      notifyListeners();
+      return false;
+    }
+  }
+
   bool _fail(String message) {
     _isLoading = false;
+    _errorMessage = message;
+    notifyListeners();
+    return false;
+  }
+
+  bool _passwordFail(String message) {
+    _isChangingPassword = false;
     _errorMessage = message;
     notifyListeners();
     return false;
@@ -196,6 +311,9 @@ class ProfileViewModel extends ChangeNotifier {
     nationalityController.dispose();
     primaryLanguageController.dispose();
     secondaryLanguageController.dispose();
+    currentPasswordController.dispose();
+    newPasswordController.dispose();
+    confirmPasswordController.dispose();
     super.dispose();
   }
 }
