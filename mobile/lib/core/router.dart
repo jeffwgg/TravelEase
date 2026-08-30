@@ -8,6 +8,7 @@ import '../views/emergency/emergency_communication_card_view.dart';
 import '../views/emergency/environment_sound_alert_view.dart';
 import '../views/location/venue_identification_view.dart';
 import '../views/location/announcement_view.dart';
+import '../views/location/announcement_details_view.dart';
 import '../views/location/emergency_alert_view.dart';
 import '../views/location/queue_tracking_view.dart';
 import '../views/location/notification_history_view.dart';
@@ -84,6 +85,11 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/announcements',
       builder: (context, state) => const AnnouncementView(),
+    ),
+    GoRoute(
+      path: '/announcement-details',
+      builder: (context, state) =>
+          AnnouncementDetailsView(id: state.uri.queryParameters['id'] ?? ''),
     ),
     GoRoute(
       path: '/emergency-alerts',

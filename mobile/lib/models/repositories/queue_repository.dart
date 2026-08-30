@@ -30,7 +30,7 @@ class QueueRepository {
         .from('queue_numbers')
         .select('*, queue_lines!inner(*)')
         .eq('institution_id', institutionId)
-        .inFilter('number', _numberCandidates(number, queuePrefix));
+        .inFilter('number', numberCandidates(number, queuePrefix));
     if (queueLineId != null && queueLineId.isNotEmpty) {
       query = query.eq('queue_line_id', queueLineId);
     }
@@ -39,7 +39,9 @@ class QueueRepository {
     return QueueTrackingData.fromJson(Map<String, dynamic>.from(response));
   }
 
-  List<String> _numberCandidates(String number, String? prefix) {
+  /// Formatting variants for a queue number so lookups tolerate prefixes,
+  /// dashes and zero padding ("A-047", "A047", "a 47"...).
+  static List<String> numberCandidates(String number, String? prefix) {
     final raw = number.trim().toUpperCase();
     final compact = raw.replaceAll(RegExp(r'[\s-]'), '');
     final cleanPrefix = (prefix ?? '').trim().toUpperCase().replaceAll(RegExp(r'[\s-]'), '');

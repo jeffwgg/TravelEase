@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useAutoDismiss } from '../hooks/useAutoDismiss'
 
 export default function AuthPage() {
   const navigate = useNavigate()
@@ -10,6 +11,7 @@ export default function AuthPage() {
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  useAutoDismiss(error, () => setError(''))
 
   const handleSubmit = async (event) => {
     event.preventDefault()

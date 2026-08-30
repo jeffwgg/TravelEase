@@ -2,8 +2,26 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { queueRepository } from '../repositories/queueRepository'
+import { useAutoDismiss } from '../hooks/useAutoDismiss'
 
 const labelStatus = (status) => status ? status[0].toUpperCase() + status.slice(1) : ''
+
+const numericQueueValue = (value) => {
+  const match = String(value || '').match(/(\d+)\s*$/)
+  return match ? parseInt(match[1], 10) : null
+}
+
+// Only numbers up to the line's official upcoming number are actual waiters —
+// the traceable window pre-registers future numbers ahead of it.
+const realWaitingCount = (line) => {
+  const upcoming = numericQueueValue(line.upcoming_number)
+  const waiting = line.queue_numbers?.filter((number) => {
+    if (number.status !== 'waiting') return false
+    const value = numericQueueValue(number.number)
+    return upcoming == null || value == null || value <= upcoming
+  }).length
+  return waiting || 0
+}
 
 export default function QueueUpdatePage() {
   const { session, staffContext } = useAuth()
@@ -19,7 +37,19 @@ export default function QueueUpdatePage() {
   const [busyId, setBusyId] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  useAutoDismiss(error, () => setError(''))
+  useAutoDismiss(success, () => setSuccess(''))
+  useAutoDismiss(lookupError, () => setLookupError(''))
   const operationalLines = lines.filter((line) => line.status !== 'closed')
+
+  // A line is exhausted once its upcoming number would exceed the maximum
+  // queue number; calling and notifying must stop there.
+  const maxQueueNumberReached = (line) => {
+    const cap = Number(line.max_tracking_number)
+    if (!Number.isFinite(cap) || cap <= 0) return false
+    const upcoming = numericQueueValue(line.upcoming_number)
+    return upcoming != null && upcoming > cap
+  }
 
   const loadLines = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
@@ -52,8 +82,8 @@ export default function QueueUpdatePage() {
   }
 
   const saveLine = async () => {
-    if (!editing.name.trim() || !editing.counter.trim() || !editing.service_area.trim()) {
-      setError('Queue line name, counter, and service area are required.')
+    if (!editing.name.trim() || !editing.service_area.trim()) {
+      setError('Queue line name and service area are required.')
       return
     }
     setBusyId(editing.id)
@@ -61,10 +91,10 @@ export default function QueueUpdatePage() {
     try {
       await queueRepository.updateQueueLine(editing.id, {
         name: editing.name.trim(),
-        counter: editing.counter.trim(),
         service_area: editing.service_area.trim(),
         status: editing.status,
         estimated_service_minutes: Number(editing.estimated_service_minutes),
+        max_tracking_number: Number(editing.max_tracking_number) > 0 ? Number(editing.max_tracking_number) : 100,
         operating_hours: editing.operating_hours?.trim() || null,
         staff_notes: editing.staff_notes?.trim() || null,
       }, session.user.id)
@@ -84,7 +114,7 @@ export default function QueueUpdatePage() {
     setSuccess('')
     try {
       const updated = await queueRepository.callNext(line.id)
-      setSuccess(`${updated.current_number} is now being called at ${updated.counter}.`)
+      setSuccess(`${updated.current_number} is now being called at ${updated.service_area}.`)
       await loadLines(true)
     } catch (callError) {
       setError(callError.message || 'Unable to call the next queue number.')
@@ -104,7 +134,6 @@ export default function QueueUpdatePage() {
     try {
       const updated = await queueRepository.notifyNumber(directLineId, directNumber)
       setSuccess(`${updated.current_number} was called and travelers were notified visually.`)
-      setDirectNumber(updated.upcoming_number)
       await loadLines(true)
     } catch (notifyError) {
       setError(notifyError.message || 'Unable to notify the queue number.')
@@ -170,21 +199,21 @@ export default function QueueUpdatePage() {
           <div className="queue-call-scroll" aria-label="Queue lines available to call">
             {!operationalLines.length && <div className="form-alert info" role="note">No active or paused queue lines are available for calling.</div>}
             {operationalLines.map((line) => {
-              const waiting = line.queue_numbers?.filter((number) => number.status === 'waiting').length || 0
+              const waiting = realWaitingCount(line)
               return <div key={line.id} className="card queue-call-card" style={{ background: 'linear-gradient(135deg, var(--dark-bg), var(--dark-surface))', color: '#fff' }}>
                 <div className="queue-card-heading">
-                  <span>{line.counter}</span>
+                  <span>{line.name}</span>
                   <button className="btn btn-outline btn-sm" onClick={() => openManage(line)}>Manage</button>
                 </div>
                 <div style={{ fontSize: '56px', fontWeight: '800', color: 'var(--primary-light)', margin: '16px 0' }}>{line.current_number}</div>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} disabled={busyId === line.id || line.status !== 'active'} onClick={() => callNext(line)}>{busyId === line.id ? 'Calling…' : `Call Next (${line.upcoming_number})`}</button>
+                  <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} disabled={busyId === line.id || line.status !== 'active' || maxQueueNumberReached(line)} title={maxQueueNumberReached(line) ? 'Maximum queue number reached' : undefined} onClick={() => callNext(line)}>{busyId === line.id ? 'Calling…' : `Call Next (${line.upcoming_number})`}</button>
                 </div>
                 <div className="queue-current-actions">
                   <button className="btn btn-outline btn-sm" disabled={busyId === `status-${line.id}` || line.status !== 'active'} onClick={() => markNumber(line.id, line.current_number, 'completed')}>Mark {line.current_number} Complete</button>
                   <button className="btn btn-danger btn-sm" disabled={busyId === `status-${line.id}` || line.status !== 'active'} onClick={() => markNumber(line.id, line.current_number, 'cancelled')}>Cancel {line.current_number}</button>
                 </div>
-                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>{line.service_area} • {waiting} waiting</div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>{line.service_area} • {waiting} waiting{maxQueueNumberReached(line) ? ' • Maximum queue number reached' : ''}</div>
               </div>
             })}
           </div>
@@ -209,11 +238,13 @@ export default function QueueUpdatePage() {
               <div><span>Status</span><strong className={`queue-status-text ${lookupResult.status}`}>{labelStatus(lookupResult.status)}</strong></div>
               <div><span>Queue Line</span><strong>{lookupResult.queue_lines.name}</strong></div>
               <div><span>Service</span><strong>{lookupResult.queue_lines.service_area}</strong></div>
-              <div><span>Counter</span><strong>{lookupResult.queue_lines.counter}</strong></div>
               <div><span>Now Serving</span><strong>{lookupResult.queue_lines.current_number}</strong></div>
+              <div><span>Line Status</span><strong>{lookupResult.queue_lines.status}</strong></div>
               {!['completed', 'cancelled'].includes(lookupResult.status) && <div className="queue-lookup-actions">
-                <span>Update Status</span>
-                <div><button className="btn btn-outline btn-sm" disabled={busyId === `status-${lookupResult.queue_line_id}`} onClick={() => markNumber(lookupResult.queue_line_id, lookupResult.number, 'completed', true)}>Mark Complete</button><button className="btn btn-danger btn-sm" disabled={busyId === `status-${lookupResult.queue_line_id}`} onClick={() => markNumber(lookupResult.queue_line_id, lookupResult.number, 'cancelled', true)}>Cancel Number</button></div>
+                {lookupResult.queue_lines.status === 'closed' ? <span className="field-note">This queue line is closed — number statuses are locked.</span> : <>
+                  <span>Update Status</span>
+                  <div><button className="btn btn-outline btn-sm" disabled={busyId === `status-${lookupResult.queue_line_id}`} onClick={() => markNumber(lookupResult.queue_line_id, lookupResult.number, 'completed', true)}>Mark Complete</button><button className="btn btn-danger btn-sm" disabled={busyId === `status-${lookupResult.queue_line_id}`} onClick={() => markNumber(lookupResult.queue_line_id, lookupResult.number, 'cancelled', true)}>Cancel Number</button></div>
+                </>}
               </div>}
             </div>}
             </div>
@@ -222,10 +253,10 @@ export default function QueueUpdatePage() {
           <div className="card">
             <div className="card-header"><h3>Queue Lines</h3></div>
             {!lines.length ? <div className="table-message">No queue lines have been created.</div> : <table className="data-table">
-              <thead><tr><th>Queue Line</th><th>Current</th><th>Upcoming</th><th>Counter</th><th>Status</th><th>Action</th></tr></thead>
+              <thead><tr><th>Queue Line</th><th>Current</th><th>Upcoming</th><th>Status</th><th>Action</th></tr></thead>
               <tbody>{lines.map((line) => <tr key={line.id}>
                 <td><strong>{line.name}</strong><br/><span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{line.service_area}</span></td>
-                <td><span className="badge primary">{line.current_number}</span></td><td>{line.upcoming_number}</td><td>{line.counter}</td>
+                <td><span className="badge primary">{line.current_number}</span></td><td>{line.upcoming_number}</td>
                 <td><span className={`badge ${line.status === 'active' ? 'success' : line.status === 'paused' ? 'secondary' : 'muted'}`}>{labelStatus(line.status)}</span></td>
                 <td><button className="btn btn-outline btn-sm" onClick={() => openManage(line)}>Manage</button></td>
               </tr>)}</tbody>
@@ -241,9 +272,9 @@ export default function QueueUpdatePage() {
             <div className="form-group"><label>Queue Line Name</label><input className="input" disabled={editing.was_closed} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></div>
             <div className="form-group"><label>Current Number</label><div className="input queue-readonly-value" aria-label="Current Number">{editing.current_number}</div></div>
             <div className="form-group"><label>Upcoming Number</label><div className="input queue-readonly-value" aria-label="Upcoming Number">{editing.upcoming_number}</div></div>
-            <div className="form-group"><label>Counter</label><input className="input" disabled={editing.was_closed} value={editing.counter} onChange={(event) => setEditing({ ...editing, counter: event.target.value })} /></div>
             <div className="form-group"><label>Service Area</label><input className="input" disabled={editing.was_closed} value={editing.service_area} onChange={(event) => setEditing({ ...editing, service_area: event.target.value })} /></div>
             <div className="form-group"><label>Estimated Service Time (Minutes)</label><input type="number" min="1" max="240" className="input" disabled={editing.was_closed} value={editing.estimated_service_minutes} onChange={(event) => setEditing({ ...editing, estimated_service_minutes: event.target.value })} /></div>
+            <div className="form-group"><label>Maximum Queue Number</label><input type="number" min="1" max="500" step="1" className="input" disabled={editing.was_closed} value={editing.max_tracking_number ?? 100} onChange={(event) => setEditing({ ...editing, max_tracking_number: event.target.value })} /><div className="field-note">Queue numbers stop at this value; no larger numbers can be called or tracked.</div></div>
             <div className="form-group"><label>Operating Hours</label><input className="input" disabled={editing.was_closed} value={editing.operating_hours || ''} onChange={(event) => setEditing({ ...editing, operating_hours: event.target.value })} placeholder="e.g. 6:00 AM – 11:00 PM" /></div>
             <div className="form-group"><label>Queue Line Status</label><select className="input" value={editing.status} onChange={(event) => setEditing({ ...editing, status: event.target.value })}><option value="active">Active</option><option value="paused">Paused</option><option value="closed">Closed</option></select></div>
           </div>

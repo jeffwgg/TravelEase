@@ -2,10 +2,12 @@ import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { queueRepository } from '../repositories/queueRepository'
+import { useAutoDismiss } from '../hooks/useAutoDismiss'
 
 const initialForm = {
-  name: '', serviceArea: '', counter: '', prefix: '', firstNumber: '',
-  status: 'active', estimatedServiceMinutes: '5', operatingHours: '', staffNotes: '',
+  name: '', serviceArea: '', prefix: '', firstNumber: '',
+  status: 'active', estimatedServiceMinutes: '5', maxTrackingNumber: '',
+  operatingHours: '', staffNotes: '',
 }
 
 const formatQueueNumber = (prefix, value) => {
@@ -23,6 +25,7 @@ export default function AddQueueLinePage() {
   const [fieldErrors, setFieldErrors] = useState({})
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  useAutoDismiss(error, () => setError(''))
 
   const update = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }))
@@ -33,14 +36,14 @@ export default function AddQueueLinePage() {
     const next = {}
     if (!form.name.trim()) next.name = 'Queue line name is required.'
     if (!form.serviceArea.trim()) next.serviceArea = 'Service area is required.'
-    if (!form.counter.trim()) next.counter = 'Counter is required.'
     if (!form.prefix.trim()) next.prefix = 'Queue prefix is required.'
     const firstNumber = Number(form.firstNumber)
-    if (form.firstNumber === '') next.firstNumber = 'First number is required.'
-    else if (!Number.isInteger(firstNumber) || firstNumber < 0) next.firstNumber = 'Enter a whole number of 0 or greater.'
+    if (form.firstNumber !== '' && (!Number.isInteger(firstNumber) || firstNumber < 0)) next.firstNumber = 'Enter a whole number of 0 or greater.'
     if (!form.status) next.status = 'Queue status is required.'
     const minutes = Number(form.estimatedServiceMinutes)
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 240) next.estimatedServiceMinutes = 'Enter a whole number from 1 to 240.'
+    const maxTracking = Number(form.maxTrackingNumber)
+    if (form.maxTrackingNumber !== '' && (!Number.isInteger(maxTracking) || maxTracking < 1 || maxTracking > 500)) next.maxTrackingNumber = 'Enter a whole number from 1 to 500.'
     setFieldErrors(next)
     return Object.keys(next).length === 0
   }
@@ -51,19 +54,21 @@ export default function AddQueueLinePage() {
     setSubmitting(true)
     setError('')
     try {
-      const firstNumber = Number(form.firstNumber)
+      // Empty inputs fall back to the defaults shown as placeholders.
+      const firstNumber = form.firstNumber === '' ? 1 : Number(form.firstNumber)
+      const maxTrackingNumber = form.maxTrackingNumber === '' ? 100 : Number(form.maxTrackingNumber)
       const currentNumber = formatQueueNumber(form.prefix, firstNumber)
       const upcomingNumber = formatQueueNumber(form.prefix, firstNumber + 1)
       await queueRepository.createQueueLine({
         institution_id: staffContext.institution_id,
         name: form.name.trim(),
         service_area: form.serviceArea.trim(),
-        counter: form.counter.trim(),
         prefix: form.prefix.trim().toUpperCase(),
         current_number: currentNumber,
         upcoming_number: upcomingNumber,
         status: form.status,
         estimated_service_minutes: Number(form.estimatedServiceMinutes),
+        max_tracking_number: maxTrackingNumber,
         operating_hours: form.operatingHours.trim() || null,
         staff_notes: form.staffNotes.trim() || null,
         created_by: session.user.id,
@@ -90,11 +95,11 @@ export default function AddQueueLinePage() {
           <div className="form-grid">
             <div className="form-group"><label htmlFor="queue-name">Queue Line Name <span className="required-mark">*</span></label><input id="queue-name" className={`input ${fieldErrors.name ? 'invalid' : ''}`} value={form.name} onChange={update('name')} placeholder="e.g. A Series" />{fieldError('name')}</div>
             <div className="form-group"><label htmlFor="queue-service">Service Area <span className="required-mark">*</span></label><input id="queue-service" className={`input ${fieldErrors.serviceArea ? 'invalid' : ''}`} value={form.serviceArea} onChange={update('serviceArea')} placeholder="e.g. General Ticketing" />{fieldError('serviceArea')}</div>
-            <div className="form-group"><label htmlFor="queue-counter">Counter <span className="required-mark">*</span></label><input id="queue-counter" className={`input ${fieldErrors.counter ? 'invalid' : ''}`} value={form.counter} onChange={update('counter')} placeholder="e.g. Counter #1 — Main Service Desk" />{fieldError('counter')}</div>
             <div className="form-group"><label htmlFor="queue-prefix">Queue Prefix <span className="required-mark">*</span></label><input id="queue-prefix" className={`input ${fieldErrors.prefix ? 'invalid' : ''}`} value={form.prefix} onChange={update('prefix')} placeholder="e.g. A" maxLength={8} />{fieldError('prefix')}</div>
-            <div className="form-group"><label htmlFor="queue-first-number">First Number <span className="required-mark">*</span></label><input id="queue-first-number" type="number" min="0" step="1" className={`input ${fieldErrors.firstNumber ? 'invalid' : ''}`} value={form.firstNumber} onChange={update('firstNumber')} placeholder="e.g. 1" />{fieldError('firstNumber')}<div className="field-note">Numbers only; the queue prefix is added automatically.</div><div className="queue-number-preview" role="note"><div><span>Current number</span><strong>{formatQueueNumber(form.prefix, form.firstNumber) || 'A-001'}</strong></div><span className="queue-number-preview-arrow">→</span><div><span>Next number (+1)</span><strong>{formatQueueNumber(form.prefix, form.firstNumber === '' ? '' : Number(form.firstNumber) + 1) || 'A-002'}</strong></div></div></div>
+            <div className="form-group"><label htmlFor="queue-first-number">First Number</label><input id="queue-first-number" type="number" min="0" step="1" className={`input ${fieldErrors.firstNumber ? 'invalid' : ''}`} value={form.firstNumber} onChange={update('firstNumber')} placeholder="1" />{fieldError('firstNumber')}<div className="field-note">Numbers only; defaults to 1 when left empty. The queue prefix is added automatically.</div><div className="queue-number-preview" role="note"><div><span>Current number</span><strong>{formatQueueNumber(form.prefix, form.firstNumber === '' ? 1 : form.firstNumber) || 'A-001'}</strong></div><span className="queue-number-preview-arrow">→</span><div><span>Next number (+1)</span><strong>{formatQueueNumber(form.prefix, form.firstNumber === '' ? 2 : Number(form.firstNumber) + 1) || 'A-002'}</strong></div></div></div>
             <div className="form-group"><label htmlFor="queue-status">Queue Status <span className="required-mark">*</span></label><select id="queue-status" className={`input ${fieldErrors.status ? 'invalid' : ''}`} value={form.status} onChange={update('status')}><option value="active">Active</option><option value="paused">Paused</option><option value="closed">Closed</option></select>{fieldError('status')}</div>
             <div className="form-group"><label htmlFor="queue-minutes">Estimated Service Time (Minutes) <span className="required-mark">*</span></label><input id="queue-minutes" type="number" min="1" max="240" className={`input ${fieldErrors.estimatedServiceMinutes ? 'invalid' : ''}`} value={form.estimatedServiceMinutes} onChange={update('estimatedServiceMinutes')} placeholder="e.g. 5" />{fieldError('estimatedServiceMinutes')}</div>
+            <div className="form-group"><label htmlFor="queue-max-tracking">Maximum Queue Number</label><input id="queue-max-tracking" type="number" min="1" max="500" step="1" className={`input ${fieldErrors.maxTrackingNumber ? 'invalid' : ''}`} value={form.maxTrackingNumber} onChange={update('maxTrackingNumber')} placeholder="100" />{fieldError('maxTrackingNumber')}<div className="field-note">Queue numbers stop at this value (default 100); no larger numbers can be called or tracked.</div></div>
             <div className="form-group"><label htmlFor="queue-hours">Operating Hours (Optional)</label><input id="queue-hours" className="input" value={form.operatingHours} onChange={update('operatingHours')} placeholder="e.g. 6:00 AM – 11:00 PM" /></div>
           </div>
           <div className="form-group"><label htmlFor="queue-notes">Staff Notes (Optional)</label><textarea id="queue-notes" className="input" rows={4} value={form.staffNotes} onChange={update('staffNotes')} maxLength={2000} placeholder="Add operational notes for staff managing this queue..." /></div>

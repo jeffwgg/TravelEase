@@ -239,7 +239,16 @@ docker compose --profile tunnel up -d
 docker compose logs --tail 100 cloudflared
 ```
 
-Copy the new base URL and update `LIBRETRANSLATE_URL`.
+Copy the new base URL and update `LIBRETRANSLATE_URL`, or run the helper
+script, which does both and verifies the service is reachable first:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File web\supabase\libretranslate\update-tunnel-secret.ps1
+```
+
+If the portal shows a JSON parse error such as `Unexpected token '<'` instead,
+the Edge Function received an HTML Cloudflare error page through a stale
+tunnel — the same fix applies.
 
 ### `docker` is not recognized
 

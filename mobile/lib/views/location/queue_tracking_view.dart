@@ -268,7 +268,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
   Widget _buildStatusCard(QueueTrackingData tracking) {
     final statusColor = _statusColor(tracking.status);
     final statusMessage = switch (tracking.status) {
-      'called' || 'serving' => 'Please proceed to ${tracking.line.counter}',
+      'called' || 'serving' => 'Please proceed to ${tracking.line.counterLabel}',
       'cancelled' => 'This queue number was cancelled',
       'completed' => 'Service for this queue number is complete',
       _ => 'You will be notified when it is your turn',
@@ -399,8 +399,14 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
             'Service',
             line.serviceArea,
           ),
-          const Divider(height: 24),
-          _buildInfoRow(Icons.meeting_room_outlined, 'Counter', line.counter),
+          if (line.counter?.trim().isNotEmpty ?? false) ...[
+            const Divider(height: 24),
+            _buildInfoRow(
+              Icons.meeting_room_outlined,
+              'Counter',
+              line.counter!.trim(),
+            ),
+          ],
           const Divider(height: 24),
           _buildInfoRow(
             Icons.schedule_outlined,
