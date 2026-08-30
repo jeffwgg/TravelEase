@@ -59,12 +59,47 @@ export function AuthProvider({ children }) {
   const signIn = async (email, password) => {
     const { session: nextSession } = await authRepository.signIn(email, password)
     const context = await loadStaffContext(nextSession)
-    if (!context?.institutions?.active) {
+    if (!context?.institutions) {
       await authRepository.signOut()
-      throw new Error('This account is not linked to an active institution.')
+      throw new Error('This account is not an institution account.')
+    }
+    if (context.institutions.verification_status !== 'email_verified') {
+      await authRepository.signOut()
+      throw new Error('Verify your institution email before signing in.')
+    }
+    if (!context.institutions.active) {
+      await authRepository.signOut()
+      throw new Error('This institution account is not active yet.')
     }
     return context
   }
+
+  const registerInstitution = async (form) => {
+    console.log('[InstitutionRegistration][AuthContext] Forwarding registration to repository', {
+      formKeys: Object.keys(form),
+      hasDocument: form.registrationDocument instanceof File,
+    })
+    try {
+      const result = await authRepository.registerInstitution(form)
+      console.log('[InstitutionRegistration][AuthContext] Repository registration resolved', result)
+      return result
+    } catch (error) {
+      console.error('[InstitutionRegistration][AuthContext] Repository registration rejected', error)
+      throw error
+    }
+  }
+
+  const sendPasswordReset = (email) => authRepository.sendPasswordReset(email)
+
+  const updatePassword = async (password) => {
+    const result = await authRepository.updatePassword(password)
+    await authRepository.signOut()
+    setSession(null)
+    setStaffContext(null)
+    return result
+  }
+
+  const refreshStaffContext = () => loadStaffContext(session)
 
   const signOut = async () => {
     await authRepository.signOut()
@@ -72,7 +107,21 @@ export function AuthProvider({ children }) {
     setStaffContext(null)
   }
 
-  return <AuthContext.Provider value={{ session, staffContext, loading, signIn, signOut }}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={{
+      session,
+      staffContext,
+      loading,
+      signIn,
+      signOut,
+      registerInstitution,
+      sendPasswordReset,
+      updatePassword,
+      refreshStaffContext,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
 
 export function useAuth() {

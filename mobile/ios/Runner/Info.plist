@@ -14,6 +14,17 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>travelease</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>travelease</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -49,6 +60,8 @@
 	<!-- Camera, Microphone & Location Permissions for Multimodal Accessible Communication -->
 	<key>NSCameraUsageDescription</key>
 	<string>TravelEase requires camera access to capture and translate live sign language gestures into text.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>TravelEase uses your selected photo as your profile image.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>TravelEase requires microphone access to transcribe incoming spoken voice into live captions for deaf travelers.TravelEase uses your camera for video calls with assistance staff.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

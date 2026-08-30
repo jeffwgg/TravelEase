@@ -12,6 +12,8 @@ import 'services/public_announcement_capture_service.dart';
 import 'services/queue_notification_service.dart';
 import 'services/startup_permission_service.dart';
 import 'services/venue_session_service.dart';
+import 'services/auth_deep_link_service.dart';
+import 'viewmodels/profile_viewmodel.dart';
 
 import 'services/webrtc_service.dart';
 import 'views/widgets/incoming_call_overlay.dart';
@@ -23,6 +25,19 @@ void main() async {
   await AppNotificationService.instance.initialize(
     onNotificationTap: _handleNotificationTap,
   );
+  await AuthDeepLinkService.instance.initialize(
+    onAuthSession: (isPasswordRecovery) async {
+      if (isPasswordRecovery) {
+        appRouter.go('/reset-password');
+        return;
+      }
+      final viewModel = ProfileViewModel();
+      final destination = await viewModel.authenticatedDestination();
+      viewModel.dispose();
+      appRouter.go(destination);
+    },
+  );
+  await AppNotificationService.instance.initialize();
   await QueueNotificationService.instance.initialize();
   await VenueSessionService.instance.restore();
   // Venue alert services: notifications keep flowing while the app is in the
@@ -52,6 +67,7 @@ class _TravelEaseAppState extends State<TravelEaseApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Deep link from a notification tap that launched the app cold.
       final launchRoute = AppNotificationService.instance.consumeLaunchPayload();
@@ -65,6 +81,7 @@ class _TravelEaseAppState extends State<TravelEaseApp>
       await startBackgroundNotificationService();
     });
     WebRTCService.instance.init().then((_) {
+      await WebRTCService.instance.init();
       WebRTCService.instance.subscribeToGlobalSignaling();
     });
   }
@@ -92,7 +109,9 @@ class _TravelEaseAppState extends State<TravelEaseApp>
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       routerConfig: appRouter,
-      builder: (context, child) => IncomingCallOverlay(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) {
+        return IncomingCallOverlay(child: child ?? const SizedBox.shrink());
+      },
     );
   }
 }
