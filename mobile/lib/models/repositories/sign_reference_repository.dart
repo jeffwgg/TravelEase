@@ -1,9 +1,7 @@
 import '../../core/supabase_client.dart';
 import '../entities/sign_language_entity.dart';
 import '../entities/sign_phrase_entity.dart';
-import '../entities/sign_media_asset_entity.dart';
 import '../entities/favorite_phrase_entity.dart';
-import '../entities/search_history_entity.dart';
 
 /// Repository for Module 4: Sign-Language Reference Engine Module (FR-M4-01 to FR-M4-19)
 class SignReferenceRepository {
@@ -26,42 +24,7 @@ class SignReferenceRepository {
         SignMovementStep(step: 2, title: 'Move Hands Outward', description: 'Move both hands gently apart in an inquisitive questioning motion.'),
         SignMovementStep(step: 3, title: 'Point & Facial Expression', description: 'Point forward with dominant index finger while raising eyebrows.'),
       ],
-      mediaAssets: const [
-        SignMediaAsset(
-          id: 'm1_bim_front',
-          phraseId: 'a1111111-1111-1111-1111-111111111111',
-          signLanguageId: 'BIM',
-          perspective: 'front',
-          videoUrl: 'https://assets.travelease.app/signs/bim/gate_front.mp4',
-          animationUrl: 'https://assets.travelease.app/signs/bim/gate_front.glb',
-          thumbnailUrl: 'https://assets.travelease.app/signs/bim/gate_thumb.jpg',
-          durationSeconds: 3.2,
-        ),
-        SignMediaAsset(
-          id: 'm1_bim_side',
-          phraseId: 'a1111111-1111-1111-1111-111111111111',
-          signLanguageId: 'BIM',
-          perspective: 'side',
-          videoUrl: 'https://assets.travelease.app/signs/bim/gate_side.mp4',
-          durationSeconds: 3.2,
-        ),
-        SignMediaAsset(
-          id: 'm1_asl_front',
-          phraseId: 'a1111111-1111-1111-1111-111111111111',
-          signLanguageId: 'ASL',
-          perspective: 'front',
-          videoUrl: 'https://assets.travelease.app/signs/asl/gate_front.mp4',
-          durationSeconds: 2.8,
-        ),
-        SignMediaAsset(
-          id: 'm1_csl_front',
-          phraseId: 'a1111111-1111-1111-1111-111111111111',
-          signLanguageId: 'CSL',
-          perspective: 'front',
-          videoUrl: 'https://assets.travelease.app/signs/csl/gate_front.mp4',
-          durationSeconds: 3.0,
-        ),
-      ],
+      // Video playback is resolved per gloss word from assets/signs/<lang>/<word>.mp4
     ),
     SignPhrase(
       id: 'a2222222-2222-2222-2222-222222222222',
@@ -77,29 +40,6 @@ class SignReferenceRepository {
         SignMovementStep(step: 1, title: 'Indicate Self', description: 'Tap chest with index finger to indicate yourself.'),
         SignMovementStep(step: 2, title: 'Sign Need / Require', description: 'Form a bent index finger and tap downward twice firmly.'),
         SignMovementStep(step: 3, title: 'Sign Pass Registration', description: 'Slide flat hand into open palm like presenting a boarding pass.'),
-      ],
-      mediaAssets: const [
-        SignMediaAsset(
-          id: 'm2_bim_front',
-          phraseId: 'a2222222-2222-2222-2222-222222222222',
-          signLanguageId: 'BIM',
-          perspective: 'front',
-          videoUrl: 'https://assets.travelease.app/signs/bim/checkin_front.mp4',
-        ),
-        SignMediaAsset(
-          id: 'm2_asl_front',
-          phraseId: 'a2222222-2222-2222-2222-222222222222',
-          signLanguageId: 'ASL',
-          perspective: 'front',
-          videoUrl: 'https://assets.travelease.app/signs/asl/checkin_front.mp4',
-        ),
-        SignMediaAsset(
-          id: 'm2_csl_front',
-          phraseId: 'a2222222-2222-2222-2222-222222222222',
-          signLanguageId: 'CSL',
-          perspective: 'front',
-          videoUrl: 'https://assets.travelease.app/signs/csl/checkin_front.mp4',
-        ),
       ],
     ),
     SignPhrase(
@@ -123,7 +63,7 @@ class SignReferenceRepository {
       phraseEn: 'I have a reservation',
       phraseMs: 'Saya ada tempahan bilik',
       phraseZh: '我有房间预订',
-      glossAsl: 'I HAVE ROOM BOOK',
+      glossAsl: 'I HAVE ROOM RESERVATION',
       glossBim: 'SAYA ADA TEMPAH BILIK',
       glossCsl: '我 有 预订 房间',
       scenario: 'Hotel Reception Desk',
@@ -156,7 +96,7 @@ class SignReferenceRepository {
       phraseEn: 'Thank you very much',
       phraseMs: 'Terima kasih banyak',
       phraseZh: '非常感谢',
-      glossAsl: 'THANK YOU MUCH',
+      glossAsl: 'THANK-YOU MUCH',
       glossBim: 'TERIMA KASIH BANYAK',
       glossCsl: '非常 谢谢 你',
       scenario: 'General Conversation',
@@ -167,7 +107,7 @@ class SignReferenceRepository {
       phraseEn: 'Hello, nice to meet you',
       phraseMs: 'Halo, selamat berkenalan',
       phraseZh: '你好，很高兴认识你',
-      glossAsl: 'HELLO NICE MEET YOU',
+      glossAsl: 'HELLO NICE-TO-MEET-YOU',
       glossBim: 'HALO GEMBIRA JUMPA AWAK',
       glossCsl: '你好 很高兴 认识 你',
       scenario: 'General Greeting',
@@ -197,7 +137,6 @@ class SignReferenceRepository {
   ];
 
   static final List<FavoritePhrase> _inMemoryFavorites = [];
-  static final List<SearchHistoryItem> _inMemorySearchHistory = [];
 
   // --------------------------------------------------------------------------
   // 1. Browse & Search Sign Dictionary (FR-M4-01, FR-M4-04, FR-M4-13, FR-M4-14)
@@ -367,7 +306,7 @@ class SignReferenceRepository {
   }
 
   Future<bool> isFavorite(String userId, String phraseId) async {
-    return _inMemoryFavorites.any((f) => f.phraseId == phraseId);
+    return _inMemoryFavorites.any((f) => f.phraseId == phraseId && (f.userId == userId || f.userId == 'demo_user'));
   }
 
   Future<void> reorderFavorites(String userId, int oldIndex, int newIndex) async {
@@ -376,70 +315,6 @@ class SignReferenceRepository {
     }
     final item = _inMemoryFavorites.removeAt(oldIndex);
     _inMemoryFavorites.insert(newIndex, item);
-  }
-
-  // --------------------------------------------------------------------------
-  // 3. Search History (FR-M4-15, FR-M4-16)
-  // --------------------------------------------------------------------------
-  Future<List<SearchHistoryItem>> getSearchHistory(String userId) async {
-    try {
-      final response = await _client
-          .from('dictionary_search_history')
-          .select()
-          .eq('user_id', userId)
-          .order('created_at', ascending: false)
-          .limit(10);
-      final items = (response as List).map((s) => SearchHistoryItem.fromJson(s)).toList();
-      if (items.isNotEmpty) return items;
-    } catch (_) {}
-
-    if (_inMemorySearchHistory.isEmpty) {
-      _inMemorySearchHistory.addAll([
-        SearchHistoryItem(id: 'h1', userId: userId, searchQuery: 'Gate', categoryId: 'airport', createdAt: DateTime.now().subtract(const Duration(minutes: 10))),
-        SearchHistoryItem(id: 'h2', userId: userId, searchQuery: 'Check in', categoryId: 'airport', createdAt: DateTime.now().subtract(const Duration(hours: 1))),
-        SearchHistoryItem(id: 'h3', userId: userId, searchQuery: 'Thank you', categoryId: 'general', createdAt: DateTime.now().subtract(const Duration(days: 1))),
-      ]);
-    }
-    return _inMemorySearchHistory;
-  }
-
-  Future<void> addSearchHistoryItem({
-    required String userId,
-    required String query,
-    String? categoryId,
-    String? signLanguageId,
-    int resultCount = 1,
-  }) async {
-    try {
-      await _client.from('dictionary_search_history').insert({
-        'user_id': userId,
-        'search_query': query,
-        'category_id': categoryId,
-        'sign_language_id': signLanguageId,
-        'result_count': resultCount,
-      });
-    } catch (_) {}
-
-    _inMemorySearchHistory.insert(
-      0,
-      SearchHistoryItem(
-        id: 'h_${DateTime.now().millisecondsSinceEpoch}',
-        userId: userId,
-        searchQuery: query,
-        categoryId: categoryId,
-        signLanguageId: signLanguageId,
-        resultCount: resultCount,
-        createdAt: DateTime.now(),
-      ),
-    );
-  }
-
-  Future<bool> clearSearchHistory(String userId) async {
-    try {
-      await _client.from('dictionary_search_history').delete().eq('user_id', userId);
-    } catch (_) {}
-    _inMemorySearchHistory.clear();
-    return true;
   }
 
   // --------------------------------------------------------------------------

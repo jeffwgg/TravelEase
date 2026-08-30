@@ -50,7 +50,8 @@ class _TravelEaseAppState extends State<TravelEaseApp> {
       await StartupPermissionService.requestOnFirstEntry();
       await EnvironmentSoundMonitoringService.instance.initialize();
 
-      await WebRTCService.instance.init();
+      });
+    await WebRTCService.instance.init();
       WebRTCService.instance.subscribeToGlobalSignaling();
     });
   }

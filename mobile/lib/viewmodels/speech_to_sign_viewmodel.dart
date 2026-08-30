@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/entities/sign_language_entity.dart';
-import '../models/services/sign_translation_service.dart';
+import '../services/sign_translation_service.dart';
 import '../core/hardware_services.dart';
 
 /// ViewModel for Speech and Text to Sign Language Visualizations (FR-M3-07, FR-M3-08, UC302)

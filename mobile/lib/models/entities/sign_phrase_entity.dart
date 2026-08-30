@@ -78,6 +78,22 @@ class SignPhrase {
     }
   }
 
+  /// Primary spoken-language text for the selected SignLanguageType
+  /// (BIM -> Bahasa Malaysia, ASL/CSL -> English).
+  String getPrimaryText(SignLanguageType type) =>
+      type == SignLanguageType.bim ? phraseMs : phraseEn;
+
+  /// Multilingual (text, TTS language code) pairs ordered so the selected
+  /// dialect's language is first.
+  List<(String, String)> orderedTextsWithLanguage(SignLanguageType type) {
+    final primary = getPrimaryText(type);
+    final all = [(phraseEn, 'en'), (phraseMs, 'ms'), (phraseZh, 'zh')];
+    return [
+      all.firstWhere((p) => p.$1 == primary),
+      ...all.where((p) => p.$1 != primary),
+    ];
+  }
+
   /// Get sign gloss notation based on selected SignLanguageType
   String getGloss(SignLanguageType type) {
     switch (type) {
@@ -90,7 +106,8 @@ class SignPhrase {
     }
   }
 
-  /// Find media asset for a given sign language and perspective
+  /// Find media asset for a given sign language and perspective.
+  /// Never falls back to a different sign language silently.
   SignMediaAsset? getMediaAsset(SignLanguageType type, {String perspective = 'front'}) {
     try {
       return mediaAssets.firstWhere(
@@ -104,7 +121,7 @@ class SignPhrase {
           (a) => a.signLanguageId.toUpperCase() == type.code,
         );
       } catch (_) {
-        return mediaAssets.isNotEmpty ? mediaAssets.first : null;
+        return null;
       }
     }
   }
