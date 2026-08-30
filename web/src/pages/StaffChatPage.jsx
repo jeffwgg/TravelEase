@@ -246,7 +246,11 @@ export default function StaffChatPage() {
 
   async function handleMarkResolved() {
     if (!selectedReq) return
-    await assistanceRepository.updateRequestStatus(selectedReq.id, 'resolved', 'Ahmad Khan')
+    const staffName =
+      selectedReq.assigned_staff_name && selectedReq.assigned_staff_name !== 'Unassigned'
+        ? selectedReq.assigned_staff_name
+        : null
+    await assistanceRepository.updateRequestStatus(selectedReq.id, 'resolved', staffName)
     loadRequests()
   }
 

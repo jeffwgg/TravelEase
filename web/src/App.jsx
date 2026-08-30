@@ -8,6 +8,7 @@ import {
   MessageSquare,
   BarChart3,
   Zap,
+  Activity,
   FileText,
   Hand,
   MessageCircle,
@@ -24,6 +25,7 @@ import AddQueueLinePage from './pages/AddQueueLinePage'
 import AssistanceRequestPage from './pages/AssistanceRequestPage'
 import StaffChatPage from './pages/StaffChatPage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import UsageInsightsPage from './pages/UsageInsightsPage'
 import ServicePerformancePage from './pages/ServicePerformancePage'
 import ReportGenerationPage from './pages/ReportGenerationPage'
 import SignDictionaryMgmtPage from './pages/SignDictionaryMgmtPage'
@@ -75,6 +77,9 @@ function Sidebar() {
           <div className="sidebar-section-title">Analytics</div>
           <NavLink to="/analytics" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><BarChart3 size={18} /></span> Accessibility
+          </NavLink>
+          <NavLink to="/usage" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="link-icon"><Activity size={18} /></span> Usage Insights
           </NavLink>
           <NavLink to="/performance" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><Zap size={18} /></span> Performance
@@ -175,6 +180,7 @@ function AppRoutes() {
         <Route path="/requests" element={<AssistanceRequestPage />} />
         <Route path="/chat" element={<StaffChatPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/usage" element={<UsageInsightsPage />} />
         <Route path="/performance" element={<ServicePerformancePage />} />
         <Route path="/reports" element={<ReportGenerationPage />} />
         <Route path="/sign-dictionary" element={<SignDictionaryMgmtPage />} />

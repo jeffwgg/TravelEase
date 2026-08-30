@@ -71,3 +71,6 @@ server/ai_engine/datasets/processed/
 mobile/.cursorrules
 .cursorrules
 /mobile/assets/signs
+
+# Browser automation artifacts
+.playwright-mcp/
