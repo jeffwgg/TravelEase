@@ -11,6 +11,8 @@ import 'services/startup_permission_service.dart';
 import 'services/environment_sound_monitoring_service.dart';
 import 'services/queue_notification_service.dart';
 import 'services/startup_permission_service.dart';
+import 'services/auth_deep_link_service.dart';
+import 'viewmodels/profile_viewmodel.dart';
 
 import 'services/webrtc_service.dart';
 import 'views/widgets/incoming_call_overlay.dart';
@@ -22,8 +24,18 @@ void main() async {
   await AppNotificationService.instance.initialize(router: appRouter);
   await QueueNotificationService.instance.initialize();
   ChatNotificationService.instance.initialize();
-  await AppNotificationService.instance.initialize();
-  await QueueNotificationService.instance.initialize();
+  await AuthDeepLinkService.instance.initialize(
+    onAuthSession: (isPasswordRecovery) async {
+      if (isPasswordRecovery) {
+        appRouter.go('/reset-password');
+        return;
+      }
+      final viewModel = ProfileViewModel();
+      final destination = await viewModel.authenticatedDestination();
+      viewModel.dispose();
+      appRouter.go(destination);
+    },
+  );
   runApp(const TravelEaseApp());
 }
 
@@ -38,11 +50,11 @@ class _TravelEaseAppState extends State<TravelEaseApp> {
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await StartupPermissionService.requestOnFirstEntry();
       await EnvironmentSoundMonitoringService.instance.initialize();
-    });
-    WebRTCService.instance.init().then((_) {
+      await WebRTCService.instance.init();
       WebRTCService.instance.subscribeToGlobalSignaling();
     });
   }
@@ -54,8 +66,9 @@ class _TravelEaseAppState extends State<TravelEaseApp> {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       routerConfig: appRouter,
-      builder: (context, child) =>
-          IncomingCallOverlay(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) {
+        return IncomingCallOverlay(child: child ?? const SizedBox.shrink());
+      },
     );
   }
 }

@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../views/auth/authentication_view.dart';
+import '../views/auth/check_email_view.dart';
+import '../views/auth/reset_password_view.dart';
 import '../views/profile/profile_management_view.dart';
+import '../views/profile/edit_profile_view.dart';
+import '../views/profile/profile_setup_view.dart';
 import '../views/profile/preferences_view.dart';
+import '../views/profile/help_center_view.dart';
+import '../views/profile/about_travelease_view.dart';
 import '../views/emergency/emergency_contact_settings_view.dart';
 import '../views/emergency/emergency_communication_card_view.dart';
 import '../views/emergency/environment_sound_alert_view.dart';
@@ -34,14 +40,24 @@ final GoRouter appRouter = GoRouter(
       path: '/auth',
       builder: (context, state) => const AuthenticationView(),
     ),
+    GoRoute(
+      path: '/check-email',
+      builder: (context, state) =>
+          CheckEmailView(email: state.uri.queryParameters['email']),
+    ),
+    GoRoute(
+      path: '/reset-password',
+      builder: (context, state) => const ResetPasswordView(),
+    ),
+    GoRoute(
+      path: '/profile-setup',
+      builder: (context, state) => const ProfileSetupView(),
+    ),
     // Main app with bottom nav
     ShellRoute(
       builder: (context, state, child) => HomeView(child: child),
       routes: [
-        GoRoute(
-          path: '/home',
-          builder: (context, state) => const _HomeTab(),
-        ),
+        GoRoute(path: '/home', builder: (context, state) => const _HomeTab()),
         GoRoute(
           path: '/communicate',
           builder: (context, state) => const _CommunicateTab(),
@@ -59,11 +75,19 @@ final GoRouter appRouter = GoRouter(
     // Standalone routes
     GoRoute(
       path: '/profile/edit',
-      builder: (context, state) => const ProfileManagementView(),
+      builder: (context, state) => const EditProfileView(),
     ),
     GoRoute(
       path: '/preferences',
       builder: (context, state) => const PreferencesView(),
+    ),
+    GoRoute(
+      path: '/help-center',
+      builder: (context, state) => const HelpCenterView(),
+    ),
+    GoRoute(
+      path: '/about',
+      builder: (context, state) => const AboutTravelEaseView(),
     ),
     GoRoute(
       path: '/emergency-contacts',
