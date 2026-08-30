@@ -178,7 +178,7 @@ where r.request_code like 'SEED-%'
 -- ---------------------------------------------------------------------------
 insert into public.accessibility_issue_reports
   (report_code, traveler_name, issue_type, venue_name, location_zone, description,
-   severity, status, admin_notes, created_at, updated_at)
+   severity, status, admin_notes, analytics_consent, created_at, updated_at)
 select
   'SEED-R-' || lpad(b.g::text, 5, '0'),
   null, -- stays 'Anonymous' (anonymization-friendly)
@@ -188,6 +188,7 @@ select
   b.descr,
   b.sev,
   b.st,
+  b.consent,
   case when b.st = 'resolved' and random() < 0.55
        then (array['Checked on site, signage has been added.','Temporary fix applied; permanent fix scheduled.',
                    'Announcement screen repaired and tested.','Staff briefed to announce stops verbally.',
@@ -199,7 +200,7 @@ select
        else b.created_at end
 from (
   select
-    r.g, r.created_at, r.itype, r.sev, r.st, r.zone,
+    r.g, r.created_at, r.itype, r.sev, r.st, r.zone, r.consent,
     case r.itype
       when 'visual' then (array['No visual announcement was displayed for the flight delay.',
                                  'The caption screen at the gate is switched off.',
@@ -227,6 +228,7 @@ from (
            (array['low','low','low','moderate','moderate','moderate','moderate','moderate','severe','severe'])[1 + floor(random() * 10)] as sev,
            case when (d < 10 and random() < 0.5) or random() >= 0.72
                 then 'reported' else 'resolved' end as st,
+           case when random() < 0.9 then true else false end as consent,
            (array['Gate A1 - A10 Area','Gate A1 - A10 Area','Gate A1 - A10 Area','Gate A1 - A10 Area','Gate A1 - A10 Area',
                   'Baggage Claim Hall','Baggage Claim Hall','Baggage Claim Hall',
                   'Check-in Counters 1-16','Check-in Counters 1-16','Check-in Counters 1-16',

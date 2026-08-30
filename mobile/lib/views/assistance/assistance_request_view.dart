@@ -242,6 +242,19 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                 onChanged: (value) => _viewModel.setShareLocation(value),
               ),
             ),
+            const SizedBox(height: 12),
+
+            // ── FR-M5-27 / FR-M7-07: analytics consent toggle ──
+            Card(
+              child: SwitchListTile(
+                title: const Text('Share anonymously for analytics', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                subtitle: Text('Let the institution count this request in anonymised service-improvement statistics. Your identity is never shown.', style: Theme.of(context).textTheme.bodySmall),
+                secondary: const Icon(Icons.insights_outlined, color: AppColors.secondary),
+                value: _viewModel.shareAnalytics,
+                activeColor: AppColors.primary,
+                onChanged: (value) => _viewModel.setShareAnalytics(value),
+              ),
+            ),
             const SizedBox(height: 16),
 
             // ── Error message ──

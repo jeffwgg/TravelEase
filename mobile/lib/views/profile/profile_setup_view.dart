@@ -58,51 +58,6 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
                       prefixIcon: Icon(Icons.public),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _viewModel.primaryLanguageController,
-                    enabled: !_viewModel.isLoading,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Primary Language',
-                      prefixIcon: Icon(Icons.language),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _viewModel.secondaryLanguageController,
-                    enabled: !_viewModel.isLoading,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Secondary Language (Optional)',
-                      prefixIcon: Icon(Icons.translate),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    initialValue: _viewModel.preferredCommunication,
-                    decoration: const InputDecoration(
-                      labelText: 'Preferred Communication',
-                      prefixIcon: Icon(Icons.forum_outlined),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'text',
-                        child: Text('Text / Chat'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'sign_language',
-                        child: Text('Sign Language'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'speech_to_text',
-                        child: Text('Speech to Text'),
-                      ),
-                    ],
-                    onChanged: _viewModel.isLoading
-                        ? null
-                        : _viewModel.setPreferredCommunication,
-                  ),
                   if (_viewModel.errorMessage != null) ...[
                     const SizedBox(height: 16),
                     Text(

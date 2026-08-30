@@ -9,7 +9,7 @@ import { downloadCsv, downloadPdf } from '../lib/exporter'
 import {
   withDerivedTimes, assistanceKpis, countBy, toList, hourlyTrend, zoneStats,
   queueStats, communicationStats, ratingDistribution,
-  fmtDuration, pct, ISSUE_TYPE_LABELS, LANG_LABELS, COMM_PREF_LABELS, LOW_SAMPLE_MIN
+  fmtDuration, pct, ISSUE_TYPE_LABELS, LOW_SAMPLE_MIN
 } from '../lib/analytics'
 
 const REPORT_TYPES = [
@@ -90,7 +90,9 @@ export default function ReportGenerationPage() {
     let requests = data.requests.filter(
       (r) => inRange(r) && (!venueName || r.venue_name === venueName) && r.analytics_consent !== false
     )
-    let issues = data.issues.filter((i) => inRange(i) && (!venueName || i.venue_name === venueName))
+    let issues = data.issues.filter(
+      (i) => inRange(i) && (!venueName || i.venue_name === venueName) && i.analytics_consent !== false
+    )
     if (zoneFilter !== 'all') {
       const zone = zones.find((z) => z.id === zoneFilter)
       const zoneName = zone?.name
@@ -196,12 +198,8 @@ export default function ReportGenerationPage() {
       meta,
       kpis: [
         { label: 'Total users', value: u.total_users ?? '—' },
-        { label: 'Travellers', value: u.travellers ?? '—' },
-        { label: 'Institution accounts', value: u.institution_users ?? '—' },
-        { label: 'Sign-language preference', value: (u.comm_pref_mix || []).find((x) => x.key === 'sign_language')?.count ?? 0 }
+        { label: 'New sign-ups (period)', value: (u.signups || []).reduce((s2, x) => s2 + Number(x.count), 0) }
       ],
-      languageMix: (u.language_mix || []).map((x) => ({ label: LANG_LABELS[x.key] || x.key, count: Number(x.count) })),
-      commPrefMix: (u.comm_pref_mix || []).map((x) => ({ label: COMM_PREF_LABELS[x.key] || x.key, count: Number(x.count) })),
       monthly: (u.signups || []).map((x) => ({ key: x.month, count: Number(x.count) })).sort((a, b) => a.key.localeCompare(b.key))
     }
   }
@@ -264,8 +262,6 @@ export default function ReportGenerationPage() {
     if (snapshot.lines) tables.push({ title: 'Queue line performance', headers: ['Line', 'Issued', 'Completed', 'Median wait', 'P95 wait', 'Abandoned'], rows: snapshot.lines.map((l) => [l.line, l.issued, l.completed, l.medianWait, l.p95Wait, l.abandoned]) })
     if (snapshot.modalityMix) tables.push({ title: 'Input modality mix', headers: ['Modality', 'Count'], rows: snapshot.modalityMix.map((c) => [c.label, c.count]) })
     if (snapshot.targetMix) tables.push({ title: 'Translation direction', headers: ['Target language', 'Sessions'], rows: snapshot.targetMix.map((c) => [c.label, c.count]) })
-    if (snapshot.languageMix) tables.push({ title: 'Primary language mix', headers: ['Language', 'Users'], rows: snapshot.languageMix.map((c) => [c.label, c.count]) })
-    if (snapshot.commPrefMix) tables.push({ title: 'Communication preference', headers: ['Preference', 'Users'], rows: snapshot.commPrefMix.map((c) => [c.label, c.count]) })
     if (snapshot.ratingMix) tables.push({ title: 'Satisfaction distribution', headers: ['Rating', 'Count'], rows: snapshot.ratingMix.map((c) => [c.label, c.count]) })
     if (snapshot.monthly) tables.push({ title: 'Monthly trend', headers: Object.keys(snapshot.monthly[0] || { key: 1 }), rows: snapshot.monthly.map((m) => Object.values(m)) })
     return tables
@@ -507,17 +503,6 @@ export default function ReportGenerationPage() {
                   <HBars items={preview.targetMix} total={preview.targetMix.reduce((s, i) => s + i.count, 0)} color="#10b981" />
                 </Chart>
               )}
-              {preview.languageMix && (
-                <Chart title="Primary language mix">
-                  <HBars items={preview.languageMix} />
-                </Chart>
-              )}
-              {preview.commPrefMix && (
-                <Chart title="Preferred communication mode">
-                  <HBars items={preview.commPrefMix} color="#ec4899" />
-                </Chart>
-              )}
-
               {preview.lines && (
                 <Chart title="Queue line performance">
                   <table className="data-table">

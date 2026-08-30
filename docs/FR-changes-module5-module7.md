@@ -41,7 +41,7 @@
 | FR-M7-20 | The system shall display the distribution of travellers' preferred contact/communication modes across assistance requests. | `assistance_requests.preferred_communication` | Usage Insights (profile preference) + reports |
 | FR-M7-21 | The system shall analyse queue service patterns: average and 95th-percentile wait per line, abandonment rate, and arrival peaks by time of day. | `queue_numbers` (`created_at → called_at → completed_at`), `queue_lines` | Usage Insights — Queue Service Analytics |
 | FR-M7-22 | The system shall analyse accessible communication usage: session volume trend, traveller input-modality mix (sign/speech/typed/quick phrase) and translation direction ratio (EN→MS vs EN→ZH). | `communication_dialogue_sessions`, `communication_dialogue_messages` | Usage Insights — Accessible Communication Usage |
-| FR-M7-23 | The system shall display aggregate platform adoption analytics: total users split traveller/institution, monthly sign-up trend, primary-language mix and communication-preference mix. **Aggregate counts only — no personal data or user lists.** | `get_user_analytics()` SECURITY DEFINER function (RLS on `user_profiles` only allows own-profile reads) | Usage Insights — Platform Users & Adoption |
+| FR-M7-23 | **Amended 2026-08-30** — the system shall display aggregate platform adoption analytics: total registered users and the monthly sign-up trend. **Aggregate counts only — no personal data or user lists.** (The traveller/institution split, language mix and communication-preference mix were removed together with the `user_profiles` columns `user_type`, `primary_language`, `secondary_language`, `preferred_communication`.) | `get_user_analytics()` SECURITY DEFINER function (RLS on `user_profiles` only allows own-profile reads) | Usage Insights — Platform Users & Adoption |
 
 ### Data-integrity rules applied to all Module 7 analytics
 
@@ -53,7 +53,7 @@
 
 | Change | Detail | Status |
 |---|---|---|
-| Traveller identity from authenticated user | Requested change (replace hardcoded `'Jeff Wong'` in `assistance_request_viewmodel.dart`, `assistance_repository.dart` chat sender, and `accessibility_issue_reports` insert) **requires working mobile authentication.** Review found mobile sign-in is currently a mock UI (`authentication_view.dart` navigates to `/home` without calling Supabase auth). | **DEFERRED** — agreed to implement mobile auth later. The database is already ready: `assistance_requests.user_id`, `accessibility_issue_reports.user_id` and the `user_profiles` table exist. When auth lands, wire `supabase.auth.currentUser.id` + `user_profiles.full_name` into the three call sites and delete the hardcoded strings. |
+| Traveller identity from authenticated user | **IMPLEMENTED 2026-08-30.** Mobile authentication landed (auth repository, view model, router guard, profile setup). `AssistanceRepository` now resolves the signed-in user via `auth.currentUser` and writes `user_id` + the profile's `full_name` on assistance requests, accessibility issue reports, and chat sender names — the hardcoded `'Jeff Wong'` strings are removed. |
 | Post-resolution satisfaction rating | The mobile app already collects outcome + 5-star rating + comment after resolution (`submitResolutionFeedback` → `resolution_outcome`, `user_rating`, `user_feedback_comment`), satisfying the data capture needed by FR-M7-10/17. | Already implemented (no change) |
 | First-response timestamp | No traveller-side change; `acknowledged_at` is stamped by the staff dashboard on assignment or first staff chat reply. | Implemented (Module 7 dependency) |
 
@@ -63,6 +63,21 @@
 - **Sign-dictionary search analytics**: `dictionary_search_history` exists in the migration file but not in the live database, and the app never records searches. Zero-result-search analysis requires new capture (not in scope).
 - **Traveller-to-institution link**: travellers are platform-wide (no `institution_id` on `user_profiles`), so user analytics are system-wide; per-institution breakdown exists only for staff counts.
 - **Mobile Gradle/AGP/Kotlin warnings**: Flutter will soon require Gradle ≥ 9.1.0, AGP ≥ 9.0.1, Kotlin ≥ 2.3.20. Not urgent; upgrade before the next Flutter upgrade.
+
+## 4. Files changed
+
+### 2026-08-30 changes (consent + identity fixes)
+
+- **FR-M5-27 implemented**: the issue-report consent checkbox now persists to a new `accessibility_issue_reports.analytics_consent` column (migration 005), and the assistance request form gained an explicit "Share anonymously for analytics" toggle persisted to `assistance_requests.analytics_consent`. Both dashboards and the report generator count only consented rows (FR-M7-07). Note: rows created before this change default to `false` and are excluded until resubmitted with consent.
+- **`share_location` fixed**: the request form's toggle value is now persisted instead of hardcoded `true`.
+- **Staff chat identity fixed**: `StaffChatPage` sends messages under the request's assigned staff name (`assigned_staff_name`) instead of a hardcoded name.
+
+### 2026-08-30 changes (auth integration + profile schema slim-down)
+
+- Mobile auth (teammate) verified: `AuthRepository` / `AuthViewModel` / router guard / profile setup / deep-link service.
+- Assistance module now uses the authenticated traveller (`user_id` + profile name) for requests, chat, and issue reports.
+- `user_profiles` columns **dropped**: `user_type`, `primary_language`, `secondary_language`, `preferred_communication`. Consequences: `travelease_handle_new_user` trigger simplified, `sync_institution_account_profile` trigger/function removed, `get_user_analytics()` reduced to totals + sign-up trend, profile setup screen trimmed to name + nationality, Usage Insights users tab and the Users report updated. FR-M7-23 amended accordingly.
+- FR-M7-20 (preferred contact method mix) implemented on the Accessibility page "Categories & Trends" tab from `assistance_requests.preferred_communication`.
 
 ## 4. Files changed
 

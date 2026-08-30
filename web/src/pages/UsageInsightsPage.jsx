@@ -8,7 +8,7 @@ import { KpiCard, HBars, HourBars, LineTrend } from '../components/charts'
 import { downloadCsv, downloadPdf } from '../lib/exporter'
 import {
   PERIODS, periodStart, inPeriod, queueStats, communicationStats,
-  fmtDuration, LANG_LABELS, COMM_PREF_LABELS, LOW_SAMPLE_MIN
+  fmtDuration, LOW_SAMPLE_MIN
 } from '../lib/analytics'
 
 const TABS = [
@@ -66,27 +66,6 @@ export default function UsageInsightsPage() {
     () => (userAnalytics?.signups || []).map((s) => ({ key: s.month, count: Number(s.count) })).sort((a, b) => a.key.localeCompare(b.key)),
     [userAnalytics]
   )
-  const languageMix = useMemo(() => {
-    // merge buckets that map to the same label (e.g. legacy 'Chinese' rows + 'zh')
-    const merged = new Map()
-    for (const s of userAnalytics?.language_mix || []) {
-      const label = LANG_LABELS[s.key] || s.key
-      merged.set(label, (merged.get(label) || 0) + Number(s.count))
-    }
-    return [...merged.entries()]
-      .map(([label, count]) => ({ key: label, label, count }))
-      .sort((a, b) => b.count - a.count)
-  }, [userAnalytics])
-  const commPrefMix = useMemo(() => {
-    const merged = new Map()
-    for (const s of userAnalytics?.comm_pref_mix || []) {
-      const label = COMM_PREF_LABELS[s.key] || s.key
-      merged.set(label, (merged.get(label) || 0) + Number(s.count))
-    }
-    return [...merged.entries()]
-      .map(([label, count]) => ({ key: label, label, count }))
-      .sort((a, b) => b.count - a.count)
-  }, [userAnalytics])
 
   const periodLabel = PERIODS.find((p) => p.key === period)?.label
   const venueLabel = staffContext?.institutions?.name || 'All Venues'
@@ -109,14 +88,10 @@ export default function UsageInsightsPage() {
         title: 'Platform Users & Adoption Export',
         kpis: [
           { label: 'Total registered users', value: userAnalytics?.total_users ?? '—' },
-          { label: 'Travellers', value: userAnalytics?.travellers ?? '—' },
-          { label: 'Institution accounts', value: userAnalytics?.institution_users ?? '—' },
           { label: 'Staff at this institution', value: staffCount }
         ],
         tables: [
-          { title: 'Monthly sign-ups', headers: ['Month', 'Users'], rows: signups.map((s) => [s.key, s.count]) },
-          { title: 'Traveller primary language mix', headers: ['Language', 'Users'], rows: languageMix.map((s) => [s.label, s.count]) },
-          { title: 'Preferred communication mode', headers: ['Preference', 'Users'], rows: commPrefMix.map((s) => [s.label, s.count]) }
+          { title: 'Monthly sign-ups', headers: ['Month', 'Users'], rows: signups.map((s) => [s.key, s.count]) }
         ]
       }
     } else if (tab === 'queue') {
@@ -208,7 +183,7 @@ export default function UsageInsightsPage() {
                 tone="primary"
                 label="Total Registered Users"
                 value={loading || !userAnalytics ? '…' : userAnalytics.total_users}
-                sub={`${userAnalytics?.travellers ?? '—'} travellers • ${userAnalytics?.institution_users ?? '—'} institution`}
+                sub="traveller + institution accounts"
               />
               <KpiCard
                 icon={<Users size={22} />}
@@ -217,27 +192,10 @@ export default function UsageInsightsPage() {
                 value={loading ? '…' : staffCount}
                 sub={venueLabel}
               />
-              <KpiCard
-                icon={<MessageSquareText size={22} />}
-                tone="accent"
-                label="Sign-Language Users (profile pref.)"
-                value={commPrefMix.find((c) => c.key === 'sign_language')?.count ?? 0}
-                sub={`of ${userAnalytics?.travellers ?? 0} travellers`}
-              />
-            </div>
-            <div className="grid-2" style={{ marginBottom: '20px' }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>New sign-ups per month</div>
-                {loading ? <div className="chart-placeholder">Loading…</div> : <LineTrend points={signups} />}
-              </div>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Traveller primary language mix</div>
-                {loading ? <div className="chart-placeholder">Loading…</div> : <HBars items={languageMix} />}
-              </div>
             </div>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Preferred communication mode (profile)</div>
-              {loading ? <div className="chart-placeholder">Loading…</div> : <HBars items={commPrefMix} />}
+              <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>New sign-ups per month</div>
+              {loading ? <div className="chart-placeholder">Loading…</div> : <LineTrend points={signups} />}
             </div>
           </div>
         )}

@@ -217,7 +217,7 @@ class _ProfileManagementViewState extends State<ProfileManagementView> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            '${_profileViewModel.nationality.isEmpty ? 'Not set' : _profileViewModel.nationality} • ${_profileViewModel.preferredCommunicationLabel}',
+                            '${_profileViewModel.nationality.isEmpty ? 'Not set' : _profileViewModel.nationality}',
                             style: const TextStyle(
                               fontSize: 12,
                               color: Colors.white,

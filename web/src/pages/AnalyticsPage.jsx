@@ -66,7 +66,7 @@ export default function AnalyticsPage() {
     [scopedRequests, start]
   )
   const periodIssues = useMemo(
-    () => scopedIssues.filter((i) => inPeriod(i, 'created_at', start)),
+    () => scopedIssues.filter((i) => inPeriod(i, 'created_at', start) && i.analytics_consent !== false),
     [scopedIssues, start]
   )
 
@@ -79,6 +79,14 @@ export default function AnalyticsPage() {
   const hotspots = useMemo(() => hotspotFlags(zoneList), [zoneList])
   const hours = useMemo(() => hourlyTrend(periodIssues), [periodIssues])
   const daily = useMemo(() => dailyTrend(periodIssues, 'created_at', 30), [periodIssues])
+  // FR-M7-20: preferred contact method across assistance requests
+  const contactMix = useMemo(
+    () => toList(
+      countBy(periodRequests, (r) => r.preferred_communication),
+      (k) => (k === 'chat' ? 'In-app Chat' : k === 'location' ? 'Staff Comes to Location' : k)
+    ),
+    [periodRequests]
+  )
 
   const topCategory = categoryMix[0]
   const periodLabel = PERIODS.find((p) => p.key === period)?.label
@@ -117,7 +125,8 @@ export default function AnalyticsPage() {
         tables: [
           { title: 'Barrier category distribution', headers: ['Category', 'Count'], rows: categoryMix.map((c) => [c.label, c.count]) },
           { title: 'Barrier reports by hour of day', headers: ['Hour', 'Reports'], rows: hours.map((c, h) => [`${String(h).padStart(2, '0')}:00`, c]) },
-          { title: 'Barrier reports by day', headers: ['Date', 'Reports'], rows: daily.map((d) => [d.key, d.count]) }
+          { title: 'Barrier reports by day', headers: ['Date', 'Reports'], rows: daily.map((d) => [d.key, d.count]) },
+          { title: 'Preferred contact method', headers: ['Method', 'Requests'], rows: contactMix.map((c) => [c.label, c.count]) }
         ]
       }
     } else {
@@ -300,13 +309,25 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="card">
-              <div className="card-header">
-                <h3>Barrier Reports — Daily Trend (last 30 days)</h3>
+            <div className="grid-2">
+              <div className="card">
+                <div className="card-header">
+                  <h3>Barrier Reports — Daily Trend (last 30 days)</h3>
+                </div>
+                {loading
+                  ? <div className="chart-placeholder">Loading…</div>
+                  : <LineTrend points={daily} height={140} />}
               </div>
-              {loading
-                ? <div className="chart-placeholder">Loading…</div>
-                : <LineTrend points={daily} height={140} />}
+
+              <div className="card">
+                <div className="card-header">
+                  <h3>Preferred Contact Method</h3>
+                  <span className="badge muted">n = {periodRequests.length}</span>
+                </div>
+                {loading
+                  ? <div className="chart-placeholder">Loading…</div>
+                  : <HBars items={contactMix} total={periodRequests.length} showPct={periodRequests.length >= LOW_SAMPLE_MIN} />}
+              </div>
             </div>
           </>
         )}

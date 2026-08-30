@@ -47,52 +47,44 @@ from ins
 on conflict do nothing;
 
 -- ---------------------------------------------------------------------------
--- 2. Profiles for the demo accounts (travellers + a few institution users)
+-- 2. Profiles for the demo accounts
 --    NOTE: inserting into auth.users fires the travelease_handle_new_user
 --    trigger, which creates a bare user_profiles row first. So we UPDATE the
---    trigger-created rows (values differ per run, hence no setseed dependency)
---    and INSERT only any that are still missing.
+--    trigger-created rows and INSERT only any that are still missing.
+--    (user_type / *_language / preferred_communication were dropped from the
+--    table on 2026-08-30 — profiles carry full_name, nationality, avatar_url,
+--    profile_completed only.)
 -- ---------------------------------------------------------------------------
 with seed_users as (
   select id, created_at, row_number() over (order by created_at) - 1 as g
   from auth.users where email like '%@seed.travelease.dev'
 ),
 vals as (
-  select u.id, u.created_at, u.g,
+  select u.id, u.created_at,
          (array['Aisyah Rahman','Wei Jie Tan','Arjun Patel','Daniel Wong','Farah Zainal',
                 'Hui Ling Chan','Kavitha Raman','Liam Carter','Mei Ling Ong','Nabil Haikal',
                 'Olivia Reyes','Rajesh Kumar','Sofia Marinescu','Tunku Aiman','Xin Yi Lim',
                 'Yusof Ismail','Chen Wei Goh','Emily Drake','Hakim Sulaiman','Grace Lau'])[1 + (u.g % 20)] as fname,
-         case when u.g < 4 then 'institution' else 'traveller' end as utype,
-         (array['Malaysian','Singaporean','Indonesian','Chinese','Indian','Australian','British','Thai'])[1 + (u.g % 8)] as nat,
-         (array['en','en','en','ms','ms','zh','ta'])[1 + (u.g % 7)] as lang1,
-         case when (u.g % 10) < 7
-              then (array['ms','zh','en'])[1 + (u.g % 3)] end as lang2,
-         (array['in_app_chat','in_app_chat','in_app_chat','in_app_chat','sign_language','sign_language','text','voice'])[1 + (u.g % 8)] as pref
+         (array['Malaysian','Singaporean','Indonesian','Chinese','Indian','Australian','British','Thai'])[1 + (u.g % 8)] as nat
   from seed_users u
 )
 update public.user_profiles p set
   full_name = v.fname,
-  user_type = v.utype,
   nationality = v.nat,
-  primary_language = v.lang1,
-  secondary_language = v.lang2,
-  preferred_communication = v.pref,
   profile_completed = true,
   created_at = v.created_at,
   updated_at = v.created_at
 from vals v
 where p.id = v.id
-  and (p.primary_language is distinct from v.lang1
-       or p.preferred_communication is distinct from v.pref
+  and (p.nationality is distinct from v.nat
        or p.created_at is distinct from v.created_at);
 
 insert into public.user_profiles
-  (id, full_name, user_type, nationality, primary_language, secondary_language,
-   preferred_communication, profile_completed, created_at, updated_at)
-select v.id, v.fname, v.utype, v.nat, v.lang1, v.lang2, v.pref, true, v.created_at, v.created_at
+  (id, full_name, nationality, profile_completed, created_at, updated_at)
+select v.id, v.fname, v.nat, true, v.created_at, v.created_at
 from vals v
 where not exists (select 1 from public.user_profiles p where p.id = v.id);
+
 
 -- ---------------------------------------------------------------------------
 -- 3. Extra institution staff (only added when missing)

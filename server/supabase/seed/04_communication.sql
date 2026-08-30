@@ -54,7 +54,7 @@ from (
     select p.id as pid
     from public.user_profiles p
     join auth.users u on u.id = p.id
-    where u.email like '%@seed.travelease.dev' and p.user_type = 'traveller'
+    where u.email like '%@seed.travelease.dev'
     order by random()
     limit 1
   ) p on true

@@ -220,10 +220,14 @@ export default function StaffChatPage() {
     e.preventDefault()
     if (!inputText.trim() || !selectedReq) return
 
+    const staffDisplayName =
+      selectedReq.assigned_staff_name && selectedReq.assigned_staff_name !== 'Unassigned'
+        ? `${selectedReq.assigned_staff_name} (Staff)`
+        : 'Staff'
     const newMsgPayload = {
       request_id: selectedReq.id,
       sender_type: 'staff',
-      sender_name: 'Ahmad Khan (Staff)',
+      sender_name: staffDisplayName,
       content: inputText.trim(),
       message_type: 'text',
       is_read: true,
