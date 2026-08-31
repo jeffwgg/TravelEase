@@ -47,6 +47,8 @@ class WebRTCService extends ChangeNotifier {
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
   Map<String, dynamic>? _pendingOffer; // held until user accepts
+  final List<RTCIceCandidate> _iceCandidateQueue = [];
+  bool _remoteDescriptionSet = false;
 
   // ── Video renderers (attach to RTCVideoView in your widget) ───────────────
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
@@ -143,6 +145,8 @@ class WebRTCService extends ChangeNotifier {
   Future<void> startCall(String requestId, CallType type) async {
     callType = type;
     callState = WebRTCCallState.calling;
+    _remoteDescriptionSet = false;
+    _iceCandidateQueue.clear();
     notifyListeners();
 
     try {
@@ -193,6 +197,10 @@ class WebRTCService extends ChangeNotifier {
       await pc.setRemoteDescription(
         RTCSessionDescription(_pendingOffer!['sdp'] as String, 'offer'),
       );
+      _remoteDescriptionSet = true;
+
+      // Process any early ICE candidates that arrived before user accepted
+      await _flushIceCandidates();
 
       final answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -212,6 +220,7 @@ class WebRTCService extends ChangeNotifier {
   Future<void> rejectCall() async {
     await _sendSignal('call_reject', {'reason': 'rejected'});
     _pendingOffer = null;
+    _cleanupPeer();
     callState = WebRTCCallState.idle;
     notifyListeners();
   }
@@ -274,22 +283,45 @@ class WebRTCService extends ChangeNotifier {
     final sdp = data['sdp'] as String?;
     if (sdp == null) return;
     await _pc!.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
+    _remoteDescriptionSet = true;
+    await _flushIceCandidates();
     callState = WebRTCCallState.connected;
     notifyListeners();
   }
 
   Future<void> _onIceCandidate(Map<String, dynamic> payload) async {
-    if (_pc == null) return;
     final data = payload.containsKey('payload') ? payload['payload'] : payload;
-    try {
-      await _pc!.addCandidate(RTCIceCandidate(
-        data['candidate'] as String,
-        data['sdpMid'] as String?,
-        data['sdpMLineIndex'] as int?,
-      ));
-    } catch (e) {
-      debugPrint('addIceCandidate error: $e');
+    final candidateStr = data['candidate'] as String?;
+    if (candidateStr == null) return;
+
+    final candidate = RTCIceCandidate(
+      candidateStr,
+      data['sdpMid'] as String?,
+      data['sdpMLineIndex'] as int?,
+    );
+
+    if (_pc != null && _remoteDescriptionSet) {
+      try {
+        await _pc!.addCandidate(candidate);
+      } catch (e) {
+        debugPrint('addIceCandidate error: $e');
+      }
+    } else {
+      // Buffer early ICE candidates until setRemoteDescription finishes
+      _iceCandidateQueue.add(candidate);
     }
+  }
+
+  Future<void> _flushIceCandidates() async {
+    if (_pc == null || !_remoteDescriptionSet) return;
+    for (final candidate in List.of(_iceCandidateQueue)) {
+      try {
+        await _pc!.addCandidate(candidate);
+      } catch (e) {
+        debugPrint('flush candidate error: $e');
+      }
+    }
+    _iceCandidateQueue.clear();
   }
 
   // ── Private: peer connection ───────────────────────────────────────────────
@@ -307,11 +339,19 @@ class WebRTCService extends ChangeNotifier {
       }
     };
 
-    pc.onTrack = (event) {
+    pc.onTrack = (event) async {
       if (event.streams.isNotEmpty) {
         remoteRenderer.srcObject = event.streams[0];
-        notifyListeners();
+      } else {
+        if (remoteRenderer.srcObject == null) {
+          final stream = await createLocalMediaStream('remote_stream');
+          stream.addTrack(event.track);
+          remoteRenderer.srcObject = stream;
+        } else {
+          remoteRenderer.srcObject!.addTrack(event.track);
+        }
       }
+      notifyListeners();
     };
 
     _pc = pc;
@@ -332,6 +372,8 @@ class WebRTCService extends ChangeNotifier {
     _localStream = null;
     localRenderer.srcObject = null;
     remoteRenderer.srcObject = null;
+    _iceCandidateQueue.clear();
+    _remoteDescriptionSet = false;
     _pc?.close();
     _pc = null;
   }

@@ -30,9 +30,6 @@ class ProfileRepository {
   Future<void> saveTravellerProfile({
     required String fullName,
     required String nationality,
-    required String primaryLanguage,
-    String? secondaryLanguage,
-    required String preferredCommunication,
   }) async {
     final user = _client.auth.currentUser;
     if (user == null) {
@@ -43,10 +40,6 @@ class ProfileRepository {
       'id': user.id,
       'full_name': fullName,
       'nationality': nationality,
-      'primary_language': primaryLanguage,
-      'secondary_language': secondaryLanguage,
-      'preferred_communication': preferredCommunication,
-      'user_type': 'traveller',
       'profile_completed': true,
     });
   }
@@ -60,14 +53,10 @@ class ProfileRepository {
       throw const AuthException('No authenticated user is available.');
     }
 
-    await _client
-        .from('user_profiles')
-        .update({
-          'full_name': fullName,
-          'nationality': nationality,
-          'user_type': 'traveller',
-        })
-        .eq('id', user.id);
+    await _client.from('user_profiles').update({
+      'full_name': fullName,
+      'nationality': nationality,
+    }).eq('id', user.id);
 
     await _client.auth.updateUser(
       UserAttributes(data: {'full_name': fullName}),

@@ -6,6 +6,10 @@ class ChatViewModel extends ChangeNotifier {
   final AssistanceRepository _repository = AssistanceRepository();
   final String requestId;
 
+  /// Tracks which request IDs the user currently has open in ChatView.
+  /// Used by ChatNotificationService to suppress redundant notifications.
+  static final Set<String> activeRequestIds = {};
+
   List<Map<String, dynamic>> messages = [];
   bool isLoading = false;
   String? errorMessage;
@@ -20,7 +24,9 @@ class ChatViewModel extends ChangeNotifier {
   // Staff name: prefers live request field, falls back to first staff message
   String? _staffNameFromRequest;
 
-  ChatViewModel({required this.requestId});
+  ChatViewModel({required this.requestId}) {
+    activeRequestIds.add(requestId);
+  }
 
   String? get assignedStaffName {
     // Priority 1: real-time assignment on the request row
@@ -154,6 +160,7 @@ class ChatViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    activeRequestIds.remove(requestId);
     unsubscribe();
     messageController.dispose();
     scrollController.dispose();

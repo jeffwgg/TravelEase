@@ -7,10 +7,12 @@ import {
   MessageSquare,
   BarChart3,
   Zap,
+  Activity,
   FileText,
   Hand,
   MessageCircle,
-  Building2
+  Building2,
+  Bell
 } from 'lucide-react'
 import './index.css'
 import AuthPage from './pages/AuthPage'
@@ -25,14 +27,17 @@ import AddQueueLinePage from './pages/AddQueueLinePage'
 import AssistanceRequestPage from './pages/AssistanceRequestPage'
 import StaffChatPage from './pages/StaffChatPage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import UsageInsightsPage from './pages/UsageInsightsPage'
 import ServicePerformancePage from './pages/ServicePerformancePage'
 import ReportGenerationPage from './pages/ReportGenerationPage'
 import SignDictionaryMgmtPage from './pages/SignDictionaryMgmtPage'
 import SignFeedbackPage from './pages/SignFeedbackPage'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { NotificationProvider, useNotifications } from './context/NotificationContext'
 
 function Sidebar() {
   const { session, signOut } = useAuth()
+  const { permission, requestBrowserPermission } = useNotifications()
   const displayName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Staff User'
   const initials = displayName.split(/\s|@/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('')
 
@@ -75,6 +80,9 @@ function Sidebar() {
           <NavLink to="/analytics" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><BarChart3 size={18} /></span> Accessibility
           </NavLink>
+          <NavLink to="/usage" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="link-icon"><Activity size={18} /></span> Usage Insights
+          </NavLink>
           <NavLink to="/performance" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><Zap size={18} /></span> Performance
           </NavLink>
@@ -97,6 +105,31 @@ function Sidebar() {
             <span className="link-icon"><Building2 size={18} /></span> Organization
           </NavLink>
         </div>
+
+        {permission === 'default' && (
+          <div style={{ padding: '8px 12px', marginTop: '12px' }}>
+            <button
+              onClick={requestBrowserPermission}
+              style={{
+                width: '100%',
+                background: 'rgba(59, 130, 246, 0.12)',
+                border: '1px solid rgba(59, 130, 246, 0.3)',
+                borderRadius: '8px',
+                color: 'var(--primary)',
+                padding: '8px',
+                fontSize: '12px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              <Bell size={14} /> Enable Desktop Alerts
+            </button>
+          </div>
+        )}
       </nav>
       <div className="sidebar-user">
         <div className="user-avatar">{initials || 'ST'}</div>
@@ -157,6 +190,7 @@ function AppRoutes() {
         <Route path="/requests" element={<AssistanceRequestPage />} />
         <Route path="/chat" element={<StaffChatPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/usage" element={<UsageInsightsPage />} />
         <Route path="/performance" element={<ServicePerformancePage />} />
         <Route path="/reports" element={<ReportGenerationPage />} />
         <Route path="/sign-dictionary" element={<SignDictionaryMgmtPage />} />
@@ -170,7 +204,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <NotificationProvider>
+          <AppRoutes />
+        </NotificationProvider>
       </AuthProvider>
     </BrowserRouter>
   )

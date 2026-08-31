@@ -1,4 +1,5 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/repositories/notification_history_store.dart';
 import 'notification_settings.dart';
@@ -17,16 +18,13 @@ class AppNotificationService {
       FlutterLocalNotificationsPlugin();
   void Function(String route)? _onTap;
   String? _launchPayload;
+  GoRouter? _router;
 
   /// The notification channels whose vibration must follow the profile
   /// setting. Android channels are immutable once created, so they are
   /// deleted and recreated whenever the setting changes.
   static const List<(String, String, String)> _channels = [
-    (
-      'queue_updates',
-      'Queue updates',
-      'Alerts for your tracked queue number',
-    ),
+    ('queue_updates', 'Queue updates', 'Alerts for your tracked queue number'),
     (
       'official_announcements',
       'Official announcements',
@@ -42,6 +40,11 @@ class AppNotificationService {
       'Important sound alerts',
       'Visual and vibration alerts for important sounds',
     ),
+    (
+      'chat_messages',
+      'Chat messages',
+      'New messages from staff in your assistance chat',
+    ),
   ];
 
   /// Route payload tapped while the app was fully closed, consumed once by
@@ -54,11 +57,15 @@ class AppNotificationService {
 
   Future<void> initialize({
     void Function(String route)? onNotificationTap,
+    GoRouter? router,
   }) async {
-    _onTap = onNotificationTap;
+    if (onNotificationTap != null) _onTap = onNotificationTap;
+    if (router != null) _router = router;
     final launchDetails = await _plugin.getNotificationAppLaunchDetails();
-    _launchPayload =
-        launchDetails?.notificationResponse?.payload;
+    final payload = launchDetails?.notificationResponse?.payload;
+    if (payload != null && payload.isNotEmpty) {
+      _launchPayload = _routeForPayload(payload);
+    }
     await _plugin.initialize(
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
@@ -88,8 +95,10 @@ class AppNotificationService {
     final vibration = await NotificationSettings.vibrationEnabled();
     final applied = await NotificationSettings.channelsVibration();
     if (applied == vibration) return;
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android != null) {
       for (final (id, name, description) in _channels) {
         try {
@@ -140,7 +149,20 @@ class AppNotificationService {
   void _handleResponse(NotificationResponse response) {
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
-    _onTap?.call(payload);
+    final route = _routeForPayload(payload);
+    if (_onTap != null) {
+      _onTap!.call(route);
+    } else {
+      _router?.push(route);
+    }
+  }
+
+  String _routeForPayload(String payload) {
+    if (!payload.startsWith('chat:')) return payload;
+    final requestId = Uri.encodeQueryComponent(
+      payload.replaceFirst('chat:', ''),
+    );
+    return '/chat?requestId=$requestId';
   }
 
   Future<void> requestPermission() async {
@@ -154,6 +176,44 @@ class AppNotificationService {
           IOSFlutterLocalNotificationsPlugin
         >()
         ?.requestPermissions(alert: true, badge: true, sound: true);
+  }
+
+  /// Show a notification for a new incoming staff chat message.
+  /// Payload encodes `chat:<requestId>` so tapping navigates to the right chat.
+  Future<void> showChatMessage({
+    required String requestId,
+    required String senderName,
+    required String message,
+  }) async {
+    final route = '/chat?requestId=${Uri.encodeQueryComponent(requestId)}';
+    await _recordHistory(
+      kind: 'request',
+      title: '💬 $senderName',
+      body: message,
+      route: route,
+    );
+    return _plugin.show(
+      id: requestId.hashCode & 0x7fffffff,
+      title: '💬 $senderName',
+      body: message,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'chat_messages',
+          'Chat Messages',
+          channelDescription: 'New messages from staff in your assistance chat',
+          importance: Importance.high,
+          priority: Priority.high,
+          enableVibration: true,
+          icon: '@mipmap/ic_launcher',
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      payload: 'chat:$requestId',
+    );
   }
 
   Future<void> showQueueCalled({

@@ -15,7 +15,7 @@ export const announcementRepository = {
   async getZones(institutionId) {
     const { data, error } = await supabase
       .from('venue_zones')
-      .select('id, name, code, zone_type')
+      .select('id, name, code, zone_type, map_x, map_y')
       .eq('institution_id', institutionId)
       .eq('active', true)
       .order('name')

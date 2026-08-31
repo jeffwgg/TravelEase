@@ -43,7 +43,7 @@ class AccessibilityIssueViewModel extends ChangeNotifier {
     return 'RPT-$code';
   }
 
-  Future<bool> submitReport({required String venueName}) async {
+  Future<bool> submitReport({required String venueName, required bool analyticsConsent}) async {
     if (issueType == null) {
       errorMessage = 'Please select an issue type';
       notifyListeners();
@@ -70,6 +70,7 @@ class AccessibilityIssueViewModel extends ChangeNotifier {
             : venueName,
         description: descriptionController.text,
         severity: severityLabel,
+        analyticsConsent: analyticsConsent,
       );
 
       isSubmitting = false;

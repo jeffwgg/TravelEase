@@ -7,11 +7,12 @@ import 'core/supabase_client.dart';
 import 'services/announcement_notification_service.dart';
 import 'services/app_notification_service.dart';
 import 'services/background_notification_service.dart';
+import 'services/chat_notification_service.dart';
 import 'services/environment_sound_monitoring_service.dart';
-import 'services/public_announcement_capture_service.dart';
 import 'services/queue_notification_service.dart';
 import 'services/startup_permission_service.dart';
 import 'services/venue_session_service.dart';
+import 'services/public_announcement_capture_service.dart';
 import 'services/auth_deep_link_service.dart';
 import 'viewmodels/profile_viewmodel.dart';
 
@@ -24,7 +25,10 @@ void main() async {
   await SupabaseClientHelper.initialize();
   await AppNotificationService.instance.initialize(
     onNotificationTap: _handleNotificationTap,
+    router: appRouter,
   );
+  await QueueNotificationService.instance.initialize();
+  ChatNotificationService.instance.initialize();
   await AuthDeepLinkService.instance.initialize(
     onAuthSession: (isPasswordRecovery) async {
       if (isPasswordRecovery) {
@@ -37,8 +41,6 @@ void main() async {
       appRouter.go(destination);
     },
   );
-  await AppNotificationService.instance.initialize();
-  await QueueNotificationService.instance.initialize();
   await VenueSessionService.instance.restore();
   // Venue alert services: notifications keep flowing while the app is in the
   // background or its task is swiped away. Enabled by default for now.
@@ -70,7 +72,8 @@ class _TravelEaseAppState extends State<TravelEaseApp>
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Deep link from a notification tap that launched the app cold.
-      final launchRoute = AppNotificationService.instance.consumeLaunchPayload();
+      final launchRoute = AppNotificationService.instance
+          .consumeLaunchPayload();
       if (launchRoute != null) _handleNotificationTap(launchRoute);
       await StartupPermissionService.requestOnFirstEntry();
       await EnvironmentSoundMonitoringService.instance.initialize();
@@ -80,8 +83,7 @@ class _TravelEaseAppState extends State<TravelEaseApp>
       await AppNotificationService.instance.requestPermission();
       await startBackgroundNotificationService();
     });
-    WebRTCService.instance.init().then((_) async {
-      await WebRTCService.instance.init();
+    WebRTCService.instance.init().then((_) {
       WebRTCService.instance.subscribeToGlobalSignaling();
     });
   }

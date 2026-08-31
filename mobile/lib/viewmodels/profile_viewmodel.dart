@@ -20,20 +20,16 @@ class ProfileViewModel extends ChangeNotifier {
 
   final fullNameController = TextEditingController();
   final nationalityController = TextEditingController();
-  final primaryLanguageController = TextEditingController();
-  final secondaryLanguageController = TextEditingController();
   final currentPasswordController = TextEditingController();
   final newPasswordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
 
-  String? _preferredCommunication;
   bool _isLoading = false;
   bool _isChangingPassword = false;
   bool _isUploadingAvatar = false;
   String? _errorMessage;
   Map<String, dynamic>? _profile;
 
-  String? get preferredCommunication => _preferredCommunication;
   bool get isLoading => _isLoading;
   bool get isChangingPassword => _isChangingPassword;
   bool get isUploadingAvatar => _isUploadingAvatar;
@@ -49,27 +45,12 @@ class ProfileViewModel extends ChangeNotifier {
       (_profile?['avatar_url'] as String?) ??
       (_authRepository.currentUser?.userMetadata?['avatar_url'] as String?) ??
       '';
-  String get preferredCommunicationValue =>
-      (_profile?['preferred_communication'] as String?) ?? '';
-  String get preferredCommunicationLabel =>
-      switch (preferredCommunicationValue) {
-        'sign_language' => 'Sign Language',
-        'speech_to_text' => 'Speech to Text',
-        'text' => 'Text / Chat',
-        _ => 'Not set',
-      };
 
   void initializeFromAuthenticatedUser() {
     final fullName = _authRepository.currentUser?.userMetadata?['full_name'];
     if (fullName is String && fullNameController.text.isEmpty) {
       fullNameController.text = fullName;
     }
-  }
-
-  void setPreferredCommunication(String? value) {
-    _preferredCommunication = value;
-    _errorMessage = null;
-    notifyListeners();
   }
 
   Future<void> loadProfile() async {
@@ -80,9 +61,6 @@ class ProfileViewModel extends ChangeNotifier {
       _profile = await _profileRepository.getCurrentUserProfile();
       fullNameController.text = fullName;
       nationalityController.text = nationality;
-      _preferredCommunication = preferredCommunicationValue.isEmpty
-          ? null
-          : preferredCommunicationValue;
     } catch (_) {
       _errorMessage = 'Unable to load your profile. Please try again.';
     }
@@ -107,16 +85,8 @@ class ProfileViewModel extends ChangeNotifier {
   Future<bool> saveProfile() async {
     final fullName = fullNameController.text.trim();
     final nationality = nationalityController.text.trim();
-    final primaryLanguage = primaryLanguageController.text.trim();
-    final secondaryLanguage = secondaryLanguageController.text.trim();
     if (fullName.isEmpty) return _fail('Please enter your full name.');
     if (nationality.isEmpty) return _fail('Please enter your nationality.');
-    if (primaryLanguage.isEmpty) {
-      return _fail('Please enter your primary language.');
-    }
-    if (_preferredCommunication == null) {
-      return _fail('Please select your preferred communication method.');
-    }
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -124,9 +94,6 @@ class ProfileViewModel extends ChangeNotifier {
       await _profileRepository.saveTravellerProfile(
         fullName: fullName,
         nationality: nationality,
-        primaryLanguage: primaryLanguage,
-        secondaryLanguage: secondaryLanguage.isEmpty ? null : secondaryLanguage,
-        preferredCommunication: _preferredCommunication!,
       );
       _isLoading = false;
       notifyListeners();
@@ -309,8 +276,6 @@ class ProfileViewModel extends ChangeNotifier {
   void dispose() {
     fullNameController.dispose();
     nationalityController.dispose();
-    primaryLanguageController.dispose();
-    secondaryLanguageController.dispose();
     currentPasswordController.dispose();
     newPasswordController.dispose();
     confirmPasswordController.dispose();

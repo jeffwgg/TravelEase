@@ -66,6 +66,20 @@ export const assistanceRepository = {
     return data
   },
 
+  // FR-M7-08: first staff action (assignment or first staff chat message)
+  // stamps acknowledged_at exactly once, even if called repeatedly.
+  async maybeSetAcknowledgedAt(requestId) {
+    const { error } = await supabase
+      .from('assistance_requests')
+      .update({ acknowledged_at: new Date().toISOString() })
+      .eq('id', requestId)
+      .is('acknowledged_at', null)
+
+    if (error) {
+      console.warn('Could not stamp acknowledged_at:', error.message)
+    }
+  },
+
   async assignStaffToRequest(requestId, staffId, staffName) {
     const updatePayload = {
       assigned_staff_id: staffId,
@@ -85,6 +99,8 @@ export const assistanceRepository = {
       console.error('Error assigning staff to request:', error)
       throw error
     }
+
+    await this.maybeSetAcknowledgedAt(requestId)
 
     return data
   },
@@ -115,6 +131,12 @@ export const assistanceRepository = {
       console.error('Error sending chat message:', error)
       throw error
     }
+
+    // A staff reply counts as the first response (FR-M7-08).
+    if (payload.sender_type === 'staff') {
+      await this.maybeSetAcknowledgedAt(payload.request_id)
+    }
+
     return data
   },
 
