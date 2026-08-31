@@ -1,8 +1,84 @@
-import 'package:flutter/material.dart';
-import '../../core/theme.dart';
+import 'dart:async';
 
-class NotificationHistoryView extends StatelessWidget {
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../core/theme.dart';
+import '../../models/repositories/notification_history_store.dart';
+
+/// Device-local history of raised notifications. Tapping an announcement or
+/// queue entry deep-links into its screen; entries survive quitting the
+/// venue session because the history is stored on the device.
+class NotificationHistoryView extends StatefulWidget {
   const NotificationHistoryView({super.key});
+
+  @override
+  State<NotificationHistoryView> createState() =>
+      _NotificationHistoryViewState();
+}
+
+class _NotificationHistoryViewState extends State<NotificationHistoryView> {
+  final NotificationHistoryStore _store = NotificationHistoryStore.instance;
+  StreamSubscription<void>? _changes;
+  List<NotificationHistoryEntry> _entries = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _changes = _store.changes.listen((_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _changes?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final entries = await _store.entries();
+    if (!mounted) return;
+    setState(() {
+      _entries = entries;
+      _loading = false;
+    });
+  }
+
+  String _dayLabel(DateTime time) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(time.year, time.month, time.day);
+    final difference = today.difference(day).inDays;
+    if (difference == 0) return 'Today';
+    if (difference == 1) return 'Yesterday';
+    return MaterialLocalizations.of(
+      context,
+    ).formatFullDate(day);
+  }
+
+  String _timeLabel(DateTime time) {
+    final now = DateTime.now();
+    final difference = now.difference(time);
+    if (difference.inMinutes < 1) return 'Just now';
+    if (difference.inMinutes < 60) return '${difference.inMinutes} min ago';
+    if (difference.inDays < 1) return TimeOfDay.fromDateTime(time).format(context);
+    return '${TimeOfDay.fromDateTime(time).format(context)} · ${_dayLabel(time)}';
+  }
+
+  IconData _iconFor(String kind) => switch (kind) {
+    'announcement' => Icons.campaign,
+    'captured' => Icons.mic,
+    'queue' => Icons.confirmation_num,
+    _ => Icons.notifications_active,
+  };
+
+  Color _colorFor(String kind) => switch (kind) {
+    'announcement' => AppColors.primary,
+    'captured' => AppColors.accent,
+    'queue' => AppColors.success,
+    _ => AppColors.secondary,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -10,77 +86,158 @@ class NotificationHistoryView extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Notifications'),
         actions: [
-          TextButton(onPressed: () {}, child: const Text('Mark All Read')),
+          TextButton(
+            onPressed: _entries.isEmpty ? null : () => _store.markAllRead(),
+            child: const Text('Mark All Read'),
+          ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildDateSection(context, 'Today'),
-          _buildNotification(context, Icons.swap_horiz, 'Gate Change', 'Flight MH370 gate changed from A5 to B12', '2 min ago', AppColors.secondary, true),
-          _buildNotification(context, Icons.flight_takeoff, 'Boarding Call', 'Flight AK123 now boarding at Gate C4', '8 min ago', AppColors.primary, true),
-          _buildNotification(context, Icons.warning_rounded, 'Fire Alarm', 'Fire alarm detected in Terminal 1 Zone A', '15 min ago', AppColors.emergency, false),
-          _buildNotification(context, Icons.confirmation_num, 'Queue Update', 'Your queue number A-042 is being served', '30 min ago', AppColors.success, false),
-          _buildNotification(context, Icons.chat, 'Staff Reply', 'Airport staff replied to your request', '1 hr ago', AppColors.accent, false),
-          const SizedBox(height: 16),
-          _buildDateSection(context, 'Yesterday'),
-          _buildNotification(context, Icons.campaign, 'Announcement', 'Terminal 1 WiFi maintenance 2:00-4:00 PM', 'Yesterday 3:00 PM', AppColors.textSecondary, false),
-          _buildNotification(context, Icons.check_circle, 'Request Resolved', 'Your assistance request has been resolved', 'Yesterday 1:30 PM', AppColors.success, false),
-          _buildNotification(context, Icons.location_on, 'Venue Connected', 'Connected to KLIA Terminal 1', 'Yesterday 10:00 AM', AppColors.primary, false),
-        ],
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _entries.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.notifications_none,
+                    size: 48,
+                    color: AppColors.textMuted,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No notifications yet',
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Announcements and queue alerts you receive will appear here.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: _buildSections(),
+              ),
+            ),
     );
   }
 
-  Widget _buildDateSection(BuildContext context, String date) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8, top: 8),
-      child: Text(date, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppColors.textMuted)),
-    );
+  List<Widget> _buildSections() {
+    final widgets = <Widget>[];
+    var currentLabel = '';
+    for (final entry in _entries) {
+      final label = _dayLabel(entry.createdAt);
+      if (label != currentLabel) {
+        currentLabel = label;
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8, top: 8),
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(color: AppColors.textMuted),
+            ),
+          ),
+        );
+      }
+      widgets.add(_buildNotification(entry));
+    }
+    widgets.add(const SizedBox(height: 16));
+    return widgets;
   }
 
-  Widget _buildNotification(BuildContext context, IconData icon, String title, String desc, String time, Color color, bool unread) {
+  Widget _buildNotification(NotificationHistoryEntry entry) {
+    final color = _colorFor(entry.kind);
+    final tappable = entry.route != null && entry.route!.isNotEmpty;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       child: Card(
-        color: unread ? color.withValues(alpha: 0.03) : null,
+        color: entry.read ? null : color.withValues(alpha: 0.03),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-          side: unread ? BorderSide(color: color.withValues(alpha: 0.2)) : BorderSide.none,
+          side: entry.read
+              ? BorderSide.none
+              : BorderSide(color: color.withValues(alpha: 0.2)),
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: tappable ? () => context.push(entry.route!) : null,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(_iconFor(entry.kind), color: color, size: 20),
                 ),
-                child: Icon(icon, color: color, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(child: Text(title, style: TextStyle(fontWeight: unread ? FontWeight.w700 : FontWeight.w500, fontSize: 14))),
-                        if (unread) Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(desc, style: Theme.of(context).textTheme.bodyMedium),
-                    const SizedBox(height: 4),
-                    Text(time, style: Theme.of(context).textTheme.bodySmall),
-                  ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              entry.title,
+                              style: TextStyle(
+                                fontWeight: entry.read
+                                    ? FontWeight.w500
+                                    : FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                          if (!entry.read)
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(entry.body, style: Theme.of(context).textTheme.bodyMedium),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                            _timeLabel(entry.createdAt),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          if (tappable) ...[
+                            const Spacer(),
+                            Icon(
+                              Icons.chevron_right,
+                              size: 16,
+                              color: AppColors.textMuted,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

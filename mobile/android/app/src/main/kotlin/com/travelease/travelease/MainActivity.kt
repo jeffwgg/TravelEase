@@ -10,7 +10,6 @@ import android.os.VibratorManager
 import io.flutter.embedding.engine.FlutterEngine
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.provider.Settings
 import android.speech.SpeechRecognizer
 import io.flutter.embedding.android.FlutterActivity

@@ -36,7 +36,40 @@ class QueueRepository {
     }
     final response = await query.limit(1).maybeSingle();
     if (response == null) return null;
-    return QueueTrackingData.fromJson(Map<String, dynamic>.from(response));
+    final tracking = QueueTrackingData.fromJson(
+      Map<String, dynamic>.from(response),
+    );
+    enforceMaximumQueueNumber(tracking);
+    return tracking;
+  }
+
+  /// The maximum queue number configured on the web portal is a hard cap:
+  /// waiting numbers beyond it will never be called, so they cannot be
+  /// tracked. Legacy numbers that were already called before the cap keep
+  /// their status visible. Returns a specific error message when [number]
+  /// is beyond [line]'s cap, or null when the number is trackable.
+  static String? maximumQueueNumberViolation(String number, QueueLineInfo line) {
+    final match = RegExp(r'\d+$').firstMatch(number);
+    final value = int.tryParse(match?.group(0) ?? '');
+    if (value == null || value <= line.maxTrackingNumber) return null;
+    final prefix = line.prefix.trim().toUpperCase();
+    final capLabel = prefix.isEmpty
+        ? '${line.maxTrackingNumber}'
+        : '$prefix-${'${line.maxTrackingNumber}'.padLeft(3, '0')}';
+    return 'Queue number ${number.trim().toUpperCase()} is beyond the '
+        'maximum queue number ($capLabel) for this queue line and will not '
+        'be called.';
+  }
+
+  static void enforceMaximumQueueNumber(QueueTrackingData tracking) {
+    if (tracking.status != 'waiting') return;
+    final message = maximumQueueNumberViolation(
+      tracking.number,
+      tracking.line,
+    );
+    if (message != null) {
+      throw QueueNumberBeyondMaximumException(message);
+    }
   }
 
   /// Formatting variants for a queue number so lookups tolerate prefixes,
@@ -100,4 +133,14 @@ class QueueRepository {
 
   Future<void> removeSubscription(RealtimeChannel channel) =>
       _client.removeChannel(channel);
+}
+
+/// The tracked queue number is beyond its queue line's maximum queue number.
+class QueueNumberBeyondMaximumException implements Exception {
+  final String message;
+
+  const QueueNumberBeyondMaximumException(this.message);
+
+  @override
+  String toString() => message;
 }

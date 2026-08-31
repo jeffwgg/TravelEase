@@ -80,7 +80,7 @@ class _TravelEaseAppState extends State<TravelEaseApp>
       await AppNotificationService.instance.requestPermission();
       await startBackgroundNotificationService();
     });
-    WebRTCService.instance.init().then((_) {
+    WebRTCService.instance.init().then((_) async {
       await WebRTCService.instance.init();
       WebRTCService.instance.subscribeToGlobalSignaling();
     });

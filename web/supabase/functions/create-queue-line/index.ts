@@ -33,6 +33,8 @@ Deno.serve(async (request) => {
 
     const name = String(input.name || '').trim()
     if (!name) return json({ error: 'Queue line name is required.' }, 400)
+    const prefix = String(input.prefix || '').trim().toUpperCase()
+    if (!prefix) return json({ error: 'Queue prefix is required.' }, 400)
     const { data: duplicate, error: duplicateError } = await adminClient
       .from('queue_lines')
       .select('id')
@@ -44,13 +46,23 @@ Deno.serve(async (request) => {
     if (duplicate) {
       return json({ error: `A queue line named "${name}" already exists for this institution. Choose a different name.` }, 409)
     }
+    const { data: duplicatePrefix, error: duplicatePrefixError } = await adminClient
+      .from('queue_lines')
+      .select('id')
+      .eq('institution_id', institutionId)
+      .ilike('prefix', prefix)
+      .limit(1)
+      .maybeSingle()
+    if (duplicatePrefixError) throw duplicatePrefixError
+    if (duplicatePrefix) {
+      return json({ error: `A queue line with the prefix "${prefix}" already exists for this institution. Choose a different prefix.` }, 409)
+    }
 
     const linePayload = {
       institution_id: institutionId,
-      name: String(input.name || '').trim(),
+      name,
       service_area: String(input.service_area || '').trim(),
-      counter: String(input.counter || '').trim(),
-      prefix: String(input.prefix || '').trim().toUpperCase(),
+      prefix,
       current_number: String(input.current_number || '').trim().toUpperCase(),
       upcoming_number: String(input.upcoming_number || '').trim().toUpperCase(),
       status: input.status,

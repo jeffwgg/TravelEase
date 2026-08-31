@@ -51,6 +51,32 @@ export const queueRepository = {
   },
 
   async createQueueLine(payload) {
+    // Fail fast on duplicates so staff always get the specific message, even
+    // before the edge function re-validates both server-side.
+    const { data: duplicate, error: duplicateError } = await supabase
+      .from('queue_lines')
+      .select('name')
+      .eq('institution_id', payload.institution_id)
+      .ilike('name', payload.name)
+      .limit(1)
+      .maybeSingle()
+    if (duplicateError) throw duplicateError
+    if (duplicate) {
+      throw new Error(`A queue line named "${payload.name}" already exists for this institution. Choose a different name.`)
+    }
+
+    const { data: duplicatePrefix, error: duplicatePrefixError } = await supabase
+      .from('queue_lines')
+      .select('prefix')
+      .eq('institution_id', payload.institution_id)
+      .ilike('prefix', payload.prefix)
+      .limit(1)
+      .maybeSingle()
+    if (duplicatePrefixError) throw duplicatePrefixError
+    if (duplicatePrefix) {
+      throw new Error(`A queue line with the prefix "${payload.prefix}" already exists for this institution. Choose a different prefix.`)
+    }
+
     const { data, error } = await supabase.functions.invoke('create-queue-line', {
       body: { queueLine: payload },
     })
@@ -74,7 +100,7 @@ export const queueRepository = {
       event_type: 'updated',
       event_number: line.current_number,
       created_by: userId,
-      details: { status: line.status, counter: line.counter, service_area: line.service_area },
+      details: { status: line.status, service_area: line.service_area },
     })
     if (eventError) throw eventError
     await ensureTraceableNumbers(line)
@@ -158,7 +184,7 @@ export const queueRepository = {
   async findQueueNumber(institutionId, number, queueLine = null) {
     let query = supabase
       .from('queue_numbers')
-      .select('*, queue_lines!inner(id, name, service_area, counter, prefix, current_number, upcoming_number, status)')
+      .select('*, queue_lines!inner(id, name, service_area, prefix, current_number, upcoming_number, status)')
       .eq('institution_id', institutionId)
       .in('number', queueNumberCandidates(number, queueLine?.prefix))
       .order('updated_at', { ascending: false })

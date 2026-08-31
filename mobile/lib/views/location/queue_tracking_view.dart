@@ -80,6 +80,19 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
       setState(() => _error = 'Enter your queue number.');
       return;
     }
+    // Instant feedback: a number beyond the selected line's maximum queue
+    // number can never be called, so do not even look it up.
+    final selectedLine = _selectedLine;
+    if (selectedLine != null) {
+      final capError = QueueRepository.maximumQueueNumberViolation(
+        number,
+        selectedLine,
+      );
+      if (capError != null) {
+        setState(() => _error = capError);
+        return;
+      }
+    }
     setState(() {
       _trackingNumber = true;
       _error = null;
@@ -110,9 +123,10 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
       });
       await QueueNotificationService.instance.track(result);
     } catch (error) {
-      if (mounted) {
-        setState(() => _error = 'Unable to track this queue number right now.');
-      }
+      if (!mounted) return;
+      setState(() => _error = error is QueueNumberBeyondMaximumException
+          ? error.message
+          : 'Unable to track this queue number right now.');
     } finally {
       if (mounted) setState(() => _trackingNumber = false);
     }

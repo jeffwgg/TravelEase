@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:torch_light/torch_light.dart';
 
+import 'notification_settings.dart';
+
 /// Blinks the camera torch twice as a visual alert when a notification that
-/// matters to a deaf traveller arrives. Configuration is hardcoded enabled
-/// for now; a settings section will control it later.
+/// matters to a deaf traveller arrives. Honours the profile's "Flash Alerts"
+/// configuration (notification_settings mirror); enabled until the profile
+/// has been saved once.
 class FlashAlertService {
   FlashAlertService._();
 
@@ -13,9 +16,11 @@ class FlashAlertService {
   bool _busy = false;
 
   /// Flashes the torch twice (~0.28 s on, ~0.22 s off). Fails silently when
-  /// the device has no torch or the camera is occupied (e.g. sign camera).
+  /// the device has no torch, the camera is occupied (e.g. sign camera), or
+  /// the profile disabled flash alerts.
   Future<void> blinkTwice() async {
     if (_busy) return;
+    if (!await NotificationSettings.flashEnabled()) return;
     _busy = true;
     try {
       if (!await TorchLight.isTorchAvailable()) return;

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/repositories/accessibility_preferences_repository.dart';
+import '../services/app_notification_service.dart';
 
 class AccessibilityPreferencesViewModel extends ChangeNotifier {
   AccessibilityPreferencesViewModel({
@@ -65,6 +66,11 @@ class AccessibilityPreferencesViewModel extends ChangeNotifier {
         'vibration_strength': vibrationStrength,
         'flash_alerts': flashAlerts,
       });
+      // Notifications (and the torch flash) follow the saved configuration.
+      await AppNotificationService.instance.applyNotificationSettings(
+        vibration: vibration,
+        flash: flashAlerts,
+      );
       isSaving = false;
       notifyListeners();
       return true;
