@@ -5,24 +5,32 @@ import '../models/repositories/notification_history_store.dart';
 import 'notification_settings.dart';
 
 /// Central local-notification helper. Every alert relevant to a deaf
-/// traveller plays a notification sound and deep-links into the matching
-/// screen through its [payload] route. Vibration follows the profile's
-/// "Vibration Alerts" configuration and every raised notification is kept in
-/// the device-local notification history (see NotificationHistoryStore).
+/// traveller deep-links into the matching screen through its [payload]
+/// route. Behaviour follows the profile configuration: the master
+/// "Enable Notifications" switch suppresses the push entirely (the
+/// device-local notification history is still updated), vibration follows
+/// "Vibration Alerts", and the torch flash follows "Flash Alerts".
+///
+/// Payloads are encoded as `entryId|route` so taps and the "Mark as read"
+/// action can mark the matching history entry as read. Android channel ids
+/// carry a generation suffix because the OS keeps the settings of deleted
+/// channel ids — recreating the same id never applies new settings.
 class AppNotificationService {
   AppNotificationService._();
 
   static final instance = AppNotificationService._();
+
+  static const _markReadActionId = 'travelease_mark_read';
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   void Function(String route)? _onTap;
   String? _launchPayload;
   GoRouter? _router;
+  String? _channelSuffix;
 
   /// The notification channels whose vibration must follow the profile
-  /// setting. Android channels are immutable once created, so they are
-  /// deleted and recreated whenever the setting changes.
+  /// setting. The current generation suffix is appended to each base id.
   static const List<(String, String, String)> _channels = [
     ('queue_updates', 'Queue updates', 'Alerts for your tracked queue number'),
     (
@@ -47,12 +55,26 @@ class AppNotificationService {
     ),
   ];
 
+  String _channelId(String baseId) {
+    final suffix = _channelSuffix;
+    return suffix == null || suffix.isEmpty ? baseId : '${baseId}_$suffix';
+  }
+
   /// Route payload tapped while the app was fully closed, consumed once by
-  /// the root widget after the router is ready.
+  /// the root widget after the router is ready. Marks the history entry as
+  /// read — opening a notification counts as reading it.
   String? consumeLaunchPayload() {
     final payload = _launchPayload;
     _launchPayload = null;
-    return payload;
+    if (payload == null) return null;
+    final separator = payload.indexOf('|');
+    if (separator > 0) {
+      NotificationHistoryStore.instance
+          .markRead(payload.substring(0, separator))
+          .catchError((Object _) {});
+      return _routeForPayload(payload.substring(separator + 1));
+    }
+    return _routeForPayload(payload);
   }
 
   Future<void> initialize({
@@ -61,10 +83,12 @@ class AppNotificationService {
   }) async {
     if (onNotificationTap != null) _onTap = onNotificationTap;
     if (router != null) _router = router;
+    final generation = await NotificationSettings.channelsGeneration();
+    _channelSuffix = generation == 0 ? '' : '$generation';
     final launchDetails = await _plugin.getNotificationAppLaunchDetails();
     final payload = launchDetails?.notificationResponse?.payload;
     if (payload != null && payload.isNotEmpty) {
-      _launchPayload = _routeForPayload(payload);
+      _launchPayload = payload;
     }
     await _plugin.initialize(
       settings: const InitializationSettings(
@@ -76,55 +100,104 @@ class AppNotificationService {
         ),
       ),
       onDidReceiveNotificationResponse: _handleResponse,
+      onDidReceiveBackgroundNotificationResponse: notificationBackgroundHandler,
     );
-    await _applyChannelVibration();
+    await _ensureChannels();
   }
 
-  /// Stores the notification-related profile configuration and rebuilds the
-  /// Android notification channels so their vibration matches it. Called
-  /// when the traveller saves their profile preferences.
+  /// Stores the notification-related profile configuration and bumps the
+  /// channel generation so the Android channels apply the new vibration
+  /// settings (same-id recreation is ignored by Android). Called when the
+  /// traveller saves their profile preferences.
   Future<void> applyNotificationSettings({
-    required bool vibration,
-    required bool flash,
+    required bool alertPush,
+    required bool alertVibration,
+    required bool alertFlash,
+    required bool generalPush,
+    required bool generalVibration,
+    required bool generalFlash,
   }) async {
-    await NotificationSettings.store(vibration: vibration, flash: flash);
-    await _applyChannelVibration();
-  }
-
-  Future<void> _applyChannelVibration() async {
-    final vibration = await NotificationSettings.vibrationEnabled();
-    final applied = await NotificationSettings.channelsVibration();
-    if (applied == vibration) return;
+    await NotificationSettings.store(
+      alertPush: alertPush,
+      alertVibration: alertVibration,
+      alertFlash: alertFlash,
+      generalPush: generalPush,
+      generalVibration: generalVibration,
+      generalFlash: generalFlash,
+    );
+    final generation = await NotificationSettings.channelsGeneration();
+    final oldSuffix = generation == 0 ? '' : '$generation';
+    final newGeneration = generation + 1;
+    _channelSuffix = '$newGeneration';
     final android = _plugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >();
     if (android != null) {
-      for (final (id, name, description) in _channels) {
+      for (final (baseId, name, description) in _channels) {
         try {
-          await android.deleteNotificationChannel(channelId: id);
           await android.createNotificationChannel(
             AndroidNotificationChannel(
-              id,
+              _channelId(baseId),
               name,
               description: description,
               importance: Importance.max,
               playSound: true,
-              enableVibration: vibration,
+              enableVibration: await _channelVibration(baseId),
             ),
           );
+          if (oldSuffix.isNotEmpty) {
+            await android.deleteNotificationChannel(
+              channelId: '${baseId}_$oldSuffix',
+            );
+          }
         } catch (_) {
           // Channel setup is best-effort; showing still recreates channels.
         }
       }
     }
-    await NotificationSettings.setChannelsVibration(vibration);
+    await NotificationSettings.setChannelsGeneration(newGeneration);
+  }
+
+  /// Vibration follows the section that owns the channel: the important
+  /// sounds channel belongs to Alert Preferences, every other channel to
+  /// General Notification Preference.
+  Future<bool> _channelVibration(String baseId) async =>
+      baseId == 'important_sounds'
+      ? NotificationSettings.alertVibrationEnabled()
+      : NotificationSettings.generalVibrationEnabled();
+
+  Future<void> _ensureChannels() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    if (android == null) return;
+    for (final (baseId, name, description) in _channels) {
+      try {
+        await android.createNotificationChannel(
+          AndroidNotificationChannel(
+            _channelId(baseId),
+            name,
+            description: description,
+            importance: Importance.max,
+            playSound: true,
+            enableVibration: await _channelVibration(baseId),
+          ),
+        );
+      } catch (_) {
+        // Channel setup is best-effort.
+      }
+    }
   }
 
   /// Keeps the device-local notification history in step with every raised
   /// notification so the in-app Notifications screen can list and navigate
-  /// to it later. Best-effort; never breaks the notification itself.
-  Future<void> _recordHistory({
+  /// to it later — even when the push itself is disabled by the profile.
+  /// Returns the history entry id embedded into the payload. Best-effort;
+  /// never breaks the notification itself.
+  Future<String> _recordHistory({
+    required String entryId,
     required String kind,
     required String title,
     required String body,
@@ -133,7 +206,7 @@ class AppNotificationService {
     try {
       await NotificationHistoryStore.instance.add(
         NotificationHistoryEntry(
-          id: '$kind-${DateTime.now().microsecondsSinceEpoch}',
+          id: entryId,
           kind: kind,
           title: title,
           body: body,
@@ -144,11 +217,60 @@ class AppNotificationService {
     } catch (_) {
       // History is best-effort.
     }
+    return entryId;
+  }
+
+  /// Maps each posted notification id to its history entry id. Some devices
+  /// deliver action presses with an empty payload, so the id mapping is the
+  /// fallback that still lets "Mark as read" resolve the history entry.
+  final Map<int, String> _entryIdByNotificationId = {};
+
+  void _rememberEntry(int notificationId, String entryId) {
+    _entryIdByNotificationId[notificationId] = entryId;
+  }
+
+  /// Resolves the history entry for a notification response: prefer the
+  /// `entryId|route` payload, fall back to the notification-id map.
+  String? _resolveEntryId(NotificationResponse response) {
+    final payload = response.payload;
+    if (payload != null && payload.isNotEmpty) {
+      final separator = payload.indexOf('|');
+      if (separator > 0) return payload.substring(0, separator);
+    }
+    final id = response.id;
+    if (id != null) return _entryIdByNotificationId[id];
+    return null;
   }
 
   void _handleResponse(NotificationResponse response) {
+    final isMarkRead =
+        response.actionId == _markReadActionId ||
+        response.notificationResponseType ==
+            NotificationResponseType.selectedNotificationAction;
+    if (isMarkRead) {
+      // The "Mark as read" action: mark the entry, dismiss the
+      // notification, and do not navigate.
+      final entryId = _resolveEntryId(response);
+      if (entryId != null) {
+        NotificationHistoryStore.instance
+            .markRead(entryId)
+            .catchError((Object _) {});
+      }
+      final id = response.id;
+      if (id != null) {
+        _plugin.cancel(id: id).catchError((Object _) {});
+        _entryIdByNotificationId.remove(id);
+      }
+      return;
+    }
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
+    final entryId = _resolveEntryId(response);
+    if (entryId != null) {
+      NotificationHistoryStore.instance
+          .markRead(entryId)
+          .catchError((Object _) {});
+    }
     final route = _routeForPayload(payload);
     if (_onTap != null) {
       _onTap!.call(route);
@@ -185,18 +307,23 @@ class AppNotificationService {
     required String senderName,
     required String message,
   }) async {
+    final entryId = 'request-$requestId';
     final route = '/chat?requestId=${Uri.encodeQueryComponent(requestId)}';
     await _recordHistory(
+      entryId: entryId,
       kind: 'request',
       title: '💬 $senderName',
       body: message,
       route: route,
     );
+    if (!await NotificationSettings.generalPushEnabled()) return;
+    final notificationId = requestId.hashCode & 0x7fffffff;
+    _rememberEntry(notificationId, entryId);
     return _plugin.show(
-      id: requestId.hashCode & 0x7fffffff,
+      id: notificationId,
       title: '💬 $senderName',
       body: message,
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           'chat_messages',
           'Chat Messages',
@@ -205,6 +332,9 @@ class AppNotificationService {
           priority: Priority.high,
           enableVibration: true,
           icon: '@mipmap/ic_launcher',
+          actions: [
+            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
+          ],
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
@@ -212,7 +342,7 @@ class AppNotificationService {
           presentSound: true,
         ),
       ),
-      payload: 'chat:$requestId',
+      payload: '$entryId|chat:$requestId',
     );
   }
 
@@ -220,27 +350,35 @@ class AppNotificationService {
     required String number,
     required String counter,
   }) async {
+    final entryId = 'queue-called-$number';
     await _recordHistory(
+      entryId: entryId,
       kind: 'queue',
       title: 'Queue $number is being called',
       body: 'Please proceed to $counter.',
       route: '/queue',
     );
+    if (!await NotificationSettings.generalPushEnabled()) return;
+    final notificationId = number.hashCode & 0x7fffffff;
+    _rememberEntry(notificationId, entryId);
     return _plugin.show(
-      id: number.hashCode & 0x7fffffff,
+      id: notificationId,
       title: 'Queue $number is being called',
       body: 'Please proceed to $counter.',
-      payload: '/queue',
-      notificationDetails: const NotificationDetails(
+      payload: '$entryId|/queue',
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          'queue_calls',
-          'Queue calls',
-          channelDescription: 'Alerts when a tracked queue number is called',
+          _channelId('queue_updates'),
+          'Queue updates',
+          channelDescription: 'Alerts for your tracked queue number',
           importance: Importance.max,
           priority: Priority.high,
           playSound: true,
           enableVibration: true,
           enableLights: true,
+          actions: [
+            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
+          ],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),
@@ -253,27 +391,35 @@ class AppNotificationService {
     required String number,
     required int minutes,
   }) async {
+    final entryId = 'queue-wait-$number';
     await _recordHistory(
+      entryId: entryId,
       kind: 'queue',
       title: 'Queue $number is coming up',
       body: 'Your number is about $minutes min away. Please stay nearby.',
       route: '/queue',
     );
+    if (!await NotificationSettings.generalPushEnabled()) return;
+    final notificationId = 'wait:$number'.hashCode & 0x7fffffff;
+    _rememberEntry(notificationId, entryId);
     return _plugin.show(
-      id: 'wait:$number'.hashCode & 0x7fffffff,
+      id: notificationId,
       title: 'Queue $number is coming up',
       body: 'Your number is about $minutes min away. Please stay nearby.',
-      payload: '/queue',
-      notificationDetails: const NotificationDetails(
+      payload: '$entryId|/queue',
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          'queue_calls',
-          'Queue calls',
-          channelDescription: 'Alerts when a tracked queue number is called',
+          _channelId('queue_updates'),
+          'Queue updates',
+          channelDescription: 'Alerts for your tracked queue number',
           importance: Importance.max,
           priority: Priority.high,
           playSound: true,
           enableVibration: true,
           enableLights: true,
+          actions: [
+            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
+          ],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),
@@ -285,21 +431,26 @@ class AppNotificationService {
     required String title,
     required String message,
   }) async {
+    final entryId = 'ann-$id';
     final route = '/announcement-details?id=$id';
     await _recordHistory(
+      entryId: entryId,
       kind: 'announcement',
       title: title,
       body: message,
       route: route,
     );
+    if (!await NotificationSettings.generalPushEnabled()) return;
+    final notificationId = 'ann:$id'.hashCode & 0x7fffffff;
+    _rememberEntry(notificationId, entryId);
     return _plugin.show(
-      id: 'ann:$id'.hashCode & 0x7fffffff,
+      id: notificationId,
       title: title,
       body: message,
-      payload: route,
-      notificationDetails: const NotificationDetails(
+      payload: '$entryId|$route',
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          'official_announcements',
+          _channelId('official_announcements'),
           'Official announcements',
           channelDescription:
               'Official announcements from your connected venue',
@@ -308,6 +459,9 @@ class AppNotificationService {
           playSound: true,
           enableVibration: true,
           enableLights: true,
+          actions: [
+            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
+          ],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),
@@ -320,21 +474,26 @@ class AppNotificationService {
     required String message,
     required int confidencePercent,
   }) async {
+    final entryId = 'cap-$id';
     final route = '/announcement-details?id=$id';
     await _recordHistory(
+      entryId: entryId,
       kind: 'captured',
       title: title,
       body: message,
       route: route,
     );
+    if (!await NotificationSettings.generalPushEnabled()) return;
+    final notificationId = 'cap:$id'.hashCode & 0x7fffffff;
+    _rememberEntry(notificationId, entryId);
     return _plugin.show(
-      id: 'cap:$id'.hashCode & 0x7fffffff,
+      id: notificationId,
       title: 'Captured announcement ($confidencePercent% confidence)',
       body: message,
-      payload: route,
-      notificationDetails: const NotificationDetails(
+      payload: '$entryId|$route',
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          'captured_announcements',
+          _channelId('captured_announcements'),
           'Captured public announcements',
           channelDescription:
               'Public-address announcements captured from the environment',
@@ -343,6 +502,9 @@ class AppNotificationService {
           playSound: true,
           enableVibration: true,
           enableLights: true,
+          actions: [
+            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
+          ],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),
@@ -353,19 +515,26 @@ class AppNotificationService {
     required String title,
     required String details,
   }) async {
+    final entryId = 'sound-${DateTime.now().microsecondsSinceEpoch}';
     await _recordHistory(
+      entryId: entryId,
       kind: 'sound',
       title: title,
       body: details,
       route: null,
     );
+    if (!await NotificationSettings.alertPushEnabled()) return;
+    final notificationId = DateTime.now().millisecondsSinceEpoch.remainder(
+      0x7fffffff,
+    );
+    _rememberEntry(notificationId, entryId);
     return _plugin.show(
-      id: DateTime.now().millisecondsSinceEpoch.remainder(0x7fffffff),
+      id: notificationId,
       title: title,
       body: details,
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          'important_sounds',
+          _channelId('important_sounds'),
           'Important sound alerts',
           channelDescription:
               'Visual and vibration alerts for important sounds',
@@ -373,9 +542,40 @@ class AppNotificationService {
           priority: Priority.high,
           playSound: true,
           enableVibration: true,
+          actions: [
+            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
+          ],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),
     );
+  }
+}
+
+/// Handles the "Mark as read" action while the app is not active. Must be a
+/// top-level function so the plugin can invoke it from a background isolate.
+@pragma('vm:entry-point')
+Future<void> notificationBackgroundHandler(
+  NotificationResponse response,
+) async {
+  try {
+    if (response.actionId != AppNotificationService._markReadActionId) return;
+    final payload = response.payload;
+    if (payload != null && payload.isNotEmpty) {
+      final separator = payload.indexOf('|');
+      if (separator > 0) {
+        await NotificationHistoryStore.instance.markRead(
+          payload.substring(0, separator),
+        );
+      }
+    }
+    // Dismiss the push from the tray — the action's own cancel flag is not
+    // honoured on every OEM build.
+    final id = response.id;
+    if (id != null) {
+      await FlutterLocalNotificationsPlugin().cancel(id: id);
+    }
+  } catch (_) {
+    // Marking read from the background is best-effort.
   }
 }

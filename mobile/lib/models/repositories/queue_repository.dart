@@ -48,7 +48,10 @@ class QueueRepository {
   /// tracked. Legacy numbers that were already called before the cap keep
   /// their status visible. Returns a specific error message when [number]
   /// is beyond [line]'s cap, or null when the number is trackable.
-  static String? maximumQueueNumberViolation(String number, QueueLineInfo line) {
+  static String? maximumQueueNumberViolation(
+    String number,
+    QueueLineInfo line,
+  ) {
     final match = RegExp(r'\d+$').firstMatch(number);
     final value = int.tryParse(match?.group(0) ?? '');
     if (value == null || value <= line.maxTrackingNumber) return null;
@@ -63,10 +66,7 @@ class QueueRepository {
 
   static void enforceMaximumQueueNumber(QueueTrackingData tracking) {
     if (tracking.status != 'waiting') return;
-    final message = maximumQueueNumberViolation(
-      tracking.number,
-      tracking.line,
-    );
+    final message = maximumQueueNumberViolation(tracking.number, tracking.line);
     if (message != null) {
       throw QueueNumberBeyondMaximumException(message);
     }
@@ -77,7 +77,10 @@ class QueueRepository {
   static List<String> numberCandidates(String number, String? prefix) {
     final raw = number.trim().toUpperCase();
     final compact = raw.replaceAll(RegExp(r'[\s-]'), '');
-    final cleanPrefix = (prefix ?? '').trim().toUpperCase().replaceAll(RegExp(r'[\s-]'), '');
+    final cleanPrefix = (prefix ?? '').trim().toUpperCase().replaceAll(
+      RegExp(r'[\s-]'),
+      '',
+    );
     final candidates = <String>{raw, compact};
     var resolvedPrefix = cleanPrefix;
     var numberPart = compact;
@@ -100,12 +103,39 @@ class QueueRepository {
     return candidates.where((value) => value.isNotEmpty).toList();
   }
 
+  /// [channelTag] keeps concurrent subscribers (tracking view, notification
+  /// service) on distinct realtime topics — Supabase dedupes duplicate
+  /// channel names, which silently stopped one of the callbacks firing.
+  /// Marks the tracked queue number as held by this traveller (traveler_id)
+  /// so the staff console can show how many real people are waiting instead
+  /// of counting pre-registered future numbers. Best-effort and idempotent:
+  /// once claimed, the update matches no rows and raises no realtime event.
+  Future<void> claimNumber({
+    required String number,
+    required String queueLineId,
+    String? queuePrefix,
+  }) async {
+    try {
+      final user = _client.auth.currentUser;
+      if (user == null) return;
+      await _client
+          .from('queue_numbers')
+          .update({'traveler_id': user.id})
+          .eq('queue_line_id', queueLineId)
+          .inFilter('number', numberCandidates(number, queuePrefix))
+          .filter('traveler_id', 'is', null);
+    } catch (_) {
+      // Claiming is best-effort; tracking must keep working without it.
+    }
+  }
+
   RealtimeChannel subscribeToTracking(
     String queueLineId,
-    void Function() onChanged,
-  ) {
+    void Function() onChanged, {
+    String channelTag = 'view',
+  }) {
     return _client
-        .channel('mobile-queue-tracking:$queueLineId')
+        .channel('mobile-queue-tracking:$channelTag:$queueLineId')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',

@@ -57,6 +57,12 @@ class QueueNotificationService {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_lineKey, tracking.line.id);
     await preferences.setString(_numberKey, tracking.number);
+    // Claim the number so the staff console counts a real waiting traveller.
+    await _repository.claimNumber(
+      number: tracking.number,
+      queueLineId: tracking.line.id,
+      queuePrefix: tracking.line.prefix,
+    );
     // Pre-mark the alert state for whatever is already true at track time so
     // entering an almost-due or called number never fires the corresponding
     // alert; the background poller shares these keys.
@@ -77,7 +83,11 @@ class QueueNotificationService {
   Future<void> _subscribe(String lineId) async {
     final previous = _channel;
     if (previous != null) await _repository.removeSubscription(previous);
-    _channel = _repository.subscribeToTracking(lineId, _refresh);
+    _channel = _repository.subscribeToTracking(
+      lineId,
+      _refresh,
+      channelTag: 'service',
+    );
   }
 
   Future<void> _refresh() async {
@@ -103,7 +113,8 @@ class QueueNotificationService {
     final preferences = await SharedPreferences.getInstance();
     final number = tracking.number;
 
-    final isCalled = tracking.status == 'called' || tracking.status == 'serving';
+    final isCalled =
+        tracking.status == 'called' || tracking.status == 'serving';
     if (isCalled) {
       final notifiedFor = preferences.getString(_calledNotifiedKey);
       if (notifiedFor != number) {
@@ -120,7 +131,9 @@ class QueueNotificationService {
     if (tracking.status == 'waiting') {
       final wait = tracking.estimatedWaitMinutes;
       final notifiedFor = preferences.getString(_waitNotifiedKey);
-      if (wait > 0 && wait < almostUpThresholdMinutes && notifiedFor != number) {
+      if (wait > 0 &&
+          wait < almostUpThresholdMinutes &&
+          notifiedFor != number) {
         await preferences.setString(_waitNotifiedKey, number);
         await FlashAlertService.instance.blinkTwice();
         await AppNotificationService.instance.showQueueAlmostUp(

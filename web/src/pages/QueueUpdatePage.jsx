@@ -11,14 +11,16 @@ const numericQueueValue = (value) => {
   return match ? parseInt(match[1], 10) : null
 }
 
-// Only numbers up to the line's official upcoming number are actual waiters —
-// the traceable window pre-registers future numbers ahead of it.
+// Real waiters are numbers a traveller actually holds (claimed by tracking
+// it in the mobile app) that have not been called yet. The traceable window
+// pre-registers future numbers as 'waiting' with no traveller, so counting
+// those would always show at least one person waiting.
 const realWaitingCount = (line) => {
-  const upcoming = numericQueueValue(line.upcoming_number)
+  const current = numericQueueValue(line.current_number)
   const waiting = line.queue_numbers?.filter((number) => {
-    if (number.status !== 'waiting') return false
+    if (number.status !== 'waiting' || !number.traveler_id) return false
     const value = numericQueueValue(number.number)
-    return upcoming == null || value == null || value <= upcoming
+    return current == null || value == null || value > current
   }).length
   return waiting || 0
 }
@@ -73,11 +75,19 @@ export default function QueueUpdatePage() {
 
   useEffect(() => {
     loadLines()
-    return queueRepository.subscribe(staffContext.institution_id, () => loadLines(true))
+    const unsubscribe = queueRepository.subscribe(staffContext.institution_id, () => loadLines(true))
+    // Realtime can silently miss events (publication/RLS on either table), so
+    // poll as a fallback — the waiting count, serving number and statuses
+    // must stay current without a manual page refresh.
+    const pollTimer = setInterval(() => loadLines(true), 15000)
+    return () => {
+      unsubscribe?.()
+      clearInterval(pollTimer)
+    }
   }, [loadLines, staffContext.institution_id])
 
   const openManage = (line) => {
-    setEditing({ ...line, was_closed: line.status === 'closed' })
+    setEditing({ ...line, was_closed: line.status === 'closed', originalStatus: line.status })
     setError('')
   }
 
@@ -85,6 +95,17 @@ export default function QueueUpdatePage() {
     if (!editing.name.trim() || !editing.service_area.trim()) {
       setError('Queue line name and service area are required.')
       return
+    }
+    if (editing.status !== editing.originalStatus) {
+      const statusWarnings = {
+        closed: 'Travellers will no longer see this queue line, and its queue numbers become read-only until it is reopened.',
+        paused: 'Calling the next number is paused until the line is set back to Active.',
+        active: 'Staff can call the next number and travellers can track it again.',
+      }
+      const confirmed = window.confirm(
+        `Change the status of "${editing.name}" from ${labelStatus(editing.originalStatus)} to ${labelStatus(editing.status)}?\n\n${statusWarnings[editing.status] || ''}`,
+      )
+      if (!confirmed) return
     }
     setBusyId(editing.id)
     setError('')
@@ -103,6 +124,30 @@ export default function QueueUpdatePage() {
       await loadLines(true)
     } catch (saveError) {
       setError(saveError.message || 'Unable to update the queue line.')
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  const resetNumbers = async () => {
+    const firstNumber = `${(editing.prefix || '').toUpperCase()}-001`
+    const waiting = realWaitingCount(editing)
+    const reminder = waiting > 0
+      ? `Reminder: ${waiting} traveller(s) are still waiting in line. Resetting will cancel their queued numbers and they will need to take a new number.`
+      : 'Reminder: make sure no one is waiting in line — resetting cancels any queued numbers and those travellers will need to take a new number.'
+    const confirmed = window.confirm(
+      `Reset the queue numbers of "${editing.name}" back to ${firstNumber}?\n\n${reminder}`,
+    )
+    if (!confirmed) return
+    setBusyId(editing.id)
+    setError('')
+    try {
+      const updated = await queueRepository.resetQueueLineNumbers(editing.id, session.user.id)
+      setEditing(null)
+      setSuccess(`${updated.name} was reset — now serving ${updated.current_number}.`)
+      await loadLines(true)
+    } catch (resetError) {
+      setError(resetError.message || 'Unable to reset the queue numbers.')
     } finally {
       setBusyId('')
     }
@@ -279,6 +324,11 @@ export default function QueueUpdatePage() {
             <div className="form-group"><label>Queue Line Status</label><select className="input" value={editing.status} onChange={(event) => setEditing({ ...editing, status: event.target.value })}><option value="active">Active</option><option value="paused">Paused</option><option value="closed">Closed</option></select></div>
           </div>
           <div className="form-group"><label>Staff Notes (Optional)</label><textarea className="input" rows={3} disabled={editing.was_closed} value={editing.staff_notes || ''} onChange={(event) => setEditing({ ...editing, staff_notes: event.target.value })} /></div>
+          {!editing.was_closed && <div className="form-group">
+            <label>Reset Queue Numbers</label>
+            <div><button type="button" className="btn btn-danger btn-sm" disabled={busyId === editing.id} onClick={resetNumbers}>Reset Numbers to {(editing.prefix || '').toUpperCase()}-001</button></div>
+            <div className="field-note">Reminder: if travellers are still waiting in line, resetting will cancel their queued numbers and they will need to take a new number. This confirmation appears again before the reset is applied.</div>
+          </div>}
           {editing.was_closed && <div className="form-alert info compact" role="note">This queue line is closed. Only its status can be changed.</div>}
           <div className="modal-actions queue-manage-actions"><button className="btn btn-outline" onClick={() => setEditing(null)}>Close</button><button className="btn btn-primary" disabled={busyId === editing.id} onClick={saveLine}>{busyId === editing.id ? 'Saving…' : 'Save Queue Information'}</button></div>
         </div>

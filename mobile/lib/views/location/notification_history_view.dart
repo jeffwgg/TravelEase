@@ -17,7 +17,8 @@ class NotificationHistoryView extends StatefulWidget {
       _NotificationHistoryViewState();
 }
 
-class _NotificationHistoryViewState extends State<NotificationHistoryView> {
+class _NotificationHistoryViewState extends State<NotificationHistoryView>
+    with WidgetsBindingObserver {
   final NotificationHistoryStore _store = NotificationHistoryStore.instance;
   StreamSubscription<void>? _changes;
   List<NotificationHistoryEntry> _entries = [];
@@ -26,14 +27,24 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
     _changes = _store.changes.listen((_) => _load());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _changes?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Notifications raised while the app was inactive are recorded by the
+    // background isolate, whose store events cannot cross isolates — reload
+    // when the traveller returns so the list is always current.
+    if (state == AppLifecycleState.resumed) _load();
   }
 
   Future<void> _load() async {
@@ -52,9 +63,7 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
     final difference = today.difference(day).inDays;
     if (difference == 0) return 'Today';
     if (difference == 1) return 'Yesterday';
-    return MaterialLocalizations.of(
-      context,
-    ).formatFullDate(day);
+    return MaterialLocalizations.of(context).formatFullDate(day);
   }
 
   String _timeLabel(DateTime time) {
@@ -62,7 +71,9 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
     final difference = now.difference(time);
     if (difference.inMinutes < 1) return 'Just now';
     if (difference.inMinutes < 60) return '${difference.inMinutes} min ago';
-    if (difference.inDays < 1) return TimeOfDay.fromDateTime(time).format(context);
+    if (difference.inDays < 1) {
+      return TimeOfDay.fromDateTime(time).format(context);
+    }
     return '${TimeOfDay.fromDateTime(time).format(context)} · ${_dayLabel(time)}';
   }
 
@@ -170,7 +181,13 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: tappable ? () => context.push(entry.route!) : null,
+          onTap: tappable
+              ? () {
+                  // Opening the notification counts as reading it.
+                  _store.markRead(entry.id);
+                  context.push(entry.route!);
+                }
+              : () => _store.markRead(entry.id),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(
@@ -215,7 +232,10 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text(entry.body, style: Theme.of(context).textTheme.bodyMedium),
+                      Text(
+                        entry.body,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
                       const SizedBox(height: 4),
                       Row(
                         children: [
@@ -236,6 +256,12 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
                     ],
                   ),
                 ),
+                if (!entry.read)
+                  IconButton(
+                    tooltip: 'Mark as read',
+                    icon: Icon(Icons.done_all, size: 18, color: color),
+                    onPressed: () => _store.markRead(entry.id),
+                  ),
               ],
             ),
           ),

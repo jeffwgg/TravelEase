@@ -13,7 +13,8 @@ class QueueTrackingView extends StatefulWidget {
   State<QueueTrackingView> createState() => _QueueTrackingViewState();
 }
 
-class _QueueTrackingViewState extends State<QueueTrackingView> {
+class _QueueTrackingViewState extends State<QueueTrackingView>
+    with WidgetsBindingObserver {
   final QueueRepository _repository = QueueRepository();
   final TextEditingController _numberController = TextEditingController();
   List<QueueLineInfo> _lines = const [];
@@ -34,15 +35,30 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadLines();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _numberController.dispose();
     final channel = _channel;
     if (channel != null) _repository.removeSubscription(channel);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Realtime events raised while the app was suspended are only picked up
+    // when it resumes, so refresh the tracked number on return.
+    if (state == AppLifecycleState.resumed) {
+      if (_tracking == null) {
+        _loadLines();
+      } else {
+        _refreshTracking();
+      }
+    }
   }
 
   Future<void> _loadLines() async {
@@ -124,9 +140,11 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
       await QueueNotificationService.instance.track(result);
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = error is QueueNumberBeyondMaximumException
-          ? error.message
-          : 'Unable to track this queue number right now.');
+      setState(
+        () => _error = error is QueueNumberBeyondMaximumException
+            ? error.message
+            : 'Unable to track this queue number right now.',
+      );
     } finally {
       if (mounted) setState(() => _trackingNumber = false);
     }
@@ -282,7 +300,8 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
   Widget _buildStatusCard(QueueTrackingData tracking) {
     final statusColor = _statusColor(tracking.status);
     final statusMessage = switch (tracking.status) {
-      'called' || 'serving' => 'Please proceed to ${tracking.line.counterLabel}',
+      'called' ||
+      'serving' => 'Please proceed to ${tracking.line.counterLabel}',
       'cancelled' => 'This queue number was cancelled',
       'completed' => 'Service for this queue number is complete',
       _ => 'You will be notified when it is your turn',

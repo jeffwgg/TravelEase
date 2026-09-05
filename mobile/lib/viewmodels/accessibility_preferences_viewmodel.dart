@@ -3,6 +3,10 @@ import 'package:flutter/foundation.dart';
 import '../models/repositories/accessibility_preferences_repository.dart';
 import '../services/app_notification_service.dart';
 
+/// Accessibility preferences in two sections: Alert Preferences (important
+/// sound alerts) and General Notification Preference (announcements, queue
+/// updates and messages together). Each section has push, vibration and
+/// flash toggles.
 class AccessibilityPreferencesViewModel extends ChangeNotifier {
   AccessibilityPreferencesViewModel({
     AccessibilityPreferencesRepository? repository,
@@ -10,14 +14,17 @@ class AccessibilityPreferencesViewModel extends ChangeNotifier {
 
   final AccessibilityPreferencesRepository _repository;
 
-  double captionSize = 16;
-  bool highContrast = false;
-  bool fullScreenAlerts = true;
-  bool vibration = true;
-  String vibrationStrength = 'medium';
-  bool flashAlerts = false;
+  // Alert Preferences.
+  bool alertNotification = true;
+  bool alertVibration = true;
+  bool alertFlash = true;
+
+  // General Notification Preference.
+  bool generalNotification = true;
+  bool generalVibration = true;
+  bool generalFlash = true;
+
   bool isLoading = false;
-  bool isSaving = false;
   String? errorMessage;
 
   Future<void> load() async {
@@ -27,18 +34,13 @@ class AccessibilityPreferencesViewModel extends ChangeNotifier {
     try {
       final data = await _repository.getCurrentUserPreferences();
       if (data != null) {
-        captionSize = ((data['caption_size'] as num?)?.toDouble() ?? 16)
-            .clamp(12, 28)
-            .toDouble();
-        highContrast = data['high_contrast'] as bool? ?? false;
-        fullScreenAlerts = data['full_screen_alerts'] as bool? ?? true;
-        vibration = data['vibration'] as bool? ?? true;
-        final strength = data['vibration_strength'] as String?;
-        vibrationStrength =
-            const {'light', 'medium', 'strong'}.contains(strength)
-            ? strength!
-            : 'medium';
-        flashAlerts = data['flash_alerts'] as bool? ?? false;
+        alertNotification = data['alert_notification_enabled'] as bool? ?? true;
+        alertVibration = data['alert_vibration_enabled'] as bool? ?? true;
+        alertFlash = data['alert_flash_enabled'] as bool? ?? true;
+        generalNotification =
+            data['general_notification_enabled'] as bool? ?? true;
+        generalVibration = data['general_vibration_enabled'] as bool? ?? true;
+        generalFlash = data['general_flash_enabled'] as bool? ?? true;
       }
     } catch (_) {
       errorMessage = 'Unable to load accessibility preferences.';
@@ -53,32 +55,46 @@ class AccessibilityPreferencesViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> save() async {
-    isSaving = true;
+  /// Toggles persist immediately — leaving the page must not discard them.
+  Future<void> setAlertNotification(bool value) =>
+      _set(() => alertNotification = value);
+  Future<void> setAlertVibration(bool value) =>
+      _set(() => alertVibration = value);
+  Future<void> setAlertFlash(bool value) => _set(() => alertFlash = value);
+  Future<void> setGeneralNotification(bool value) =>
+      _set(() => generalNotification = value);
+  Future<void> setGeneralVibration(bool value) =>
+      _set(() => generalVibration = value);
+  Future<void> setGeneralFlash(bool value) => _set(() => generalFlash = value);
+
+  Future<void> _set(VoidCallback change) async {
+    update(change);
+    await _persist();
+  }
+
+  Future<void> _persist() async {
     errorMessage = null;
-    notifyListeners();
     try {
       await _repository.saveCurrentUserPreferences({
-        'caption_size': captionSize,
-        'high_contrast': highContrast,
-        'full_screen_alerts': fullScreenAlerts,
-        'vibration': vibration,
-        'vibration_strength': vibrationStrength,
-        'flash_alerts': flashAlerts,
+        'alert_notification_enabled': alertNotification,
+        'alert_vibration_enabled': alertVibration,
+        'alert_flash_enabled': alertFlash,
+        'general_notification_enabled': generalNotification,
+        'general_vibration_enabled': generalVibration,
+        'general_flash_enabled': generalFlash,
       });
       // Notifications (and the torch flash) follow the saved configuration.
       await AppNotificationService.instance.applyNotificationSettings(
-        vibration: vibration,
-        flash: flashAlerts,
+        alertPush: alertNotification,
+        alertVibration: alertVibration,
+        alertFlash: alertFlash,
+        generalPush: generalNotification,
+        generalVibration: generalVibration,
+        generalFlash: generalFlash,
       );
-      isSaving = false;
-      notifyListeners();
-      return true;
     } catch (_) {
-      isSaving = false;
       errorMessage = 'Unable to save accessibility preferences.';
       notifyListeners();
-      return false;
     }
   }
 }

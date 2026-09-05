@@ -69,8 +69,18 @@ class NotificationHistoryStore {
   /// Notifies listeners whenever the history changes.
   Stream<void> get changes => _changes.stream;
 
-  Future<List<NotificationHistoryEntry>> entries() async {
+  /// Fresh SharedPreferences instance. The plugin caches values per isolate,
+  /// so without an explicit reload the UI isolate would never see entries the
+  /// background poller isolate wrote while the app was inactive — the
+  /// notification list would silently stay stale.
+  Future<SharedPreferences> _preferences() async {
     final preferences = await SharedPreferences.getInstance();
+    await preferences.reload();
+    return preferences;
+  }
+
+  Future<List<NotificationHistoryEntry>> entries() async {
+    final preferences = await _preferences();
     final values = preferences.getStringList(_key) ?? const <String>[];
     return values
         .map(
@@ -82,7 +92,7 @@ class NotificationHistoryStore {
   }
 
   Future<void> add(NotificationHistoryEntry entry) async {
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _preferences();
     final values = preferences.getStringList(_key) ?? const <String>[];
     final updated = <String>[jsonEncode(entry.toJson()), ...values];
     await preferences.setStringList(
@@ -92,9 +102,29 @@ class NotificationHistoryStore {
     _changes.add(null);
   }
 
+  /// Number of unread entries — drives the red dot on the home notification
+  /// button.
+  Future<int> unreadCount() async {
+    final entries = await this.entries();
+    return entries.where((entry) => !entry.read).length;
+  }
+
+  Future<void> markRead(String id) async {
+    final entries = await this.entries();
+    final preferences = await _preferences();
+    await preferences.setStringList(
+      _key,
+      entries.map((entry) {
+        if (entry.id == id) entry.read = true;
+        return jsonEncode(entry.toJson());
+      }).toList(),
+    );
+    _changes.add(null);
+  }
+
   Future<void> markAllRead() async {
     final entries = await this.entries();
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _preferences();
     await preferences.setStringList(
       _key,
       entries
