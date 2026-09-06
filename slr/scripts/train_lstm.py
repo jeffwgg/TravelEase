@@ -160,7 +160,7 @@ def main():
     best_val, best_path = 0.0, os.path.join(data_dir, args.model_out)
     mu_t = torch.from_numpy(mean.astype(np.float32)[0, 0])
     sd_t = torch.from_numpy(std.astype(np.float32)[0, 0])
-    ckpt_path = os.path.join(data_dir, "checkpoint.pt")
+    ckpt_path = os.path.join(data_dir, "checkpoint_" + args.model_out)
     start_epoch = 0
     if os.path.exists(ckpt_path):
         ck = torch.load(ckpt_path, map_location=device, weights_only=False)
