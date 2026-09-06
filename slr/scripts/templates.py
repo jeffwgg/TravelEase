@@ -34,6 +34,8 @@ TEMPLATES = {
     frozenset({"pergi", "arah"}): Utterance("Jalan ikut arah ini.", "往這個方向走。", True),
     # --- shopping ---
     frozenset({"berapa", "duit"}): Utterance("Berapa harganya?", "請問多少錢?", True),
+    frozenset({"harga"}): Utterance("Berapa harganya?", "請問多少錢?", True),
+    frozenset({"harga", "ini"}): Utterance("Berapa harga yang ini?", "請問這個多少錢?", True),
     frozenset({"ini", "berapa"}): Utterance("Berapa harga yang ini?", "請問這個多少錢?", True),
     frozenset({"beli", "ini"}): Utterance("Saya nak beli yang ini.", "我想買這個。", True),
     frozenset({"mahal"}): Utterance("Terlalu mahal.", "太貴了。", True),

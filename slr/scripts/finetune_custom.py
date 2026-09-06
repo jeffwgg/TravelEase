@@ -22,7 +22,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-from dataset import BIMSignDataset, FIXED_FRAMES, resample  # noqa: E402
+from dataset import BIMSignDataset, FIXED_FRAMES, normalize_keypoints, resample  # noqa: E402
 
 import torch  # noqa: E402
 import torch.nn as nn  # noqa: E402
@@ -59,7 +59,8 @@ def load_custom(min_per_word: int):
         arr = np.load(os.path.join(CUSTOM_ROOT, r["path"])).astype(np.float32)
         if arr.shape[1] != 258:
             continue
-        arr = resample(arr, FIXED_FRAMES)
+        # raw MediaPipe coords -> same shoulder-center/scale space as the dataset
+        arr = resample(normalize_keypoints(arr), FIXED_FRAMES)
         xs.append(arr)
         if r["gloss"] in name2id:
             ys.append(name2id[r["gloss"]])
@@ -104,14 +105,17 @@ def main():
 
     model = SignLSTM(258, num_classes)
     state = torch.load(args.base, map_location="cpu", weights_only=True)
-    if state["head.2.weight"].shape[0] != num_classes:
-        # vocab grew: reuse LSTM weights, re-init the head
-        old_head_in = state["head.2.weight"].shape[1]
-        for k in list(state):
-            if k.startswith("head"):
-                del state[k]
-        missing = model.load_state_dict(state, strict=False)
-        print(f"grew classes -> re-initialized head ({missing.missing_keys})")
+    old_n = state["head.2.weight"].shape[0]
+    if old_n != num_classes:
+        # grow the head: keep all pretrained class rows, init only the new ones
+        n_new = num_classes - old_n
+        state["head.2.weight"] = torch.cat(
+            [state["head.2.weight"],
+             torch.randn(n_new, state["head.2.weight"].shape[1]) * 0.02])
+        state["head.2.bias"] = torch.cat(
+            [state["head.2.bias"], torch.zeros(n_new)])
+        model.load_state_dict(state)
+        print(f"grew head {old_n} -> {num_classes} classes (pretrained rows kept)")
     else:
         model.load_state_dict(state)
     model.to(device).train()
