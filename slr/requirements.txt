@@ -1,0 +1,7 @@
+numpy>=1.26
+opencv-python>=4.9
+mediapipe==0.10.21
+torch>=2.2
+gtts>=2.5
+gradio>=4.0
+imageio-ffmpeg>=0.5
