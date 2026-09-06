@@ -79,9 +79,21 @@ ROWS, MALAY2ID, ENG2MALAY = load_vocab()
 ID2GLOSS = {v: k for k, v in MALAY2ID.items()}
 NUM_CLASSES = len(ROWS)
 
+# prefer a user-finetuned model when present (finetune_custom.py output)
+_ft = os.path.join(DATA, "best_model_ft.pt")
+_ft_vocab = os.path.join(DATA, "finetune_vocab.npz")
 model = SignLSTM(258, NUM_CLASSES)
-model.load_state_dict(torch.load(os.path.join(DATA, "best_model.pt"),
-                                 map_location=DEVICE, weights_only=True))
+if os.path.exists(_ft) and os.path.exists(_ft_vocab):
+    names = np.load(_ft_vocab, allow_pickle=True)["names"]
+    ID2GLOSS = {i: n for i, n in enumerate(names.tolist())}
+    NUM_CLASSES = len(ID2GLOSS)
+    model = SignLSTM(258, NUM_CLASSES)
+    model.load_state_dict(torch.load(_ft, map_location=DEVICE,
+                                     weights_only=True))
+    print(f"loaded finetuned model: {NUM_CLASSES} classes")
+else:
+    model.load_state_dict(torch.load(os.path.join(DATA, "best_model.pt"),
+                                     map_location=DEVICE, weights_only=True))
 model.eval()
 _stats = np.load(os.path.join(DATA, "norm_stats.npz"))
 MEAN, STD = _stats["mean"], _stats["std"]
