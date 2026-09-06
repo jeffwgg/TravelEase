@@ -28,7 +28,8 @@ import torch  # noqa: E402
 import torch.nn as nn  # noqa: E402
 from torch.utils.data import DataLoader, TensorDataset  # noqa: E402
 
-from train_lstm import SignLSTM, augment, evaluate  # noqa: E402
+from train_lstm import (SignLSTM, _stretch, augment,  # noqa: E402
+                        evaluate, flip_standardized)
 
 CUSTOM_ROOT = os.path.join(os.path.dirname(__file__), "..", "data_custom")
 
@@ -133,12 +134,22 @@ def main():
     lossf = nn.CrossEntropyLoss(label_smoothing=0.05)
     loader = DataLoader(TensorDataset(xtr, ytr), batch_size=16, shuffle=True)
 
+    def warp64(xb, lo=0.6, hi=1.7):
+        """Resample through a random intermediate length: simulates clips
+        captured at 10-30fps being squeezed into the 64-frame window."""
+        L = max(10, int(FIXED_FRAMES * float(torch.empty(1).uniform_(lo, hi))))
+        return _stretch(_stretch(xb, L), FIXED_FRAMES)
+
+    mu_t, sd_t = torch.from_numpy(mu[0, 0]), torch.from_numpy(sd[0, 0])
     best_acc, best_state = 0.0, None
     for epoch in range(args.epochs):
         model.train()
         for xb, yb in loader:
             xb, yb = xb.to(device), yb.to(device)
-            loss = lossf(model(augment(xb)), yb)
+            xb = warp64(augment(xb, iid_wobble=True))
+            if torch.rand(1).item() < 0.4:
+                xb = flip_standardized(xb, mu_t, sd_t)
+            loss = lossf(model(xb), yb)
             opt.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)

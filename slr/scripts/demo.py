@@ -112,6 +112,12 @@ def get_holistic():
 
 
 # ------------------------------------------------------- sign -> text
+def _resample_np(seq: np.ndarray, target: int) -> np.ndarray:
+    idx = np.linspace(0, len(seq) - 1, target)
+    return np.stack([np.interp(idx, np.arange(len(seq)), seq[:, d])
+                     for d in range(seq.shape[1])], axis=1)
+
+
 def predict_sign(video_path: str):
     if not video_path:
         return "（沒有錄到影片）", None
@@ -139,18 +145,24 @@ def predict_sign(video_path: str):
     views = {}  # orientation -> list of prob vectors
     for ori_name, base in (("orig", trimmed), ("flip", flip_keypoints(trimmed))):
         ps = []
-        for candidate in (base, arr):  # trimmed + full clip of this orientation
-            idx = np.linspace(0, len(candidate) - 1, FIXED_FRAMES)
-            resampled = np.stack(
-                [np.interp(idx, np.arange(len(candidate)), candidate[:, d])
-                 for d in range(258)], axis=1)
-            # MEAN/STD are saved with batch dims (1, 1, 258); squeeze for one clip
-            resampled = (normalize_keypoints(resampled) - MEAN[0, 0]) / STD[0, 0]
-            with torch.no_grad():
-                ps.append(torch.softmax(
-                    model(torch.from_numpy(resampled[None])), 1)[0].numpy())
+        # multi temporal-scale ensemble: webcam clips vary from ~10 to 30fps,
+        # so the same sign spans very different frame counts — classify at
+        # native density plus 0.55x / 1.6x time-warps, then average.
+        for candidate in (base, arr):
+            for scale in (1.0, 0.55, 1.6):
+                L = int(len(candidate) * scale)
+                sub = candidate if L == len(candidate) else _resample_np(candidate, max(10, L))
+                idx = np.linspace(0, len(sub) - 1, FIXED_FRAMES)
+                resampled = np.stack(
+                    [np.interp(idx, np.arange(len(sub)), sub[:, d])
+                     for d in range(258)], axis=1)
+                # MEAN/STD are saved with batch dims (1, 1, 258); squeeze for one clip
+                resampled = (normalize_keypoints(resampled) - MEAN[0, 0]) / STD[0, 0]
+                with torch.no_grad():
+                    ps.append(torch.softmax(
+                        model(torch.from_numpy(resampled[None])), 1)[0].numpy())
         views[ori_name] = ps
-    # pick the more confident orientation, then average its two views
+    # pick the more confident orientation, then average its views
     best_ori = max(views, key=lambda k: max(p.max() for p in views[k]))
     probs = np.mean(views[best_ori], axis=0)
 
@@ -255,7 +267,9 @@ with gr.Blocks(title="BIM 旅遊手語翻譯") as demo:
     with gr.Tab("手語 → 文字/語音"):
         with gr.Row():
             with gr.Column():
-                cam = gr.Video(sources=["webcam"], label="錄 1–3 秒，一次比一個詞")
+                cam = gr.Video(sources=["webcam"],
+                               webcam_options=gr.WebcamOptions(mirror=False),
+                               label="錄 1–3 秒，一次比一個詞")
                 btn = gr.Button("辨識這段手語", variant="primary")
                 clear = gr.Button("清空句子")
             with gr.Column():
