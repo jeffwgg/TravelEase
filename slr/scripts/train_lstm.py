@@ -159,9 +159,12 @@ def main():
             best_val = val_acc
             torch.save(model.state_dict(), best_path)
             marker = " *"
+        # atomic save: a killed process must not corrupt the checkpoint
+        tmp = ckpt_path + ".tmp"
         torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
                     "sched": sched.state_dict(), "epoch": epoch + 1,
-                    "best_val": best_val}, ckpt_path)
+                    "best_val": best_val}, tmp)
+        os.replace(tmp, ckpt_path)
         print(f"epoch {epoch + 1:3d}  loss {total_loss / len(ytr):.4f}  "
               f"val_acc {val_acc:.4f}{marker}")
 
