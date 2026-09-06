@@ -5,6 +5,8 @@ i.e. npy files straight from keypoints_258.zip, NOT the neck-centered
 version from dataset.normalize_keypoints.
 """
 
+import os
+
 import cv2
 import numpy as np
 
@@ -62,18 +64,41 @@ def render_frame(frame: np.ndarray) -> np.ndarray:
 
 
 def animate(seq: np.ndarray, out_path: str, fps: int = 12) -> str:
-    """Write (T, 258) sequence to .mp4 (or .gif). Returns the path."""
+    """Write (T, 258) sequence to .mp4 (or .gif). Returns the path.
+
+    cv2's mp4v codec isn't playable in browsers, so the mp4 is transcoded to
+    h264/yuv420p with the bundled ffmpeg when available."""
     if out_path.endswith(".gif"):
         frames = [cv2.cvtColor(render_frame(f), cv2.COLOR_BGR2RGB)
                   for f in seq]
         _write_gif(frames, out_path, delay_ms=int(1000 / fps))
+        return out_path
+    tmp = out_path + ".tmp.mp4"
+    vw = cv2.VideoWriter(tmp, cv2.VideoWriter_fourcc(*"mp4v"), fps, (W, H))
+    for f in seq:
+        vw.write(render_frame(f))
+    vw.release()
+    if _transcode_h264(tmp, out_path):
+        os.remove(tmp)
     else:
-        vw = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"),
-                             fps, (W, H))
-        for f in seq:
-            vw.write(render_frame(f))
-        vw.release()
+        os.replace(tmp, out_path)  # fallback: raw mp4v (desktop players only)
     return out_path
+
+
+def _transcode_h264(src: str, dst: str) -> bool:
+    try:
+        import subprocess
+        import shutil
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            return False
+        r = subprocess.run(
+            [ffmpeg, "-y", "-i", src, "-c:v", "libx264", "-pix_fmt",
+             "yuv420p", "-movflags", "+faststart", dst],
+            capture_output=True, check=True)
+        return True
+    except Exception:
+        return False
 
 
 def _write_gif(frames, path, delay_ms):

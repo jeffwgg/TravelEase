@@ -37,9 +37,16 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def ensure_ffmpeg_on_path():
-    """Gradio converts the browser's webcam webm with a system 'ffmpeg'.
-    If absent, expose imageio-ffmpeg's bundled binary under that name."""
-    if shutil.which("ffmpeg"):
+    """Gradio validates/converts media with system 'ffmpeg'/'ffprobe'.
+    Prefer the project-bundled binaries in slr/bin, then imageio-ffmpeg's
+    ffmpeg-only fallback (audio/video outputs returned as arrays/paths skip
+    ffprobe checks, so the fallback stays workable)."""
+    bin_dir = os.path.join(ROOT, "bin")
+    if os.path.exists(os.path.join(bin_dir, "ffprobe.exe")) or \
+       os.path.exists(os.path.join(bin_dir, "ffprobe")):
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
+        return
+    if shutil.which("ffmpeg") and shutil.which("ffprobe"):
         return
     try:
         import imageio_ffmpeg
@@ -108,6 +115,14 @@ def predict_sign(video_path: str):
         return "（影片太短，請錄 1–3 秒）", None
 
     arr = np.stack(seq).astype(np.float32)
+    # detection-quality guard: garbage input must not become a confident guess
+    pose_vis = arr[:, 3::4][:, :33].mean()
+    hand_motion = max(arr[:, 132:195:3].std(), arr[:, 195:258:3].std())
+    if pose_vis < 0.15:
+        return "⚠️ 看不清楚你——請靠近一點、光線充足、臉和手都在畫面內再試。", None
+    if hand_motion < 0.01:
+        return "⚠️ 沒看到手部動作——手要抬到鏡頭看得見的高度再比一次。", None
+
     trimmed = trim_idle(arr)
     views = {}  # orientation -> list of prob vectors
     for ori_name, base in (("orig", trimmed), ("flip", flip_keypoints(trimmed))):
@@ -130,7 +145,8 @@ def predict_sign(video_path: str):
     top3 = probs.argsort()[::-1][:3]
     md = " | ".join(f"**{ID2GLOSS[int(i)]}** {probs[i]:.0%}" for i in top3)
     best = ID2GLOSS[int(top3[0])]
-    return md, best
+    quality = f"\n\n（偵測品質：人物 {pose_vis:.0%}、手部動作 {hand_motion:.2f}——偏低會影響辨識）"
+    return md + quality, best
 
 
 def tts_audio(malay_text: str):

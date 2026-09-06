@@ -82,3 +82,4 @@ slr/data/*.pt
 slr/data/keypoints*
 slr/data/metadata/
 slr/data_custom/
+slr/bin/
