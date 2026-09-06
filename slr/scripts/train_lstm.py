@@ -46,11 +46,14 @@ def _stretch(x: torch.Tensor, target_t: int) -> torch.Tensor:
     return y.permute(0, 2, 1)
 
 
-def augment(x: torch.Tensor) -> torch.Tensor:
+def augment(x: torch.Tensor, iid_wobble: bool = False) -> torch.Tensor:
     """Simulate real webcam clips: random stillness at both ends, random
     signing speed, realistic landmark jitter (MediaPipe hand/pose landmarks
     wobble ~0.01 in standardized units once shoulder-center normalization
-    amplifies it), affine wobble from shoulder jitter, amplitude change."""
+    amplifies it), affine wobble from shoulder jitter, amplitude change.
+
+    iid_wobble=True uses frame-independent scale/offset jitter instead of a
+    smooth random walk (matches worst-case detector flicker)."""
     B, T, D = x.shape
     outs = []
     for b in range(B):
@@ -65,11 +68,14 @@ def augment(x: torch.Tensor) -> torch.Tensor:
             s = _stretch(seq, T)
         sigma = float(torch.empty(1).uniform_(0.002, 0.02))
         s = s + torch.randn_like(s) * sigma
-        # shoulder-detection jitter: smooth random-walk scale & offset wobble
-        w = torch.randn(1, T, 4).cumsum(dim=1)
-        w = (w - w.mean(dim=1, keepdim=True)) / (w.std() + 1e-6)
-        scale = 1 + 0.008 * w[..., 0:1]
-        off = 0.01 * w[..., 1:2]
+        if iid_wobble and torch.rand(1).item() < 0.5:
+            scale = 1 + 0.015 * torch.randn(1, T, 1)
+            off = 0.015 * torch.randn(1, T, 1)
+        else:
+            w = torch.randn(1, T, 4).cumsum(dim=1)
+            w = (w - w.mean(dim=1, keepdim=True)) / (w.std() + 1e-6)
+            scale = 1 + 0.008 * w[..., 0:1]
+            off = 0.01 * w[..., 1:2]
         s = s * scale + off
         s = s * float(torch.empty(1).uniform_(0.9, 1.1))
         outs.append(s)
@@ -88,6 +94,24 @@ def evaluate(model, loader, device):
     return correct / max(total, 1)
 
 
+# x-coordinate channel indices within the 258-dim layout (pose stride 4, hands stride 3)
+X_IDX = list(range(0, 132, 4)) + list(range(132, 195, 3)) + list(range(195, 258, 3))
+
+
+def flip_standardized(x: torch.Tensor, mu: torch.Tensor, sd: torch.Tensor) -> torch.Tensor:
+    """Mirror standardized keypoints. Done as unstandardize -> flip in the
+    original [0,1] space (x->1-x on x-channels, swap hand blocks) ->
+    restandardize, which is exactly invertible (flip∘flip = identity)."""
+    raw = x * sd + mu
+    raw[:, :, 0:132:4] = 1 - raw[:, :, 0:132:4]
+    raw[:, :, 132:195:3] = 1 - raw[:, :, 132:195:3]
+    raw[:, :, 195:258:3] = 1 - raw[:, :, 195:258:3]
+    tmp = raw[:, :, 132:195].clone()
+    raw[:, :, 132:195] = raw[:, :, 195:258]
+    raw[:, :, 195:258] = tmp
+    return (raw - mu) / sd
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--epochs", type=int, default=40)
@@ -96,6 +120,10 @@ def main():
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--frames", type=int, default=64)
+    ap.add_argument("--model-out", default="best_model.pt",
+                    help="file name under data/ for the best model")
+    ap.add_argument("--iid-wobble", action="store_true",
+                    help="include frame-independent detector jitter in augmentation")
     args = ap.parse_args()
 
     data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
@@ -129,7 +157,9 @@ def main():
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
     lossf = nn.CrossEntropyLoss(label_smoothing=0.05)
 
-    best_val, best_path = 0.0, os.path.join(data_dir, "best_model.pt")
+    best_val, best_path = 0.0, os.path.join(data_dir, args.model_out)
+    mu_t = torch.from_numpy(mean.astype(np.float32)[0, 0])
+    sd_t = torch.from_numpy(std.astype(np.float32)[0, 0])
     ckpt_path = os.path.join(data_dir, "checkpoint.pt")
     start_epoch = 0
     if os.path.exists(ckpt_path):
@@ -145,7 +175,9 @@ def main():
         total_loss = 0.0
         for xb, yb in train_loader:
             xb, yb = xb.to(device), yb.to(device)
-            xb = augment(xb)
+            xb = augment(xb, iid_wobble=args.iid_wobble)
+            if torch.rand(1).item() < 0.3:
+                xb = flip_standardized(xb, mu_t, sd_t)
             loss = lossf(model(xb), yb)
             opt.zero_grad()
             loss.backward()
