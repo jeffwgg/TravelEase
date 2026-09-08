@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Enables the local HTTP BIM API for debug builds only. Release builds
+         must use an HTTPS BIM_SIGN_API_URL. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/entities/sign_language_entity.dart';
+import '../services/bim_sign_recognition_service.dart';
 import '../services/sign_translation_service.dart';
 import '../models/repositories/communication_repository.dart';
 import '../core/hardware_services.dart';
@@ -7,16 +8,20 @@ import '../core/hardware_services.dart';
 /// ViewModel for Camera Sign Translation (FR-M3-01 to FR-M3-06, UC301)
 class SignTranslationCameraViewModel extends ChangeNotifier {
   final SignTranslationService _service;
+  final BimSignRecognitionService _bimRecognitionService;
   final CommunicationRepository _repository;
   final HardwareServices _hardware;
 
   SignTranslationCameraViewModel({
     SignTranslationService? service,
+    BimSignRecognitionService? bimRecognitionService,
     CommunicationRepository? repository,
     HardwareServices? hardware,
-  })  : _service = service ?? SignTranslationService(),
-        _repository = repository ?? CommunicationRepository(),
-        _hardware = hardware ?? HardwareServices() {
+  }) : _service = service ?? SignTranslationService(),
+       _bimRecognitionService =
+           bimRecognitionService ?? BimSignRecognitionService(),
+       _repository = repository ?? CommunicationRepository(),
+       _hardware = hardware ?? HardwareServices() {
     _hardware.initialize();
   }
 
@@ -39,6 +44,8 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
 
   bool _isLoading = false;
   String? _errorMessage;
+  BimSignRecognition? _lastBimRecognition;
+  List<String> _bimGlosses = const [];
 
   // Getters
   bool get isDetecting => _isDetecting;
@@ -52,9 +59,12 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   String get targetOutputLang => _targetOutputLang;
   bool get hasContent => _predictedText.trim().isNotEmpty;
+  bool get isBimRecognitionActive => _selectedLanguage == SignLanguageType.bim;
+  List<String> get bimGlosses => List.unmodifiable(_bimGlosses);
 
   bool get isHighConfidence => _confidenceScore >= 0.80;
-  bool get isMediumConfidence => _confidenceScore >= 0.50 && _confidenceScore < 0.80;
+  bool get isMediumConfidence =>
+      _confidenceScore >= 0.50 && _confidenceScore < 0.80;
   bool get isLowConfidence => _confidenceScore < 0.50;
 
   /// Returns the current active translated text for the single unified text box
@@ -67,10 +77,20 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
       return _customTranslations[_targetOutputLang]!;
     }
 
+    final bim = _lastBimRecognition;
+    if (_selectedLanguage == SignLanguageType.bim && bim != null) {
+      return switch (_targetOutputLang) {
+        'zh' => bim.chinese,
+        'en' => bim.english,
+        _ => bim.malay,
+      };
+    }
+
     if (_targetOutputLang == 'ms') {
       if (_predictedText.toLowerCase().contains('gate')) {
         return 'Di manakah pintu masuk / perlepasan?';
-      } else if (_predictedText.toLowerCase().contains('toilet') || _predictedText.toLowerCase().contains('washroom')) {
+      } else if (_predictedText.toLowerCase().contains('toilet') ||
+          _predictedText.toLowerCase().contains('washroom')) {
         return 'Di manakah tandas terdekat?';
       } else if (_predictedText.toLowerCase().contains('help')) {
         return 'Bolehkah anda tolong saya?';
@@ -79,7 +99,8 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     } else if (_targetOutputLang == 'zh') {
       if (_predictedText.toLowerCase().contains('gate')) {
         return '登机口在哪里？';
-      } else if (_predictedText.toLowerCase().contains('toilet') || _predictedText.toLowerCase().contains('washroom')) {
+      } else if (_predictedText.toLowerCase().contains('toilet') ||
+          _predictedText.toLowerCase().contains('washroom')) {
         return '最近的洗手间在哪里？';
       } else if (_predictedText.toLowerCase().contains('help')) {
         return '请问能帮帮我吗？';
@@ -91,8 +112,16 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
 
   // Actions
   void switchDialect(SignLanguageType newDialect) {
+    final wasBim = _selectedLanguage == SignLanguageType.bim;
     _selectedLanguage = newDialect;
     _customTranslations.clear();
+    if (wasBim || newDialect == SignLanguageType.bim) {
+      _lastBimRecognition = null;
+      _bimGlosses = const [];
+      _predictedText = '';
+      _confidenceScore = 0;
+      _isConfirmed = false;
+    }
     notifyListeners();
   }
 
@@ -208,5 +237,57 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Recognise one recorded clip with the BIM-only model service.
+  ///
+  /// This method intentionally does nothing for ASL/CSL, so their existing
+  /// recognition and translation paths remain isolated from BIM networking.
+  Future<void> recognizeBimVideo(String videoPath) async {
+    if (_selectedLanguage != SignLanguageType.bim) return;
+
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final result = await _bimRecognitionService.recognizeVideo(
+        videoPath: videoPath,
+        previousGlosses: _bimGlosses,
+      );
+      _lastBimRecognition = result;
+      _bimGlosses = result.glosses;
+      _predictedText = result.malay;
+      _confidenceScore = result.confidence;
+      _customTranslations.clear();
+      _isConfirmed = false;
+      _isLoading = false;
+      notifyListeners();
+
+      if (_isAutoSpeakEnabled) {
+        await speakAloud();
+      }
+    } on BimSignRecognitionException catch (e) {
+      _errorMessage = e.message;
+      _isLoading = false;
+      notifyListeners();
+    } catch (_) {
+      _errorMessage = 'Unable to recognise this BIM sign. Please try again.';
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Starts a new BIM phrase without changing ASL/CSL state or settings.
+  void clearBimPhrase() {
+    if (_selectedLanguage != SignLanguageType.bim) return;
+    _lastBimRecognition = null;
+    _bimGlosses = const [];
+    _predictedText = '';
+    _confidenceScore = 0;
+    _customTranslations.clear();
+    _isConfirmed = false;
+    _errorMessage = null;
+    notifyListeners();
   }
 }

@@ -37,6 +37,23 @@ python scripts/record_custom.py --word kiri --signer alice
 python scripts/extract_custom.py
 ```
 
+### Mobile BIM bridge
+
+The Flutter app can use this fine-tuned model through a BIM-only API; ASL and
+CSL paths are not changed. Start the local recognition API from `slr/`:
+
+```bash
+python -m uvicorn scripts.bim_api:app --host 0.0.0.0 --port 8000
+```
+
+Set `BIM_SIGN_API_URL` in `mobile/.env` to the full endpoint. For an Android
+emulator use `http://10.0.2.2:8000/v1/bim/recognize`; a physical phone must use
+your computer's LAN address instead. Clear-text HTTP is enabled only for the
+Android debug build; use an HTTPS endpoint for release builds and iOS. Each tap
+records one word for 0.8–4 seconds, then the app accumulates words into the
+travel templates. After running `finetune_custom.py`, restart this API so it
+loads the new `best_model_ft.pt`.
+
 ## 訓練結果
 
 - v1（無增強）: val 92.3% / test 90.0% — 乾淨數據漂亮，但真人 webcam 實測崩壞

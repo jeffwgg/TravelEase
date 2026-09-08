@@ -20,10 +20,12 @@ class SignTranslationCameraView extends StatefulWidget {
   });
 
   @override
-  State<SignTranslationCameraView> createState() => _SignTranslationCameraViewState();
+  State<SignTranslationCameraView> createState() =>
+      _SignTranslationCameraViewState();
 }
 
-class _SignTranslationCameraViewState extends State<SignTranslationCameraView> with SingleTickerProviderStateMixin {
+class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
+    with SingleTickerProviderStateMixin {
   late SignTranslationMode _currentMode;
   late final SignTranslationCameraViewModel _cameraViewModel;
   late final SpeechToSignViewModel _speechViewModel;
@@ -40,6 +42,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
   bool _isCameraInitialized = false;
   bool _hasCameraPermission = false;
   bool _isCameraLoading = true;
+  bool _isBimRecording = false;
 
   final _targetTextLanguages = const [
     {'code': 'ms', 'name': 'Bahasa Melayu', 'flag': '🇲🇾'},
@@ -93,13 +96,17 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
         final allCameras = await availableCameras();
         if (allCameras.isNotEmpty) {
           try {
-            _frontCamera = allCameras.firstWhere((c) => c.lensDirection == CameraLensDirection.front);
+            _frontCamera = allCameras.firstWhere(
+              (c) => c.lensDirection == CameraLensDirection.front,
+            );
           } catch (_) {
             _frontCamera = null;
           }
 
           try {
-            _backCamera = allCameras.firstWhere((c) => c.lensDirection == CameraLensDirection.back);
+            _backCamera = allCameras.firstWhere(
+              (c) => c.lensDirection == CameraLensDirection.back,
+            );
           } catch (_) {
             _backCamera = null;
           }
@@ -169,6 +176,56 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
 
   bool get _canFlipCamera => _frontCamera != null && _backCamera != null;
 
+  Future<void> _handleSignRecognition() async {
+    if (_cameraViewModel.isLoading) return;
+    if (_cameraViewModel.selectedLanguage == SignLanguageType.bim) {
+      await _toggleBimRecording();
+    } else {
+      // Preserve the existing ASL/CSL demo path exactly as it was.
+      await _cameraViewModel.simulateGestureRecognition();
+    }
+  }
+
+  Future<void> _toggleBimRecording() async {
+    final camera = _cameraController;
+    if (camera == null || !camera.value.isInitialized) {
+      _showMessage('Camera is still preparing. Please try again in a moment.');
+      return;
+    }
+
+    if (_isBimRecording) {
+      try {
+        if (mounted) setState(() => _isBimRecording = false);
+        final clip = await camera.stopVideoRecording();
+        await _cameraViewModel.recognizeBimVideo(clip.path);
+        final error = _cameraViewModel.errorMessage;
+        if (error != null) _showMessage(error);
+      } on CameraException catch (e) {
+        _showMessage(
+          'Could not save the BIM recording: ${e.description ?? e.code}',
+        );
+      }
+      return;
+    }
+
+    try {
+      await camera.startVideoRecording();
+      if (mounted) setState(() => _isBimRecording = true);
+      _showMessage(
+        'Recording BIM sign. Tap Stop BIM after one word (0.8–4 seconds).',
+      );
+    } on CameraException catch (e) {
+      _showMessage('Could not start BIM recording: ${e.description ?? e.code}');
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+    );
+  }
+
   void _toggleTranslationMode() {
     setState(() {
       _currentMode = _currentMode == SignTranslationMode.signToText
@@ -189,7 +246,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
 
   /// Directly edit the active translated text on tap
   void _editActiveTranslatedText() {
-    final controller = TextEditingController(text: _cameraViewModel.currentTranslatedText);
+    final controller = TextEditingController(
+      text: _cameraViewModel.currentTranslatedText,
+    );
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -214,7 +273,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                 children: [
                   const Text(
                     'Direct Text Edit',
-                    style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: AppColors.textMuted),
@@ -232,10 +295,16 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                 controller: controller,
                 autofocus: true,
                 maxLines: 3,
-                style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
                 decoration: InputDecoration(
                   hintText: 'Type phrase here...',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   filled: true,
                   fillColor: AppColors.surfaceVariant,
                 ),
@@ -246,7 +315,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                 child: ElevatedButton.icon(
                   onPressed: () {
                     if (controller.text.trim().isNotEmpty) {
-                      _cameraViewModel.updateActiveTranslatedText(controller.text.trim());
+                      _cameraViewModel.updateActiveTranslatedText(
+                        controller.text.trim(),
+                      );
                     }
                     Navigator.pop(ctx);
                   },
@@ -254,7 +325,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                   label: const Text('Update Phrase'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                 ),
               ),
@@ -294,11 +367,16 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
               borderRadius: BorderRadius.circular(14),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.surfaceVariant,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.35),
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -307,7 +385,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          isSignToText ? Icons.sign_language_rounded : Icons.mic_rounded,
+                          isSignToText
+                              ? Icons.sign_language_rounded
+                              : Icons.mic_rounded,
                           size: 16,
                           color: AppColors.primary,
                         ),
@@ -340,7 +420,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          isSignToText ? Icons.mic_rounded : Icons.sign_language_rounded,
+                          isSignToText
+                              ? Icons.mic_rounded
+                              : Icons.sign_language_rounded,
                           size: 16,
                           color: AppColors.textSecondary,
                         ),
@@ -364,11 +446,17 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                 // Auto-Speak Toggle Icon
                 IconButton(
                   icon: Icon(
-                    _cameraViewModel.isAutoSpeakEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-                    color: _cameraViewModel.isAutoSpeakEnabled ? AppColors.primary : AppColors.textMuted,
+                    _cameraViewModel.isAutoSpeakEnabled
+                        ? Icons.volume_up_rounded
+                        : Icons.volume_off_rounded,
+                    color: _cameraViewModel.isAutoSpeakEnabled
+                        ? AppColors.primary
+                        : AppColors.textMuted,
                     size: 24,
                   ),
-                  tooltip: _cameraViewModel.isAutoSpeakEnabled ? 'Auto-Speak: ON' : 'Tap to Enable Auto-Speak',
+                  tooltip: _cameraViewModel.isAutoSpeakEnabled
+                      ? 'Auto-Speak: ON'
+                      : 'Tap to Enable Auto-Speak',
                   onPressed: () {
                     if (!_cameraViewModel.isAutoSpeakEnabled) {
                       _cameraViewModel.speakAloud();
@@ -389,8 +477,14 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                 // Flip Camera Button
                 if (_canFlipCamera)
                   IconButton(
-                    icon: const Icon(Icons.flip_camera_ios_rounded, color: AppColors.textPrimary, size: 22),
-                    tooltip: _currentLensDirection == CameraLensDirection.front ? 'Switch to Back Camera' : 'Switch to Front Camera',
+                    icon: const Icon(
+                      Icons.flip_camera_ios_rounded,
+                      color: AppColors.textPrimary,
+                      size: 22,
+                    ),
+                    tooltip: _currentLensDirection == CameraLensDirection.front
+                        ? 'Switch to Back Camera'
+                        : 'Switch to Front Camera',
                     onPressed: _flipCamera,
                   ),
               ] else ...[
@@ -399,11 +493,20 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<SignLanguageType>(
                       value: _speechViewModel.selectedSignLang,
-                      icon: const Icon(Icons.arrow_drop_down, color: AppColors.primary),
+                      icon: const Icon(
+                        Icons.arrow_drop_down,
+                        color: AppColors.primary,
+                      ),
                       items: SignLanguageType.values.map((lang) {
                         return DropdownMenuItem(
                           value: lang,
-                          child: Text('${lang.flagEmoji} ${lang.code}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                          child: Text(
+                            '${lang.flagEmoji} ${lang.code}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
                         );
                       }).toList(),
                       onChanged: (v) {
@@ -418,7 +521,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
           ),
           body: AnimatedSwitcher(
             duration: const Duration(milliseconds: 250),
-            child: isSignToText ? _buildSignToTextView() : _buildSpeechToSignView(),
+            child: isSignToText
+                ? _buildSignToTextView()
+                : _buildSpeechToSignView(),
           ),
         );
       },
@@ -431,7 +536,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
   // ==========================================
   Widget _buildSignToTextView() {
     final hasText = _cameraViewModel.hasContent;
-    final displayText = hasText ? _cameraViewModel.currentTranslatedText : 'Awaiting sign gesture (or tap to enter)...';
+    final isBim = _cameraViewModel.isBimRecognitionActive;
+    final displayText = hasText
+        ? _cameraViewModel.currentTranslatedText
+        : 'Awaiting sign gesture (or tap to enter)...';
 
     return Column(
       key: const ValueKey('sign_to_text_mode'),
@@ -442,7 +550,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: const BoxDecoration(
             color: Colors.white,
-            border: Border(bottom: BorderSide(color: AppColors.cardBorder, width: 1)),
+            border: Border(
+              bottom: BorderSide(color: AppColors.cardBorder, width: 1),
+            ),
           ),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -450,7 +560,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
               children: [
                 const Text(
                   'Input Dialect: ',
-                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(width: 6),
                 ...SignLanguageType.values.map((lang) {
@@ -458,20 +572,33 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      avatar: Text(lang.flagEmoji, style: const TextStyle(fontSize: 14)),
+                      avatar: Text(
+                        lang.flagEmoji,
+                        style: const TextStyle(fontSize: 14),
+                      ),
                       label: Text('${lang.code} (${lang.countryCode})'),
                       selected: isSelected,
                       selectedColor: AppColors.primary,
                       labelStyle: TextStyle(
-                        color: isSelected ? Colors.white : AppColors.textPrimary,
-                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                        color: isSelected
+                            ? Colors.white
+                            : AppColors.textPrimary,
+                        fontWeight: isSelected
+                            ? FontWeight.w800
+                            : FontWeight.w500,
                         fontSize: 12,
                       ),
                       backgroundColor: AppColors.surfaceVariant,
-                      side: BorderSide(color: isSelected ? AppColors.primary : AppColors.cardBorder),
-                      onSelected: (val) {
-                        if (val) _cameraViewModel.switchDialect(lang);
-                      },
+                      side: BorderSide(
+                        color: isSelected
+                            ? AppColors.primary
+                            : AppColors.cardBorder,
+                      ),
+                      onSelected: _isBimRecording
+                          ? null
+                          : (val) {
+                              if (val) _cameraViewModel.switchDialect(lang);
+                            },
                     ),
                   );
                 }),
@@ -490,13 +617,19 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  if (_isCameraInitialized && _cameraController != null && _cameraController!.value.isInitialized)
+                  if (_isCameraInitialized &&
+                      _cameraController != null &&
+                      _cameraController!.value.isInitialized)
                     Positioned.fill(
                       child: FittedBox(
                         fit: BoxFit.cover,
                         child: SizedBox(
-                          width: _cameraController!.value.previewSize?.height ?? MediaQuery.of(context).size.width,
-                          height: _cameraController!.value.previewSize?.width ?? MediaQuery.of(context).size.height,
+                          width:
+                              _cameraController!.value.previewSize?.height ??
+                              MediaQuery.of(context).size.width,
+                          height:
+                              _cameraController!.value.previewSize?.width ??
+                              MediaQuery.of(context).size.height,
                           child: CameraPreview(_cameraController!),
                         ),
                       ),
@@ -510,26 +643,46 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             if (_isCameraLoading)
-                              const CircularProgressIndicator(color: AppColors.primary)
+                              const CircularProgressIndicator(
+                                color: AppColors.primary,
+                              )
                             else ...[
                               Container(
                                 padding: const EdgeInsets.all(18),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(alpha: 0.15),
+                                  color: AppColors.primary.withValues(
+                                    alpha: 0.15,
+                                  ),
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: AppColors.primaryLight, width: 2),
+                                  border: Border.all(
+                                    color: AppColors.primaryLight,
+                                    width: 2,
+                                  ),
                                 ),
-                                child: const Icon(Icons.sign_language_rounded, size: 48, color: AppColors.primaryLight),
+                                child: const Icon(
+                                  Icons.sign_language_rounded,
+                                  size: 48,
+                                  color: AppColors.primaryLight,
+                                ),
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                _hasCameraPermission ? 'AI Live Gesture Tracking' : 'Camera Access Needed',
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
+                                _hasCameraPermission
+                                    ? 'AI Live Gesture Tracking'
+                                    : 'Camera Access Needed',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 'Position hands in frame for ${_cameraViewModel.selectedLanguage.name}',
-                                style: const TextStyle(color: Colors.white60, fontSize: 11),
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 11,
+                                ),
                               ),
                             ],
                           ],
@@ -544,7 +697,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                       width: 230,
                       height: 230,
                       decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.primaryLight, width: 2),
+                        border: Border.all(
+                          color: AppColors.primaryLight,
+                          width: 2,
+                        ),
                         borderRadius: BorderRadius.circular(24),
                         color: AppColors.primary.withValues(alpha: 0.05),
                       ),
@@ -552,7 +708,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                         alignment: Alignment.topCenter,
                         child: Container(
                           margin: const EdgeInsets.only(top: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.primary,
                             borderRadius: BorderRadius.circular(8),
@@ -561,7 +720,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                             _currentLensDirection == CameraLensDirection.front
                                 ? '● FRONT CAMERA (30 FPS)'
                                 : '● BACK CAMERA (30 FPS)',
-                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                       ),
@@ -579,7 +742,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
           decoration: BoxDecoration(
             color: Colors.white,
-            border: const Border(top: BorderSide(color: AppColors.cardBorder, width: 1.5)),
+            border: const Border(
+              top: BorderSide(color: AppColors.cardBorder, width: 1.5),
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.06),
@@ -602,14 +767,22 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                         width: 8,
                         height: 8,
                         decoration: BoxDecoration(
-                          color: hasText ? AppColors.success : AppColors.textMuted,
+                          color: hasText
+                              ? AppColors.success
+                              : AppColors.textMuted,
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        hasText ? 'Recognized (${_cameraViewModel.selectedLanguage.code})' : 'Camera Ready (${_cameraViewModel.selectedLanguage.code})',
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w700),
+                        hasText
+                            ? 'Recognized (${_cameraViewModel.selectedLanguage.code})'
+                            : 'Camera Ready (${_cameraViewModel.selectedLanguage.code})',
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                   ),
@@ -617,45 +790,98 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                     children: [
                       if (hasText)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
-                            color: AppColors.successLight.withValues(alpha: 0.25),
+                            color: AppColors.successLight.withValues(
+                              alpha: 0.25,
+                            ),
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: AppColors.success, width: 0.8),
+                            border: Border.all(
+                              color: AppColors.success,
+                              width: 0.8,
+                            ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.verified, size: 13, color: AppColors.success),
+                              const Icon(
+                                Icons.verified,
+                                size: 13,
+                                color: AppColors.success,
+                              ),
                               const SizedBox(width: 4),
                               Text(
                                 '${(_cameraViewModel.confidenceScore * 100).toInt()}% Conf.',
-                                style: const TextStyle(color: AppColors.success, fontSize: 10.5, fontWeight: FontWeight.w700),
+                                style: const TextStyle(
+                                  color: AppColors.success,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ],
                           ),
                         ),
                       const SizedBox(width: 8),
                       InkWell(
-                        onTap: () => _cameraViewModel.simulateGestureRecognition(),
+                        onTap: _handleSignRecognition,
                         borderRadius: BorderRadius.circular(6),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.surfaceVariant,
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(color: AppColors.cardBorder),
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.auto_mode_rounded, size: 12, color: AppColors.primary),
-                              SizedBox(width: 3),
-                              Text('Demo Gesture', style: TextStyle(color: AppColors.primary, fontSize: 10.5, fontWeight: FontWeight.w700)),
+                              Icon(
+                                isBim
+                                    ? (_isBimRecording
+                                          ? Icons.stop_circle_outlined
+                                          : Icons.videocam_outlined)
+                                    : Icons.auto_mode_rounded,
+                                size: 12,
+                                color: isBim && _isBimRecording
+                                    ? AppColors.emergency
+                                    : AppColors.primary,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                isBim
+                                    ? (_isBimRecording
+                                          ? 'Stop BIM'
+                                          : 'Record BIM')
+                                    : 'Demo Gesture',
+                                style: TextStyle(
+                                  color: isBim && _isBimRecording
+                                      ? AppColors.emergency
+                                      : AppColors.primary,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ],
                           ),
                         ),
                       ),
+                      if (isBim && _cameraViewModel.bimGlosses.isNotEmpty)
+                        IconButton(
+                          tooltip: 'Clear BIM phrase',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(
+                            Icons.restart_alt_rounded,
+                            size: 18,
+                            color: AppColors.textSecondary,
+                          ),
+                          onPressed: _cameraViewModel.clearBimPhrase,
+                        ),
                     ],
                   ),
                 ],
@@ -669,27 +895,47 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                   children: [
                     const Text(
                       'Translate to: ',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                     const SizedBox(width: 4),
                     ..._targetTextLanguages.map((lang) {
-                      final isSelected = _cameraViewModel.targetOutputLang == lang['code'];
+                      final isSelected =
+                          _cameraViewModel.targetOutputLang == lang['code'];
                       return Padding(
                         padding: const EdgeInsets.only(right: 6),
                         child: ChoiceChip(
-                          avatar: Text(lang['flag']!, style: const TextStyle(fontSize: 13)),
+                          avatar: Text(
+                            lang['flag']!,
+                            style: const TextStyle(fontSize: 13),
+                          ),
                           label: Text(lang['name']!),
                           selected: isSelected,
                           selectedColor: AppColors.primary,
                           labelStyle: TextStyle(
-                            color: isSelected ? Colors.white : AppColors.textPrimary,
-                            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                            color: isSelected
+                                ? Colors.white
+                                : AppColors.textPrimary,
+                            fontWeight: isSelected
+                                ? FontWeight.w800
+                                : FontWeight.w600,
                             fontSize: 11.5,
                           ),
                           backgroundColor: AppColors.surfaceVariant,
-                          side: BorderSide(color: isSelected ? AppColors.primary : AppColors.cardBorder),
+                          side: BorderSide(
+                            color: isSelected
+                                ? AppColors.primary
+                                : AppColors.cardBorder,
+                          ),
                           onSelected: (val) {
-                            if (val) _cameraViewModel.switchTargetOutputLang(lang['code']!);
+                            if (val) {
+                              _cameraViewModel.switchTargetOutputLang(
+                                lang['code']!,
+                              );
+                            }
                           },
                         ),
                       );
@@ -709,12 +955,17 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                       onTap: _editActiveTranslatedText,
                       borderRadius: BorderRadius.circular(14),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.surfaceVariant,
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: hasText ? AppColors.primary.withValues(alpha: 0.35) : AppColors.cardBorder,
+                            color: hasText
+                                ? AppColors.primary.withValues(alpha: 0.35)
+                                : AppColors.cardBorder,
                           ),
                         ),
                         child: Row(
@@ -723,10 +974,16 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                               child: Text(
                                 displayText,
                                 style: TextStyle(
-                                  color: hasText ? AppColors.textPrimary : AppColors.textMuted,
+                                  color: hasText
+                                      ? AppColors.textPrimary
+                                      : AppColors.textMuted,
                                   fontSize: hasText ? 16 : 13.5,
-                                  fontWeight: hasText ? FontWeight.w800 : FontWeight.w500,
-                                  fontStyle: hasText ? FontStyle.normal : FontStyle.italic,
+                                  fontWeight: hasText
+                                      ? FontWeight.w800
+                                      : FontWeight.w500,
+                                  fontStyle: hasText
+                                      ? FontStyle.normal
+                                      : FontStyle.italic,
                                   letterSpacing: -0.2,
                                 ),
                               ),
@@ -735,10 +992,16 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                             Container(
                               padding: const EdgeInsets.all(5),
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.12),
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.12,
+                                ),
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: const Icon(Icons.edit, size: 15, color: AppColors.primary),
+                              child: const Icon(
+                                Icons.edit,
+                                size: 15,
+                                color: AppColors.primary,
+                              ),
                             ),
                           ],
                         ),
@@ -750,13 +1013,31 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                   // Dedicated Audio Speak Button beside the editable area
                   ElevatedButton.icon(
                     onPressed: hasText ? _cameraViewModel.speakAloud : null,
-                    icon: const Icon(Icons.volume_up_rounded, size: 17, color: Colors.white),
-                    label: const Text('Speak', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
+                    icon: const Icon(
+                      Icons.volume_up_rounded,
+                      size: 17,
+                      color: Colors.white,
+                    ),
+                    label: const Text(
+                      'Speak',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
-                      disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.4),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      disabledBackgroundColor: AppColors.primary.withValues(
+                        alpha: 0.4,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
                   ),
                 ],
@@ -784,13 +1065,22 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: const BoxDecoration(
             color: Colors.white,
-            border: Border(bottom: BorderSide(color: AppColors.cardBorder, width: 1)),
+            border: Border(
+              bottom: BorderSide(color: AppColors.cardBorder, width: 1),
+            ),
           ),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                const Text('Voice Language: ', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+                const Text(
+                  'Voice Language: ',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(width: 6),
                 ..._spokenLanguages.map((l) {
                   final isSelected = _speechViewModel.spokenLang == l['code'];
@@ -801,12 +1091,20 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                       selected: isSelected,
                       selectedColor: AppColors.primary,
                       labelStyle: TextStyle(
-                        color: isSelected ? Colors.white : AppColors.textPrimary,
-                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                        color: isSelected
+                            ? Colors.white
+                            : AppColors.textPrimary,
+                        fontWeight: isSelected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         fontSize: 11,
                       ),
                       backgroundColor: AppColors.surfaceVariant,
-                      side: BorderSide(color: isSelected ? AppColors.primary : AppColors.cardBorder),
+                      side: BorderSide(
+                        color: isSelected
+                            ? AppColors.primary
+                            : AppColors.cardBorder,
+                      ),
                       onSelected: (val) {
                         if (val) {
                           _speechViewModel.switchSpokenLanguage(l['code']!);
@@ -843,22 +1141,37 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                         decoration: BoxDecoration(
                           color: AppColors.primary.withValues(alpha: 0.12),
                           shape: BoxShape.circle,
-                          border: Border.all(color: AppColors.primaryLight, width: 2),
+                          border: Border.all(
+                            color: AppColors.primaryLight,
+                            width: 2,
+                          ),
                         ),
-                        child: const Icon(Icons.sign_language, size: 40, color: AppColors.primary),
+                        child: const Icon(
+                          Icons.sign_language,
+                          size: 40,
+                          color: AppColors.primary,
+                        ),
                       ),
                       const SizedBox(height: 10),
                       Text(
                         '${_speechViewModel.selectedSignLang.name} Signing Animation',
-                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14.5, fontWeight: FontWeight.w800),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         hasContent
-                            ? (_speechViewModel.isFingerspelling ? 'Fingerspelling Mode (UC302 Alt A3)' : 'Standard Gesture Vocabulary')
+                            ? (_speechViewModel.isFingerspelling
+                                  ? 'Fingerspelling Mode (UC302 Alt A3)'
+                                  : 'Standard Gesture Vocabulary')
                             : 'Ready: Speak or tap a quick phrase below',
                         style: TextStyle(
-                          color: _speechViewModel.isFingerspelling ? AppColors.secondary : AppColors.textSecondary,
+                          color: _speechViewModel.isFingerspelling
+                              ? AppColors.secondary
+                              : AppColors.textSecondary,
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
@@ -874,7 +1187,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                     left: 10,
                     right: 10,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(14),
@@ -899,14 +1215,20 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                                   'Gloss: ${_speechViewModel.translatedSignGloss}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: AppColors.primaryDark, fontWeight: FontWeight.w800, fontSize: 11.5),
+                                  style: const TextStyle(
+                                    color: AppColors.primaryDark,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 11.5,
+                                  ),
                                 ),
                               ),
                               IconButton(
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
                                 icon: Icon(
-                                  _speechViewModel.isPlayingAnimation ? Icons.pause_circle : Icons.play_circle,
+                                  _speechViewModel.isPlayingAnimation
+                                      ? Icons.pause_circle
+                                      : Icons.play_circle,
                                   color: AppColors.primary,
                                   size: 20,
                                 ),
@@ -918,31 +1240,53 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: Row(
-                              children: _speechViewModel.signTokens.asMap().entries.map((entry) {
-                                final idx = entry.key;
-                                final token = entry.value;
-                                final isCurrent = idx == _speechViewModel.currentTokenIndex;
-                                return GestureDetector(
-                                  onTap: () => _speechViewModel.selectToken(idx),
-                                  child: Container(
-                                    margin: const EdgeInsets.only(right: 6),
-                                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: isCurrent ? AppColors.primary : AppColors.surfaceVariant,
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: isCurrent ? AppColors.primary : AppColors.cardBorder),
-                                    ),
-                                    child: Text(
-                                      token,
-                                      style: TextStyle(
-                                        color: isCurrent ? Colors.white : AppColors.textPrimary,
-                                        fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
-                                        fontSize: 11.5,
+                              children: _speechViewModel.signTokens
+                                  .asMap()
+                                  .entries
+                                  .map((entry) {
+                                    final idx = entry.key;
+                                    final token = entry.value;
+                                    final isCurrent =
+                                        idx ==
+                                        _speechViewModel.currentTokenIndex;
+                                    return GestureDetector(
+                                      onTap: () =>
+                                          _speechViewModel.selectToken(idx),
+                                      child: Container(
+                                        margin: const EdgeInsets.only(right: 6),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 9,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isCurrent
+                                              ? AppColors.primary
+                                              : AppColors.surfaceVariant,
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          border: Border.all(
+                                            color: isCurrent
+                                                ? AppColors.primary
+                                                : AppColors.cardBorder,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          token,
+                                          style: TextStyle(
+                                            color: isCurrent
+                                                ? Colors.white
+                                                : AppColors.textPrimary,
+                                            fontWeight: isCurrent
+                                                ? FontWeight.w800
+                                                : FontWeight.w600,
+                                            fontSize: 11.5,
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
+                                    );
+                                  })
+                                  .toList(),
                             ),
                           ),
                         ],
@@ -967,7 +1311,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                   SizedBox(width: 4),
                   Text(
                     'Predefined Quick Phrases:',
-                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ],
               ),
@@ -981,11 +1329,17 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                       child: ActionChip(
                         label: Text(
                           phraseItem['label'] as String,
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
                         ),
                         backgroundColor: AppColors.surfaceVariant,
                         side: const BorderSide(color: AppColors.cardBorder),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                         onPressed: () {
                           _speechViewModel.selectQuickPhrase(phraseItem);
                         },
@@ -1009,17 +1363,35 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
               TextField(
                 controller: _speechInputController,
                 maxLines: 2,
-                style: const TextStyle(color: AppColors.textPrimary, fontSize: 13.5, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                ),
                 decoration: InputDecoration(
                   hintText: 'Type text or tap microphone to speak...',
-                  hintStyle: const TextStyle(color: AppColors.textMuted, fontSize: 12.5),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  hintStyle: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 12.5,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                   filled: true,
                   fillColor: AppColors.surfaceVariant,
                   suffixIcon: IconButton(
-                    icon: const Icon(Icons.send_rounded, color: AppColors.primary, size: 20),
-                    onPressed: () => _speechViewModel.translateInput(_speechInputController.text),
+                    icon: const Icon(
+                      Icons.send_rounded,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                    onPressed: () => _speechViewModel.translateInput(
+                      _speechInputController.text,
+                    ),
                   ),
                 ),
                 onChanged: (val) => _speechViewModel.translateInput(val),
@@ -1036,18 +1408,26 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                     child: Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: _speechViewModel.isListening ? AppColors.emergency : AppColors.primary,
+                        color: _speechViewModel.isListening
+                            ? AppColors.emergency
+                            : AppColors.primary,
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: (_speechViewModel.isListening ? AppColors.emergency : AppColors.primary).withValues(alpha: 0.3),
+                            color:
+                                (_speechViewModel.isListening
+                                        ? AppColors.emergency
+                                        : AppColors.primary)
+                                    .withValues(alpha: 0.3),
                             blurRadius: 14,
                             offset: const Offset(0, 3),
                           ),
                         ],
                       ),
                       child: Icon(
-                        _speechViewModel.isListening ? Icons.mic : Icons.mic_none,
+                        _speechViewModel.isListening
+                            ? Icons.mic
+                            : Icons.mic_none,
                         color: Colors.white,
                         size: 26,
                       ),
@@ -1058,9 +1438,19 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
               const SizedBox(height: 3),
               Text(
                 _speechViewModel.isListening
-                    ? 'Listening in ${_speechViewModel.spokenLang == "ms" ? "Bahasa Melayu" : _speechViewModel.spokenLang == "zh" ? "中文 (Mandarin)" : "English"}...'
-                    : 'Tap mic to speak in ${_speechViewModel.spokenLang == "ms" ? "Bahasa Melayu" : _speechViewModel.spokenLang == "zh" ? "中文" : "English"}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10.5),
+                    ? 'Listening in ${_speechViewModel.spokenLang == "ms"
+                          ? "Bahasa Melayu"
+                          : _speechViewModel.spokenLang == "zh"
+                          ? "中文 (Mandarin)"
+                          : "English"}...'
+                    : 'Tap mic to speak in ${_speechViewModel.spokenLang == "ms"
+                          ? "Bahasa Melayu"
+                          : _speechViewModel.spokenLang == "zh"
+                          ? "中文"
+                          : "English"}',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(fontSize: 10.5),
               ),
             ],
           ),
