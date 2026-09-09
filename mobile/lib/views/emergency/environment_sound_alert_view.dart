@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/theme.dart';
 import '../../models/entities/environment_sound.dart';
+import '../../models/repositories/captured_announcement_store.dart';
 import '../../models/repositories/environment_sound_repository.dart';
 import '../../services/environment_sound_detector.dart';
+import '../../services/venue_session_service.dart';
 import '../../services/app_notification_service.dart';
 import '../../widgets/app_message_banner.dart';
 
@@ -49,7 +51,23 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
         _messageType = AppMessageType.error;
       });
     });
+    CapturedAnnouncementStore.instance.version.addListener(
+      _showLatestCapturedAnnouncement,
+    );
     _loadPreferences();
+  }
+
+  Future<void> _showLatestCapturedAnnouncement() async {
+    final institutionId = VenueSessionService.instance.session?.institutionId;
+    if (institutionId == null) return;
+    final captures = await CapturedAnnouncementStore.instance.forVenue(
+      institutionId,
+    );
+    if (!mounted || captures.isEmpty) return;
+    setState(() {
+      _message = 'Announcement: ${captures.first.transcript}';
+      _messageType = AppMessageType.success;
+    });
   }
 
   Future<void> _loadPreferences() async {
@@ -162,6 +180,15 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     if (!mounted) return;
     setState(() => _history.insert(0, detection));
     await _preferences.saveHistory(_history);
+    if (detection.type == EnvironmentSoundType.speechAnnouncement) {
+      if (!mounted) return;
+      setState(() {
+        _message =
+            'Public announcement detected. Listening for the spoken message…';
+        _messageType = AppMessageType.information;
+      });
+      return;
+    }
     for (var pulse = 0; pulse < 3; pulse++) {
       await HapticFeedback.heavyImpact();
       await Future<void>.delayed(const Duration(milliseconds: 180));
@@ -208,6 +235,9 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
 
   @override
   void dispose() {
+    CapturedAnnouncementStore.instance.version.removeListener(
+      _showLatestCapturedAnnouncement,
+    );
     unawaited(_snapshotSubscription?.cancel());
     unawaited(_alertSubscription?.cancel());
     unawaited(_errorSubscription?.cancel());

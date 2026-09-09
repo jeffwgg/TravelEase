@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
 import '../../models/repositories/notification_history_store.dart';
+import '../../services/app_notification_service.dart';
 
 /// Device-local history of raised notifications. Tapping an announcement or
 /// queue entry deep-links into its screen; entries survive quitting the
@@ -98,7 +99,9 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
         title: const Text('Notifications'),
         actions: [
           TextButton(
-            onPressed: _entries.isEmpty ? null : () => _store.markAllRead(),
+            onPressed: _entries.isEmpty
+                ? null
+                : () => AppNotificationService.instance.markAllAsRead(),
             child: const Text('Mark All Read'),
           ),
         ],
@@ -182,12 +185,13 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: tappable
-              ? () {
+              ? () async {
                   // Opening the notification counts as reading it.
-                  _store.markRead(entry.id);
+                  await AppNotificationService.instance.markAsRead(entry);
+                  if (!mounted) return;
                   context.push(entry.route!);
                 }
-              : () => _store.markRead(entry.id),
+              : () => AppNotificationService.instance.markAsRead(entry),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(
@@ -260,7 +264,8 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
                   IconButton(
                     tooltip: 'Mark as read',
                     icon: Icon(Icons.done_all, size: 18, color: color),
-                    onPressed: () => _store.markRead(entry.id),
+                    onPressed: () =>
+                        AppNotificationService.instance.markAsRead(entry),
                   ),
               ],
             ),

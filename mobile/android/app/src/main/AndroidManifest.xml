@@ -79,6 +79,11 @@
             android:foregroundServiceType="dataSync"
             android:exported="false"
             tools:replace="android:exported"/>
+        <!-- Required by flutter_local_notifications for action buttons such
+             as "Mark as read", including while the app is backgrounded. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

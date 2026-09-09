@@ -460,7 +460,7 @@ body {
 .queue-call-scroll::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--primary); }
 .queue-call-scroll > .form-alert { flex: 1; }
 .queue-call-card { flex: 0 0 calc((100% - 40px) / 3); min-width: 300px; scroll-snap-align: start; }
-.queue-tools-row { display: grid; grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr); gap: 24px; margin-bottom: 24px; align-items: stretch; }
+.queue-tools-row { margin-bottom: 24px; align-items: stretch; }
 .queue-tool-card { height: 100%; margin: 0; }
 .queue-lookup-card { margin: 0; }
 .queue-lookup-form { display: flex; align-items: flex-end; gap: 12px; }

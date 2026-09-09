@@ -4,11 +4,13 @@ import 'package:go_router/go_router.dart';
 import 'core/theme.dart';
 import 'core/router.dart';
 import 'core/supabase_client.dart';
+import 'models/repositories/accessibility_preferences_repository.dart';
 import 'services/announcement_notification_service.dart';
 import 'services/app_notification_service.dart';
 import 'services/background_notification_service.dart';
 import 'services/chat_notification_service.dart';
 import 'services/environment_sound_monitoring_service.dart';
+import 'services/notification_settings.dart';
 import 'services/queue_notification_service.dart';
 import 'services/startup_permission_service.dart';
 import 'services/venue_session_service.dart';
@@ -23,6 +25,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
   await SupabaseClientHelper.initialize();
+  await _loadNotificationPreferences();
   await AppNotificationService.instance.initialize(
     onNotificationTap: _handleNotificationTap,
     router: appRouter,
@@ -47,6 +50,32 @@ void main() async {
   AnnouncementNotificationService.instance.start();
   PublicAnnouncementCaptureService.instance.start();
   runApp(const TravelEaseApp());
+}
+
+/// Loads the signed-in traveller's saved preferences before notification
+/// channels and background polling start. This prevents their previous
+/// default-on values from overriding the accessibility profile at launch.
+Future<void> _loadNotificationPreferences() async {
+  try {
+    final data = await AccessibilityPreferencesRepository()
+        .getCurrentUserPreferences();
+    if (data == null) return;
+    final alertPush = data['alert_notification_enabled'] as bool? ?? true;
+    final generalPush = data['general_notification_enabled'] as bool? ?? true;
+    await NotificationSettings.store(
+      alertPush: alertPush,
+      alertVibration:
+          alertPush && (data['alert_vibration_enabled'] as bool? ?? true),
+      alertFlash: alertPush && (data['alert_flash_enabled'] as bool? ?? true),
+      generalPush: generalPush,
+      generalVibration:
+          generalPush && (data['general_vibration_enabled'] as bool? ?? true),
+      generalFlash:
+          generalPush && (data['general_flash_enabled'] as bool? ?? true),
+    );
+  } catch (_) {
+    // Existing local values/defaults keep startup available while offline.
+  }
 }
 
 void _handleNotificationTap(String route) {

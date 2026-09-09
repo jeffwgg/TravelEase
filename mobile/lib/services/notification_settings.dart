@@ -28,12 +28,14 @@ class NotificationSettings {
 
   static Future<bool> alertVibrationEnabled() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool(alertVibrationKey) ?? true;
+    final push = preferences.getBool(alertPushKey) ?? true;
+    return push && (preferences.getBool(alertVibrationKey) ?? true);
   }
 
   static Future<bool> alertFlashEnabled() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool(alertFlashKey) ?? true;
+    final push = preferences.getBool(alertPushKey) ?? true;
+    return push && (preferences.getBool(alertFlashKey) ?? true);
   }
 
   static Future<bool> generalPushEnabled() async {
@@ -43,12 +45,14 @@ class NotificationSettings {
 
   static Future<bool> generalVibrationEnabled() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool(generalVibrationKey) ?? true;
+    final push = preferences.getBool(generalPushKey) ?? true;
+    return push && (preferences.getBool(generalVibrationKey) ?? true);
   }
 
   static Future<bool> generalFlashEnabled() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool(generalFlashKey) ?? true;
+    final push = preferences.getBool(generalPushKey) ?? true;
+    return push && (preferences.getBool(generalFlashKey) ?? true);
   }
 
   static Future<void> store({
@@ -59,6 +63,13 @@ class NotificationSettings {
     required bool generalVibration,
     required bool generalFlash,
   }) async {
+    // Vibration and flash are child behaviours of notifications. Keeping
+    // them false when their parent is off prevents background isolates from
+    // producing an accessibility alert without a notification.
+    alertVibration = alertPush && alertVibration;
+    alertFlash = alertPush && alertFlash;
+    generalVibration = generalPush && generalVibration;
+    generalFlash = generalPush && generalFlash;
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(alertPushKey, alertPush);
     await preferences.setBool(alertVibrationKey, alertVibration);

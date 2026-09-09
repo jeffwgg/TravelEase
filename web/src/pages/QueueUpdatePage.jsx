@@ -262,14 +262,8 @@ export default function QueueUpdatePage() {
               </div>
             })}
           </div>
-
+            {lines.length ?
           <div className="queue-tools-row">
-            <div className="card queue-tool-card">
-              <div className="card-header"><h3>Direct Call Number</h3></div>
-              <div className="form-group"><label htmlFor="direct-queue-line">Select Queue Line</label><select id="direct-queue-line" className="input" value={directLineId} onChange={(event) => { const id = event.target.value; setDirectLineId(id); setDirectNumber(lines.find((line) => line.id === id)?.upcoming_number || '') }}>{operationalLines.map((line) => <option key={line.id} value={line.id}>{line.name} — {line.service_area}</option>)}</select></div>
-              <div className="form-group"><label htmlFor="direct-number">Number to Call</label><input id="direct-number" className="input" value={directNumber} onChange={(event) => setDirectNumber(event.target.value)} placeholder="e.g. A-047" /></div>
-              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busyId === 'direct' || !operationalLines.length} onClick={notifyDirect}>{busyId === 'direct' ? 'Notifying…' : 'Notify Traveler Now'}</button>
-            </div>
             <div className="card queue-lookup-card queue-tool-card">
             <div className="card-header"><div><h3>Queue Number Status Lookup</h3><div className="header-subtitle">Search a queue number to view its latest status and service information.</div></div></div>
             <div className="queue-lookup-form">
@@ -286,14 +280,19 @@ export default function QueueUpdatePage() {
               <div><span>Now Serving</span><strong>{lookupResult.queue_lines.current_number}</strong></div>
               <div><span>Line Status</span><strong>{lookupResult.queue_lines.status}</strong></div>
               {!['completed', 'cancelled'].includes(lookupResult.status) && <div className="queue-lookup-actions">
-                {lookupResult.queue_lines.status === 'closed' ? <span className="field-note">This queue line is closed — number statuses are locked.</span> : <>
+                {lookupResult.queue_lines.status === 'closed' ? <span className="field-note">This queue line is closed — number statuses are locked.</span> : 
+                <>
                   <span>Update Status</span>
-                  <div><button className="btn btn-outline btn-sm" disabled={busyId === `status-${lookupResult.queue_line_id}`} onClick={() => markNumber(lookupResult.queue_line_id, lookupResult.number, 'completed', true)}>Mark Complete</button><button className="btn btn-danger btn-sm" disabled={busyId === `status-${lookupResult.queue_line_id}`} onClick={() => markNumber(lookupResult.queue_line_id, lookupResult.number, 'cancelled', true)}>Cancel Number</button></div>
+                  <div>
+                    <button className="btn btn-outline btn-sm" disabled={busyId === `status-${lookupResult.queue_line_id}`} onClick={() => markNumber(lookupResult.queue_line_id, lookupResult.number, 'completed', true)}>Mark Complete</button>
+                    <button className="btn btn-danger btn-sm" disabled={busyId === `status-${lookupResult.queue_line_id}`} onClick={() => markNumber(lookupResult.queue_line_id, lookupResult.number, 'cancelled', true)}>Cancel Number</button>              
+                    <button className="btn btn-outline btn-sm" disabled={busyId === 'direct' || !operationalLines.length} onClick={notifyDirect}>{busyId === 'direct' ? 'Notifying…' : 'Notify Traveler Now'}</button>
+                  </div>
                 </>}
               </div>}
             </div>}
             </div>
-          </div>
+          </div> : <></>}
 
           <div className="card">
             <div className="card-header"><h3>Queue Lines</h3></div>

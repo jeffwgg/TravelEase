@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../services/venue_session_service.dart';
 import '../views/auth/authentication_view.dart';
 import '../views/auth/check_email_view.dart';
 import '../views/auth/reset_password_view.dart';
@@ -35,6 +36,7 @@ import '../views/debug/speech_diagnostics_view.dart';
 import '../views/home/home_view.dart';
 
 final GoRouter appRouter = GoRouter(
+  refreshListenable: VenueSessionService.instance,
   initialLocation: '/auth',
   routes: [
     GoRoute(
@@ -121,6 +123,8 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/queue',
+      redirect: (context, state) =>
+          VenueSessionService.instance.hasActiveSession ? null : '/home',
       builder: (context, state) => const QueueTrackingView(),
     ),
     GoRoute(

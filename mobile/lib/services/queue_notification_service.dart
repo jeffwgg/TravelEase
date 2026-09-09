@@ -111,6 +111,8 @@ class QueueNotificationService {
   /// by the background poller so both paths share the same dedupe keys.
   Future<void> evaluateAlerts(QueueTrackingData tracking) async {
     final preferences = await SharedPreferences.getInstance();
+    await preferences.reload();
+    if (preferences.getString('venue_session_institution_id') == null) return;
     final number = tracking.number;
 
     final isCalled =

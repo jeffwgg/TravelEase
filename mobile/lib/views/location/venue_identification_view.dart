@@ -454,13 +454,14 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                             AppColors.emergency,
                             () => context.push('/assistance-request'),
                           ),
-                          _buildQuickAction(
-                            context,
-                            Icons.confirmation_number_outlined,
-                            'Queue\nTracking',
-                            AppColors.accent,
-                            () => context.push('/queue'),
-                          ),
+                          if (_session != null)
+                            _buildQuickAction(
+                              context,
+                              Icons.confirmation_number_outlined,
+                              'Queue\nTracking',
+                              AppColors.accent,
+                              () => context.push('/queue'),
+                            ),
                         ],
                       ),
                     ),
