@@ -39,6 +39,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
   late Animation<double> _pulseAnimation;
 
   CameraController? _cameraController;
+  bool _isSwitchingCamera = false;
   CameraDescription? _frontCamera;
   CameraDescription? _backCamera;
   CameraLensDirection _currentLensDirection = CameraLensDirection.front;
@@ -140,12 +141,40 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
   }
 
   Future<void> _startCameraInstance(CameraDescription camera) async {
-    await _cameraController?.dispose();
+    if (_isSwitchingCamera) return;
+    _isSwitchingCamera = true;
+    try {
+      // Detach the old controller from the UI and wait out the current frame
+      // before disposing it — disposing while CameraPreview still holds it
+      // throws "buildPreview() was called on a disposed CameraController"
+      // when the dispose notification triggers a rebuild.
+      final oldController = _cameraController;
+      if (mounted) {
+        setState(() {
+          _cameraController = null;
+          _isCameraInitialized = false;
+          _isCameraLoading = true;
+        });
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      try {
+        await oldController?.stopImageStream();
+      } catch (_) {}
+      await oldController?.dispose();
 
+      await _startNewCameraInstance(camera);
+    } finally {
+      _isSwitchingCamera = false;
+    }
+  }
+
+  Future<void> _startNewCameraInstance(CameraDescription camera) async {
     _cameraController = CameraController(
       camera,
       ResolutionPreset.medium,
       enableAudio: false,
+      // hand_landmarker 3.x and the NV21 conversion both need 3-plane YUV.
+      imageFormatGroup: ImageFormatGroup.yuv420,
     );
 
     try {
@@ -154,16 +183,13 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
         await _cameraController!.setZoomLevel(1.0);
       } catch (_) {}
 
-      int frameThrottle = 0;
       bool isProcessing = false;
 
-      // Start image stream (~6 inferences/sec, smooth 60 FPS camera UI)
+      // Start image stream (every frame; the extractor's hand loop is
+      // sub-millisecond and pose runs on its own decoupled cadence)
       try {
         _cameraController!.startImageStream((CameraImage image) async {
           if (!_cameraViewModel.isDetecting || _currentMode != SignTranslationMode.signToText) return;
-
-          frameThrottle++;
-          if (frameThrottle % 5 != 0) return; // Process ~6 frames/sec
           if (isProcessing) return;
           isProcessing = true;
 
@@ -175,6 +201,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                 gestureText: result['character'] as String? ?? '',
                 confidence: (result['confidence'] as num?)?.toDouble() ?? 0.0,
                 trackingSource: result['trackingSource'] as String? ?? '',
+                handPoints: result['hand'] as List<SGPoint>?,
+                anchors: result['anchors'] as SignAnchors?,
+                handFromMediaPipe: result['hasMediaPipeHand'] == true,
               );
             }
           } catch (e) {
@@ -503,7 +532,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                   style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(width: 6),
-                ...SignLanguageType.values.map((lang) {
+                ...SignLanguageType.values
+                    // CSL input is not offered on this screen yet.
+                    .where((lang) => lang != SignLanguageType.csl)
+                    .map((lang) {
                   final isSelected = _cameraViewModel.selectedLanguage == lang;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -531,14 +563,14 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
         ),
 
         // Honest labeling: the geometric engine + TFLite model are ASL-trained;
-        // BIM/CSL selection does not change recognition yet (Phase 3.3).
+        // BIM selection does not change recognition yet (Phase 3.3).
         if (_cameraViewModel.selectedLanguage != SignLanguageType.asl)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
             color: const Color(0xFFFFF7E6),
             child: const Text(
-              'ℹ️ Recognition currently uses ASL rules for all dialects — BIM/CSL coming soon',
+              'ℹ️ Recognition currently uses ASL rules for all dialects — BIM coming soon',
               style: TextStyle(color: Color(0xFF92600A), fontSize: 10.5, fontWeight: FontWeight.w600),
             ),
           ),
@@ -620,6 +652,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                                 _cameraController!.value.previewSize?.height ?? 1,
                             cameraHeight:
                                 _cameraController!.value.previewSize?.width ?? 1,
+                            // Model coords are third-person (unmirrored);
+                            // the front-camera preview is the mirrored
+                            // selfie view — flip for display only.
+                            mirrorX:
+                                _currentLensDirection == CameraLensDirection.front,
                           ),
                         ),
                       ),
@@ -771,36 +808,46 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView> w
                   ),
                   Row(
                     children: [
-                      if (hasText)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: AppColors.successLight.withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: AppColors.success, width: 0.8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.verified, size: 13, color: AppColors.success),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${(_cameraViewModel.confidenceScore * 100).toInt()}% Conf.',
-                                style: const TextStyle(color: AppColors.success, fontSize: 10.5, fontWeight: FontWeight.w700),
+                      // Space is reserved whether or not a word is recognized,
+                      // so the panel below never jumps when recognition lands.
+                      Visibility(
+                        visible: hasText,
+                        maintainSize: true,
+                        maintainAnimation: true,
+                        maintainState: true,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.successLight.withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: AppColors.success, width: 0.8),
                               ),
-                            ],
-                          ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.verified, size: 13, color: AppColors.success),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${(_cameraViewModel.confidenceScore * 100).toInt()}% Conf.',
+                                    style: const TextStyle(color: AppColors.success, fontSize: 10.5, fontWeight: FontWeight.w700),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: const Icon(Icons.clear_rounded, size: 18, color: AppColors.textMuted),
+                              tooltip: 'Clear Recognized Text',
+                              onPressed: _cameraViewModel.clearText,
+                            ),
+                            const SizedBox(width: 8),
+                          ],
                         ),
-                      if (hasText) ...[
-                        IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: const Icon(Icons.clear_rounded, size: 18, color: AppColors.textMuted),
-                          tooltip: 'Clear Recognized Text',
-                          onPressed: _cameraViewModel.clearText,
-                        ),
-                        const SizedBox(width: 8),
-                      ],
+                      ),
                       // Manual capture — debug harness only (the previous
                       // version faked this by feeding a zero tensor into the
                       // temporal model, which always produced a garbage class).
@@ -1392,7 +1439,12 @@ class _HandOverlayPainter extends CustomPainter {
     required this.fromMediaPipe,
     required this.cameraWidth,
     required this.cameraHeight,
+    required this.mirrorX,
   });
+
+  /// Display-only horizontal flip: model coords are third-person
+  /// (unmirrored); the front-camera preview is the mirrored selfie view.
+  final bool mirrorX;
 
   static const List<List<int>> _bones = [
     [0, 1], [1, 2], [2, 3], [3, 4],       // thumb
@@ -1410,8 +1462,9 @@ class _HandOverlayPainter extends CustomPainter {
         math.max(size.width / cameraWidth, size.height / cameraHeight);
     final dx = (size.width - cameraWidth * scale) / 2;
     final dy = (size.height - cameraHeight * scale) / 2;
-    Offset map(SGPoint p) =>
-        Offset(dx + p.x * cameraWidth * scale, dy + p.y * cameraHeight * scale);
+    Offset map(SGPoint p) => Offset(
+        dx + (mirrorX ? 1 - p.x : p.x) * cameraWidth * scale,
+        dy + p.y * cameraHeight * scale);
 
     // Face/body anchors (orange) — verify hand/pose space alignment.
     final anchorPaint = Paint()..color = const Color(0xFFFFB300);

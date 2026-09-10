@@ -1,24 +1,21 @@
 import 'package:flutter/foundation.dart';
 import '../models/entities/sign_language_entity.dart';
-import '../services/sign_translation_service.dart';
 import '../services/asl_tflite_service.dart';
 import '../services/sign_frame_data.dart';
 import '../models/repositories/communication_repository.dart';
 import '../core/hardware_services.dart';
+import '../services/translation_service.dart';
 
 /// ViewModel for Camera Sign Translation (Alphabet Fingerspelling & Words)
 class SignTranslationCameraViewModel extends ChangeNotifier {
-  final SignTranslationService _service;
   final CommunicationRepository _repository;
   final HardwareServices _hardware;
   final AslTfliteService _aslTflite = AslTfliteService();
 
   SignTranslationCameraViewModel({
-    SignTranslationService? service,
     CommunicationRepository? repository,
     HardwareServices? hardware,
-  })  : _service = service ?? SignTranslationService(),
-        _repository = repository ?? CommunicationRepository(),
+  })  : _repository = repository ?? CommunicationRepository(),
         _hardware = hardware ?? HardwareServices() {
     _initServices();
   }
@@ -47,10 +44,6 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   List<SGPoint> _handPoints = const [];
   SignAnchors? _handAnchors;
   bool _handFromMediaPipe = false;
-
-  /// Last time a recognized sign arrived; the display clears after a grace
-  /// period of continuous non-recognition (idle hands show nothing).
-  DateTime _lastSignAt = DateTime.now();
 
   /// Target Output Text Language (Default: English 'en' matching ASL)
   String _targetOutputLang = 'en';
@@ -88,7 +81,14 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   bool get isMediumConfidence => _confidenceScore >= 0.50 && _confidenceScore < 0.80;
   bool get isLowConfidence => _confidenceScore < 0.50;
 
-  /// Returns the active translated text or alphabet string
+  /// Real machine translation (same Google web endpoint as the dialogue
+  /// flow); results are cached per word+language so re-recognizing a word
+  /// never re-hits the network.
+  final TranslationService _translation = TranslationService();
+  final Map<String, String> _translationCache = {};
+  int _translationSeq = 0;
+
+  /// Returns the active translated text or alphabet string.
   String get currentTranslatedText {
     if (_predictedText.trim().isEmpty) {
       return '';
@@ -98,17 +98,36 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
       return _customTranslations[_targetOutputLang]!;
     }
 
-    // Single letters (alphabet/fingerspelling) pass through directly;
-    // everything else — including 2-letter words like "no" — translates.
-    if (_predictedText.trim().length == 1) {
-      return _predictedText.toUpperCase();
+    final word = _predictedText.trim();
+    // Single letters (alphabet/fingerspelling) pass through directly.
+    if (word.length == 1) {
+      return word.toUpperCase();
     }
+    if (_targetOutputLang == 'en') {
+      return word;
+    }
+    // Show the source word until the real translation lands.
+    return _translationCache['$_targetOutputLang|${word.toLowerCase()}'] ?? word;
+  }
 
-    return _service.translateText(
-      text: _predictedText,
-      fromLang: 'en',
-      toLang: _targetOutputLang,
-    );
+  /// Kicks off a real translation of the recognized word into the current
+  /// target language (no-op for English and single letters).
+  void _requestTranslation(String word) {
+    final w = word.trim();
+    if (w.isEmpty || w.length == 1 || _targetOutputLang == 'en') return;
+    final lang = _targetOutputLang;
+    final key = '$lang|${w.toLowerCase()}';
+    if (_translationCache.containsKey(key)) return;
+    final seq = ++_translationSeq;
+    _translation.translateText(text: w, fromLang: 'en', toLang: lang).then((translated) {
+      _translationCache[key] = translated;
+      // Only repaint while this exact word+language is still what's shown.
+      if (seq == _translationSeq &&
+          _targetOutputLang == lang &&
+          _predictedText.trim().toLowerCase() == w.toLowerCase()) {
+        notifyListeners();
+      }
+    });
   }
 
   /// Live vision frame callback from camera stream (Real-time sign recognition)
@@ -138,26 +157,16 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
         _confidenceScore = confidence;
         _customTranslations.clear();
         _isConfirmed = false;
-        _lastSignAt = now;
         notifyListeners();
+        if (isNewSign) _requestTranslation(newText);
 
         if (_isAutoSpeakEnabled && hasContent) {
           speakAloud();
         }
-      } else {
-        _lastSignAt = now;
       }
-    } else {
-      // Recognition went quiet: keep the last sign briefly (the temporal
-      // path commits one frame per window), then clear so idle shows nothing.
-      if (hasContent && now.difference(_lastSignAt).inMilliseconds > 1500) {
-        _predictedText = '';
-        _confidenceScore = 0.0;
-        _customTranslations.clear();
-        _isConfirmed = false;
-      }
-      notifyListeners();
     }
+    // Recognition went quiet: the last recognized word STAYS displayed until
+    // the next recognized word replaces it or the user clears it manually.
   }
 
   /// Debug-only: directly set a known letter/word (accuracy harness tray).
@@ -195,6 +204,7 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   /// Switch target output text language (e.g. 'en', 'ms', 'zh')
   void switchTargetOutputLang(String langCode) {
     _targetOutputLang = langCode;
+    _requestTranslation(_predictedText);
     notifyListeners();
 
     if (_isAutoSpeakEnabled && hasContent) {

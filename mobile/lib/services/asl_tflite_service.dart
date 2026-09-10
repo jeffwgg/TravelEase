@@ -188,11 +188,93 @@ class AslTfliteService {
     }
   }
 
+  /// Run the temporal model over a closed gesture window in ONE inference.
+  ///
+  /// The exported GISLR model has a dynamic frame dimension: its placeholder
+  /// input shape [1, 543, 3] actually means [frames, 543 landmarks, 3 coords]
+  /// — TFLite reports the dynamic dim as 1 until it is resized. This resizes
+  /// the frame dim to the window length, feeds the whole sequence once, and
+  /// reads out a single class distribution. Each entry of [frames] must be a
+  /// flat 543x3 tensor built with [buildGislrTensor]; the model embeds its
+  /// own preprocessing, so frames are passed through unchanged.
+  Map<String, dynamic> predictSequence(List<List<double>> frames) {
+    if (!isModelLoaded || frames.isEmpty) {
+      return {'character': '', 'confidence': 0.0, 'index': -1};
+    }
+
+    try {
+      final inputShape = _interpreter!.getInputTensor(0).shape;
+      final landmarkCount = inputShape[inputShape.length - 2];
+      final coordCount = inputShape.last;
+      final frameElements = landmarkCount * coordCount;
+
+      final sequence = <List<List<double>>>[];
+      for (final frame in frames) {
+        if (frame.length != frameElements) {
+          throw ArgumentError(
+            'Each frame must contain $frameElements values '
+            '($landmarkCount landmarks x $coordCount coords), got '
+            '${frame.length}. Build frames with buildGislrTensor().',
+          );
+        }
+        sequence.add(_unflattenFrame(frame, landmarkCount, coordCount));
+      }
+
+      _resizeInput(frames.length);
+      final outputShape = _interpreter!.getOutputTensor(0).shape;
+      final probs = _toProbabilities(_run(sequence, outputShape));
+
+      final indexedScores = List.generate(probs.length, (i) => MapEntry(i, probs[i]))
+        ..sort((a, b) => b.value.compareTo(a.value));
+
+      final top5 = indexedScores.take(5).map((e) {
+        final sign = _indexToSign[e.key] ?? '#${e.key}';
+        return '$sign (${e.value.toStringAsFixed(2)})';
+      }).join(', ');
+      debugPrint('[AslTfliteService] Sequence(${frames.length}f) top 5: $top5');
+
+      final bestIndex = indexedScores.first.key;
+      final runnerUp = indexedScores.length > 1 ? indexedScores[1].value : 0.0;
+      debugPrint('[AslTfliteService] Top sign: "${_indexToSign[bestIndex] ?? 'unknown'}" '
+          '(index=$bestIndex, confidence=${probs[bestIndex].toStringAsFixed(3)})');
+
+      return {
+        'character': _indexToSign[bestIndex] ?? 'unknown',
+        'confidence': probs[bestIndex],
+        'margin': probs[bestIndex] - runnerUp,
+        'index': bestIndex,
+      };
+    } catch (e) {
+      debugPrint('[AslTfliteService] Sequence prediction error: $e');
+      return {'character': '', 'confidence': 0.0, 'index': -1};
+    }
+  }
+
+  /// Resize the model's dynamic frame dimension to [frames] and reallocate.
+  void _resizeInput(int frames) {
+    final shape = [..._interpreter!.getInputTensor(0).shape];
+    shape[0] = frames;
+    _interpreter!.resizeInputTensor(0, shape);
+    _interpreter!.allocateTensors();
+  }
+
+  /// Split a flat 543x3 frame into per-landmark coordinate rows.
+  List<List<double>> _unflattenFrame(List<double> flat, int landmarks, int coords) {
+    return List.generate(
+      landmarks,
+      (i) => flat.sublist(i * coords, (i + 1) * coords),
+    );
+  }
+
   /// Run the model on one frame and return class probabilities.
+  ///
+  /// The frame dimension is resized back to a single frame first, so this
+  /// stays correct even after [predictSequence] resized it to a window.
   ///
   /// Throws [ArgumentError] on input-size mismatch so callers never infer
   /// on silently truncated data.
   List<double> _predictProbs(List<double> landmarks) {
+    _resizeInput(1);
     final inputShape = _interpreter!.getInputTensor(0).shape;
     final outputShape = _interpreter!.getOutputTensor(0).shape;
     final totalElements = inputShape.fold<int>(1, (a, b) => a * b);

@@ -140,8 +140,11 @@ void main() {
       expect(o.committedSign, 'callonphone');
     });
 
-    test('thumbs up -> "yes" (fist verified by tucked fingertips)', () {
-      final hand = _hand(
+    test('thumbs up / thumbs down commit NOTHING (fake-guess rules removed)', () {
+      // Conversational thumbs-up/down are not the ASL signs for yes/no and
+      // fired as idle false positives; both words belong to the temporal
+      // model now.
+      final thumbsUp = _hand(
         thumb: [
           const SGPoint(0.44, 0.56),
           const SGPoint(0.435, 0.53),
@@ -149,13 +152,7 @@ void main() {
           const SGPoint(0.425, 0.47),
         ],
       );
-      final o = _settle(_repeat(hand));
-
-      expect(o.committedSign, 'yes');
-    });
-
-    test('thumbs down -> "no"', () {
-      final hand = _hand(
+      final thumbsDown = _hand(
         thumb: [
           const SGPoint(0.44, 0.62),
           const SGPoint(0.435, 0.68),
@@ -163,9 +160,16 @@ void main() {
           const SGPoint(0.425, 0.80),
         ],
       );
-      final o = _settle(_repeat(hand));
-
-      expect(o.committedSign, 'no');
+      for (int i = 0; i < 6; i++) {
+        final up = GeometricSignRecognizer()
+            .processFrame(_frame(hand: thumbsUp, ts: _ts + i * 100));
+        expect(up.committedSign, isEmpty,
+            reason: 'thumbs up must not guess "yes"');
+        final down = GeometricSignRecognizer()
+            .processFrame(_frame(hand: thumbsDown, ts: _ts + i * 100));
+        expect(down.committedSign, isEmpty,
+            reason: 'thumbs down must not guess "no"');
+      }
     });
 
     test('committed sign clears after sustained unrecognized frames', () {
@@ -248,6 +252,112 @@ void main() {
       expect(decoded.hasMediaPipeHand, frame.hasMediaPipeHand);
       expect(decoded.anchors.nose!.x, frame.anchors.nose!.x);
       expect(decoded.timestampMs, frame.timestampMs);
+    });
+
+    test('dual-hand frame survives encode/decode', () {
+      final frame = SignFrameData(
+        hand: _hand(wrist: const SGPoint(0.3, 0.7)),
+        hand2: _hand(wrist: const SGPoint(0.7, 0.7)),
+        anchors: const SignAnchors(),
+        hasMediaPipeHand: true,
+        isFrontCamera: true,
+        timestampMs: _ts,
+      );
+      final decoded = SignFrameData.fromJson(frame.toJson());
+
+      expect(decoded.hand2, isNotNull);
+      expect(decoded.hand2!.length, 21);
+      expect(decoded.hand2![0].x, closeTo(0.7, 1e-9));
+    });
+  });
+
+  group('buildGislrTensor dual-hand slot assignment', () {
+    test('single hand lands in exactly one slot per the screen-side rule', () {
+      // Screen-side fallback: mirror-compensated x > 0.5 = anatomical LEFT
+      // (slot 468); x <= 0.5 = RIGHT (slot 522).
+      final leftHand = SignFrameData(
+        hand: _hand(wrist: const SGPoint(0.7, 0.7)),
+        anchors: const SignAnchors(),
+        hasMediaPipeHand: true,
+        isFrontCamera: true,
+        timestampMs: _ts,
+      );
+      final rightHand = SignFrameData(
+        hand: _hand(wrist: const SGPoint(0.3, 0.7)),
+        anchors: const SignAnchors(),
+        hasMediaPipeHand: true,
+        isFrontCamera: true,
+        timestampMs: _ts,
+      );
+      final tLeft = buildGislrTensor(leftHand);
+      final tRight = buildGislrTensor(rightHand);
+
+      expect(tLeft[468 * 3].isNaN, isFalse, reason: 'x>0.5 -> left slot filled');
+      expect(tLeft[522 * 3].isNaN, isTrue, reason: 'other slot stays NaN');
+      expect(tRight[522 * 3].isNaN, isFalse, reason: 'x<=0.5 -> right slot filled');
+      expect(tRight[468 * 3].isNaN, isTrue, reason: 'other slot stays NaN');
+    });
+
+    test('two hands land in opposite slots', () {
+      final frame = SignFrameData(
+        hand: _hand(wrist: const SGPoint(0.3, 0.7)),
+        hand2: _hand(wrist: const SGPoint(0.7, 0.7)),
+        anchors: const SignAnchors(),
+        hasMediaPipeHand: true,
+        isFrontCamera: true,
+        timestampMs: _ts,
+      );
+      final t = buildGislrTensor(frame);
+
+      expect(t[468 * 3].isNaN, isFalse);
+      expect(t[522 * 3].isNaN, isFalse);
+      // No collision: the two slots carry different wrists.
+      expect(t[468 * 3], isNot(closeTo(t[522 * 3], 1e-6)));
+    });
+
+    test('face synthesis fills nose/eye/lip groups from pose anchors', () {
+      final pose = List<SGPoint?>.filled(33, null);
+      pose[0] = const SGPoint(0.50, 0.35); // nose
+      pose[2] = const SGPoint(0.46, 0.30); // left eye
+      pose[5] = const SGPoint(0.54, 0.30); // right eye
+      pose[9] = const SGPoint(0.47, 0.42); // left mouth corner
+      pose[10] = const SGPoint(0.53, 0.42); // right mouth corner
+      final frame = SignFrameData(
+        hand: _hand(),
+        pose: pose,
+        anchors: const SignAnchors(),
+        hasMediaPipeHand: true,
+        isFrontCamera: true,
+        timestampMs: _ts,
+      );
+      final t = buildGislrTensor(frame);
+
+      // Mesh nose points (1, 2, 98, 327) carry the pose nose.
+      for (final i in kMeshNosePoints) {
+        expect(t[i * 3], closeTo(0.50, 1e-6), reason: 'mesh point $i');
+      }
+      // Lips interpolate between the mouth corners.
+      final n = kMeshLipPoints.length;
+      final firstLipX = t[kMeshLipPoints.first * 3];
+      final lastLipX = t[kMeshLipPoints.last * 3];
+      expect(firstLipX, closeTo(0.47, 1e-6));
+      expect(lastLipX, closeTo(0.53, 1e-6));
+      expect(n, 40);
+    });
+
+    test('face points stay NaN without pose anchors', () {
+      final frame = SignFrameData(
+        hand: _hand(),
+        anchors: const SignAnchors(),
+        hasMediaPipeHand: true,
+        isFrontCamera: true,
+        timestampMs: _ts,
+      );
+      final t = buildGislrTensor(frame);
+
+      for (final i in kMeshNosePoints) {
+        expect(t[i * 3].isNaN, isTrue);
+      }
     });
   });
 }

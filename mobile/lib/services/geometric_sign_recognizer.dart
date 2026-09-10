@@ -156,30 +156,6 @@ class GeometricSignRecognizer {
     final isWShape = isIndexExt && isMiddleExt && isRingExt && extCount == 3;
     final isOpenPalm = extCount == 4;
     final isYShape = isThumbExt && isPinkyExt && !isIndexExt && !isMiddleExt && !isRingExt;
-    final isILY = isThumbExt && isIndexExt && isPinkyExt && !isMiddleExt && !isRingExt;
-    final isHorns = isIndexExt && isPinkyExt && !isMiddleExt && !isRingExt && !isThumbExt;
-
-    // FIX: thumbs-up/down must not depend on the brittle angle-based
-    // `extCount == 0` — tucked fingers often project collinear and read as
-    // "extended", so neither rule fired and a stale sign stayed on screen.
-    // A fist is instead verified geometrically: all four fingertips sit
-    // close to the palm centre.
-    final palmCx = (sp[5][0] + sp[17][0]) / 2;
-    final palmCy = (sp[5][1] + sp[17][1]) / 2;
-    bool tipTucked(int i) {
-      final dx = sp[i][0] - palmCx, dy = sp[i][1] - palmCy;
-      return math.sqrt(dx * dx + dy * dy) < 0.85;
-    }
-    final fingersTucked =
-        tipTucked(8) && tipTucked(12) && tipTucked(16) && tipTucked(20);
-    final isThumbUp = isThumbExt &&
-        fingersTucked &&
-        sp[4][1] < -0.35 &&
-        sp[4][1] < sp[8][1] - 0.10;
-    final isThumbDown = isThumbExt &&
-        fingersTucked &&
-        sp[4][1] > 0.35 &&
-        sp[4][1] > sp[8][1] + 0.10;
 
     // FIX 1.3: real pinch is ~0.15-0.25 palm units; 0.6 was firing on any
     // half-open hand.
@@ -313,17 +289,9 @@ class GeometricSignRecognizer {
     rule('hat', isFlatHand && isAboveEyes, 0.89, 0.4);
 
     rule('face', isPointing && isNearCheek, 0.89, zqCheekW);
-    rule('happy', isOpenPalm && isNearCheek && isPalmFacing, 0.90, zqCheekW);
 
     rule('please', isFlatHand && isNearChest && isPalmFacing, 0.92, zqChestW);
     rule('like', isPinch && isNearChest, 0.89, zqChestW);
-
-    rule('yes', isThumbUp, 0.95, 0.5);
-    rule('no', isThumbDown, 0.90, 0.5);
-    rule('hello', isOpenPalm && isAboveEyes, 0.93, 0.4);
-    rule('airplane', isILY, 0.93, 0.5);
-    rule('airplane', isYShape, 0.88, 0.5);
-    rule('cow', isHorns, 0.88, 0.5);
 
     // NOTE: catch-all free-space rules (open / there / scissors / bye /
     // close / give / book / stop / help / sorry / sad) were intentionally
@@ -334,6 +302,19 @@ class GeometricSignRecognizer {
     //  * book IS in the label map but needs both hands hinged together —
     //    one flat palm is indistinguishable from 'please'/'hello', so the
     //    temporal model owns it.
+    //
+    // Second sweep (fake-guess removal) — every removed word is in the 250
+    // map, so the temporal model owns it and the static geometric proxy only
+    // added idle false positives:
+    //  * hello — waving is motion-defined; an open palm held above the eyes
+    //    is a near-constant idle pose.
+    //  * yes / no — thumbs-up/down are conversational gestures, not the ASL
+    //    signs (fist nodding / index-middle tapping the thumb).
+    //  * airplane (ILY and Y) — location-free rules fired on the extremely
+    //    common ILY/shaka handshapes anywhere in frame; the sign is a glide.
+    //  * cow — horns anywhere means "rock on"; the sign needs the head.
+    //  * happy — ASL happy circles at the CHEST; a palm resting at the
+    //    cheek is the most common touch-face idle pose.
 
     if (best.isEmpty) {
       // No rule this frame — decay streak; after a sustained unrecognized
@@ -427,12 +408,14 @@ class GeometricSignRecognizer {
     return vals.reduce((a, b) => a + b) / vals.length;
   }
 
-  /// Infer dominant-hand side: front camera preview is mirrored, so the
-  /// user's right hand appears on screen-right; back camera is not mirrored.
+  /// Infer dominant-hand side. Coordinates are third-person (unmirrored) on
+  /// BOTH cameras — the front camera's raw sensor frame already matches the
+  /// training convention — so the signer's right hand is on image-left in
+  /// either case (x < body center).
   bool _inferRightHand(SignFrameData f) {
     final bc = f.anchors.bodyCenterX;
     if (bc == null) return true; // assume right-handed dominant
-    return f.isFrontCamera ? f.hand[0].x > bc : f.hand[0].x < bc;
+    return f.hand[0].x < bc;
   }
 
   double _d(List<double> a, List<double> b) => math.sqrt(

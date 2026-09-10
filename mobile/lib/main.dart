@@ -7,7 +7,7 @@ import 'services/app_notification_service.dart';
 import 'services/environment_sound_monitoring_service.dart';
 import 'services/queue_notification_service.dart';
 import 'services/startup_permission_service.dart';
-
+import 'services/asl_tflite_service.dart';
 import 'services/webrtc_service.dart';
 import 'views/widgets/incoming_call_overlay.dart';
 
@@ -17,6 +17,7 @@ void main() async {
   await SupabaseClientHelper.initialize();
   await AppNotificationService.instance.initialize();
   await QueueNotificationService.instance.initialize();
+  await AslTfliteService().initialize();
   runApp(const TravelEaseApp());
 }
 
