@@ -18,6 +18,10 @@
 ```bash
 pip install -r requirements.txt
 
+# Windows：文字 → 動畫的 MP4 預覽需要 ffmpeg 和 ffprobe（二者都要）
+winget install --id Gyan.FFmpeg.Essentials --exact --source winget
+# 若剛安裝，請關閉並重開 PowerShell，再啟動 demo
+
 # 1. 資料下載與檢查（zip 放 slr/data/）
 python scripts/verify_data.py
 
@@ -36,6 +40,35 @@ python scripts/demo.py
 python scripts/record_custom.py --word kiri --signer alice
 python scripts/extract_custom.py
 ```
+
+### Share one web demo on the same Wi-Fi
+
+Only the computer running the demo needs `slr/data/` (the model and pose
+archive). Other people can use its browser link and do **not** need Python,
+FFmpeg, or a copy of the dataset. On the host computer, start the demo with:
+
+```powershell
+$env:SLR_HOST = "0.0.0.0"
+python scripts/demo.py
+```
+
+Then give users `http://<host-computer-LAN-IP>:7860` (for example,
+`http://192.168.1.16:7860`) while everyone is on the same Wi-Fi. Allow Python
+through the Windows *Private network* firewall prompt if it appears. Stop the
+demo when finished; do not use this LAN mode on a public network.
+
+For other people to use their **camera** for `手語 → 文字`, use Gradio's
+temporary HTTPS share URL instead (browsers generally block cameras on a LAN
+`http://` URL):
+
+```powershell
+$env:SLR_SHARE = "1"
+python scripts/demo.py
+```
+
+Copy the HTTPS `gradio.live` URL printed in the terminal. Anyone with that
+link can access the temporary demo, so use it only for testing and stop the
+process when the session ends.
 
 ### Mobile BIM bridge
 

@@ -38,26 +38,35 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def ensure_ffmpeg_on_path():
     """Gradio validates/converts media with system 'ffmpeg'/'ffprobe'.
-    Prefer the project-bundled binaries in slr/bin, then imageio-ffmpeg's
-    ffmpeg-only fallback (audio/video outputs returned as arrays/paths skip
-    ffprobe checks, so the fallback stays workable)."""
+    Prefer the project-bundled binaries, then Windows' WinGet command links.
+
+    Both executables are required: Gradio probes a returned MP4 with
+    ``ffprobe`` even when OpenCV created the video successfully.
+    """
     bin_dir = os.path.join(ROOT, "bin")
-    if os.path.exists(os.path.join(bin_dir, "ffprobe.exe")) or \
-       os.path.exists(os.path.join(bin_dir, "ffprobe")):
+    has_project_tools = (
+        (os.path.exists(os.path.join(bin_dir, "ffmpeg.exe")) or
+         os.path.exists(os.path.join(bin_dir, "ffmpeg"))) and
+        (os.path.exists(os.path.join(bin_dir, "ffprobe.exe")) or
+         os.path.exists(os.path.join(bin_dir, "ffprobe")))
+    )
+    if has_project_tools:
         os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
         return
     if shutil.which("ffmpeg") and shutil.which("ffprobe"):
         return
-    try:
-        import imageio_ffmpeg
-    except ImportError:
+
+    # Winget writes these links to the user profile, but an already-open
+    # PowerShell/IDE does not receive the updated PATH until it is restarted.
+    winget_links = os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                                "Microsoft", "WinGet", "Links")
+    if (os.path.exists(os.path.join(winget_links, "ffmpeg.exe")) and
+            os.path.exists(os.path.join(winget_links, "ffprobe.exe"))):
+        os.environ["PATH"] = winget_links + os.pathsep + os.environ["PATH"]
         return
-    shim_dir = os.path.join(tempfile.gettempdir(), "ffmpeg_shim")
-    os.makedirs(shim_dir, exist_ok=True)
-    dst = os.path.join(shim_dir, "ffmpeg.exe")
-    if not os.path.exists(dst):
-        shutil.copyfile(imageio_ffmpeg.get_ffmpeg_exe(), dst)
-    os.environ["PATH"] = shim_dir + os.pathsep + os.environ["PATH"]
+
+    print("Video animation needs FFmpeg and FFprobe. Install FFmpeg, then "
+          "restart this demo.")
 
 
 ensure_ffmpeg_on_path()
@@ -293,4 +302,9 @@ with gr.Blocks(title="BIM 旅遊手語翻譯") as demo:
                      ["tolong"], ["terima kasih"]], [txt])
 
 if __name__ == "__main__":
-    demo.launch(server_name="127.0.0.1", server_port=7860)
+    # Default to this computer only. Set SLR_HOST=0.0.0.0 when this machine
+    # is intentionally hosting the demo for devices on the same LAN. Set
+    # SLR_SHARE=1 for Gradio's temporary HTTPS URL (needed for remote camera).
+    demo.launch(server_name=os.environ.get("SLR_HOST", "127.0.0.1"),
+                server_port=int(os.environ.get("SLR_PORT", "7860")),
+                share=os.environ.get("SLR_SHARE") == "1")
