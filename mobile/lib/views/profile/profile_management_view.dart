@@ -1,9 +1,79 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/theme.dart';
+import '../../viewmodels/auth_viewmodel.dart';
+import '../../viewmodels/profile_viewmodel.dart';
 
-class ProfileManagementView extends StatelessWidget {
+class ProfileManagementView extends StatefulWidget {
   const ProfileManagementView({super.key});
+
+  @override
+  State<ProfileManagementView> createState() => _ProfileManagementViewState();
+}
+
+class _ProfileManagementViewState extends State<ProfileManagementView> {
+  late final ProfileViewModel _profileViewModel;
+
+  @override
+  void initState() {
+    super.initState();
+    _profileViewModel = ProfileViewModel();
+    _loadProfile();
+  }
+
+  @override
+  void dispose() {
+    _profileViewModel.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    await _profileViewModel.loadProfile();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _chooseAvatarSource() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: AppColors.primary),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.photo_library_outlined,
+                color: AppColors.primary,
+              ),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source != null && mounted) await _uploadAvatar(source);
+  }
+
+  Future<void> _uploadAvatar(ImageSource source) async {
+    final uploaded = await _profileViewModel.pickAndUploadAvatar(source);
+    if (!mounted) return;
+    setState(() {});
+    if (uploaded) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Profile image updated.')));
+    } else if (_profileViewModel.errorMessage != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_profileViewModel.errorMessage!)));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,13 +103,8 @@ class ProfileManagementView extends StatelessWidget {
                       children: [
                         Text(
                           'My Profile',
-                          style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                                color: Colors.white,
-                              ),
-                        ),
-                        IconButton(
-                          onPressed: () {},
-                          icon: const Icon(Icons.settings, color: Colors.white70),
+                          style: Theme.of(context).textTheme.headlineLarge
+                              ?.copyWith(color: Colors.white),
                         ),
                       ],
                     ),
@@ -53,58 +118,107 @@ class ProfileManagementView extends StatelessWidget {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.white, width: 3),
-                            color: AppColors.primaryLight.withValues(alpha: 0.3),
+                            color: AppColors.primaryLight.withValues(
+                              alpha: 0.3,
+                            ),
                           ),
-                          child: const Icon(Icons.person, size: 48, color: Colors.white),
+                          child: _profileViewModel.isUploadingAvatar
+                              ? const Padding(
+                                  padding: EdgeInsets.all(32),
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : _profileViewModel.avatarUrl.isEmpty
+                              ? const Icon(
+                                  Icons.person,
+                                  size: 48,
+                                  color: Colors.white,
+                                )
+                              : ClipOval(
+                                  child: Image.network(
+                                    _profileViewModel.avatarUrl,
+                                    fit: BoxFit.cover,
+                                    width: 96,
+                                    height: 96,
+                                    errorBuilder: (_, _, _) => const Icon(
+                                      Icons.person,
+                                      size: 48,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
                         ),
                         Positioned(
                           bottom: 0,
                           right: 0,
-                          child: Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: AppColors.secondary,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
+                          child: GestureDetector(
+                            onTap: _profileViewModel.isUploadingAvatar
+                                ? null
+                                : _chooseAvatarSource,
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: AppColors.secondary,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.camera_alt,
+                                size: 16,
+                                color: Colors.white,
+                              ),
                             ),
-                            child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      'Jeff Wong',
-                      style: TextStyle(
+                    Text(
+                      _profileViewModel.fullName.isEmpty
+                          ? 'Traveller'
+                          : _profileViewModel.fullName,
+                      style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w700,
                         color: Colors.white,
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      'jeff.wong@email.com',
-                      style: TextStyle(
+                    Text(
+                      _profileViewModel.email,
+                      style: const TextStyle(
                         fontSize: 14,
                         color: Colors.white70,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.hearing_disabled, size: 14, color: Colors.white),
-                          SizedBox(width: 6),
+                          const Icon(
+                            Icons.hearing_disabled,
+                            size: 14,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 6),
                           Text(
-                            'Hard of Hearing',
-                            style: TextStyle(
+                            '${_profileViewModel.nationality.isEmpty ? 'Not set' : _profileViewModel.nationality}',
+                            style: const TextStyle(
                               fontSize: 12,
                               color: Colors.white,
                               fontWeight: FontWeight.w500,
@@ -122,28 +236,56 @@ class ProfileManagementView extends StatelessWidget {
                 child: Column(
                   children: [
                     _buildMenuSection(context, 'Account', [
-                      _MenuItem(Icons.person_outline, 'Edit Profile', () => context.push('/profile/edit')),
-                      _MenuItem(Icons.tune, 'Accessibility Preferences', () => context.push('/preferences')),
-                      _MenuItem(Icons.language, 'Language', () {}),
+                      _MenuItem(Icons.person_outline, 'Edit Profile', () async {
+                        await context.push('/profile/edit');
+                        await _loadProfile();
+                      }),
+                      _MenuItem(
+                        Icons.tune,
+                        'Accessibility Preferences',
+                        () => context.push('/preferences'),
+                      ),
                     ]),
                     const SizedBox(height: 16),
                     _buildMenuSection(context, 'Safety', [
-                      _MenuItem(Icons.contact_phone, 'Emergency Contacts', () => context.push('/emergency-contacts')),
-                      _MenuItem(Icons.badge, 'Emergency Card', () => context.push('/emergency-card')),
-                      _MenuItem(Icons.graphic_eq, 'Environment Sound Alert', () => context.push('/environment-sound-alert')),
-                      _MenuItem(Icons.privacy_tip_outlined, 'Privacy & Data', () {}),
-                    ]),
-                    const SizedBox(height: 16),
-                    _buildMenuSection(context, 'Communication', [
-                      _MenuItem(Icons.sign_language, 'Sign Language Pref.', () {}),
-                      _MenuItem(Icons.record_voice_over, 'TTS Voice Settings', () {}),
-                      _MenuItem(Icons.closed_caption, 'Caption Settings', () {}),
+                      _MenuItem(
+                        Icons.contact_phone,
+                        'Emergency Contacts',
+                        () => context.push('/emergency-contacts'),
+                      ),
+                      _MenuItem(
+                        Icons.badge,
+                        'Emergency Card',
+                        () => context.push('/emergency-card'),
+                      ),
+                      _MenuItem(
+                        Icons.graphic_eq,
+                        'Environment Sound Alert',
+                        () => context.push('/environment-sound-alert'),
+                      ),
+                      _MenuItem(
+                        Icons.privacy_tip_outlined,
+                        'Privacy & Data',
+                        () {},
+                      ),
                     ]),
                     const SizedBox(height: 16),
                     _buildMenuSection(context, 'Support', [
-                      _MenuItem(Icons.help_outline, 'Help Center', () {}),
-                      _MenuItem(Icons.feedback_outlined, 'Send Feedback', () {}),
-                      _MenuItem(Icons.info_outline, 'About TravelEase', () {}),
+                      _MenuItem(
+                        Icons.help_outline,
+                        'Help Center',
+                        () => context.push('/help-center'),
+                      ),
+                      _MenuItem(
+                        Icons.feedback_outlined,
+                        'Send Feedback',
+                        () {},
+                      ),
+                      _MenuItem(
+                        Icons.info_outline,
+                        'About TravelEase',
+                        () => context.push('/about'),
+                      ),
                     ]),
                     const SizedBox(height: 20),
                     Row(
@@ -151,7 +293,11 @@ class ProfileManagementView extends StatelessWidget {
                       children: [
                         ClipRRect(
                           borderRadius: BorderRadius.circular(10),
-                          child: Image.asset('assets/logo.png', width: 32, height: 32),
+                          child: Image.asset(
+                            'assets/logo.png',
+                            width: 32,
+                            height: 32,
+                          ),
                         ),
                         const SizedBox(width: 10),
                         Column(
@@ -159,11 +305,17 @@ class ProfileManagementView extends StatelessWidget {
                           children: [
                             const Text(
                               'TravelEase v1.0.0',
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                             Text(
                               'Accessible Travel for Everyone',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
+                              style: Theme.of(
+                                context,
+                              ).textTheme.bodySmall?.copyWith(fontSize: 11),
                             ),
                           ],
                         ),
@@ -173,9 +325,32 @@ class ProfileManagementView extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: () => context.go('/auth'),
-                        icon: const Icon(Icons.logout, color: AppColors.emergency),
-                        label: const Text('Sign Out', style: TextStyle(color: AppColors.emergency)),
+                        onPressed: () async {
+                          final viewModel = AuthViewModel();
+                          final didSignOut = await viewModel.logout();
+                          final errorMessage = viewModel.errorMessage;
+                          viewModel.dispose();
+                          if (!context.mounted) return;
+                          if (didSignOut) {
+                            context.go('/auth');
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  errorMessage ?? 'Unable to sign out.',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(
+                          Icons.logout,
+                          color: AppColors.emergency,
+                        ),
+                        label: const Text(
+                          'Sign Out',
+                          style: TextStyle(color: AppColors.emergency),
+                        ),
                         style: OutlinedButton.styleFrom(
                           side: const BorderSide(color: AppColors.emergency),
                         ),
@@ -192,7 +367,11 @@ class ProfileManagementView extends StatelessWidget {
     );
   }
 
-  Widget _buildMenuSection(BuildContext context, String title, List<_MenuItem> items) {
+  Widget _buildMenuSection(
+    BuildContext context,
+    String title,
+    List<_MenuItem> items,
+  ) {
     return Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -202,9 +381,9 @@ class ProfileManagementView extends StatelessWidget {
             child: Text(
               title,
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: AppColors.textMuted,
-                    letterSpacing: 0.5,
-                  ),
+                color: AppColors.textMuted,
+                letterSpacing: 0.5,
+              ),
             ),
           ),
           ...items.asMap().entries.map((entry) {
@@ -215,7 +394,11 @@ class ProfileManagementView extends StatelessWidget {
                 ListTile(
                   leading: Icon(item.icon, color: AppColors.primary, size: 22),
                   title: Text(item.title, style: const TextStyle(fontSize: 15)),
-                  trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 20),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AppColors.textMuted,
+                    size: 20,
+                  ),
                   onTap: item.onTap,
                 ),
                 if (!isLast)

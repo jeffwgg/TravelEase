@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { announcementRepository } from '../repositories/announcementRepository'
+import { useAutoDismiss } from '../hooks/useAutoDismiss'
 
 const languageOptions = [
   { code: 'ms', label: 'Bahasa Melayu' },
@@ -10,7 +11,7 @@ const languageOptions = [
 
 const initialForm = {
   title: '', zoneId: 'all', type: 'travel_update', priority: 'normal',
-  messageEn: '', messageMs: '', messageZh: '', expiresAt: '', autoTranslate: false,
+  messageEn: '', messageMs: '', messageZh: '', expiresAt: '', scheduledAt: '', autoTranslate: false,
   targetLanguages: ['ms'], status: 'active',
 }
 
@@ -35,10 +36,12 @@ export default function CreateAnnouncementPage() {
   const [zones, setZones] = useState([])
   const [fieldErrors, setFieldErrors] = useState({})
   const [loading, setLoading] = useState(true)
+  const [publishLocked, setPublishLocked] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [translating, setTranslating] = useState(false)
   const [translations, setTranslations] = useState(emptyTranslations)
   const [error, setError] = useState('')
+  useAutoDismiss(error, () => setError(''))
 
   useEffect(() => {
     const load = async () => {
@@ -56,10 +59,12 @@ export default function CreateAnnouncementPage() {
             messageMs: item.message_ms || '',
             messageZh: item.translations?.zh?.message || '',
             expiresAt: toLocalDateTime(item.expires_at),
+            scheduledAt: toLocalDateTime(item.published_at),
             autoTranslate: item.auto_translated || false,
             targetLanguages: Object.keys(item.translations || {}).length ? Object.keys(item.translations) : ['ms'],
             status: item.status,
           })
+          setPublishLocked(Boolean(item.published_at) && new Date(item.published_at) <= new Date())
           setTranslations({
             ms: {
               title: item.translations?.ms?.title || '',
@@ -138,6 +143,9 @@ export default function CreateAnnouncementPage() {
     if (!form.messageEn.trim()) next.messageEn = 'English message content is required.'
     if (form.autoTranslate && form.targetLanguages.length === 0) next.targetLanguages = 'Choose at least one translation language.'
     if (form.expiresAt && new Date(form.expiresAt) <= new Date()) next.expiresAt = 'Expiry must be a future date and time.'
+    // A published announcement keeps its original (past) publish time in the
+    // disabled schedule field — that must not fail validation.
+    if (!publishLocked && form.scheduledAt && new Date(form.scheduledAt) <= new Date()) next.scheduledAt = 'Schedule publish time must be in the future.'
     setFieldErrors(next)
     return Object.keys(next).length === 0
   }
@@ -169,6 +177,8 @@ export default function CreateAnnouncementPage() {
         if (form.messageZh.trim()) translationsPayload.zh = { title: form.title.trim(), message: form.messageZh.trim() }
       }
 
+      const scheduledFor = form.scheduledAt ? new Date(form.scheduledAt) : null
+      const isScheduled = Boolean(scheduledFor) && scheduledFor > new Date()
       const payload = {
         zone_id: form.zoneId === 'all' ? null : form.zoneId,
         title: form.title.trim(),
@@ -181,6 +191,15 @@ export default function CreateAnnouncementPage() {
         translations: translationsPayload,
         auto_translated: form.autoTranslate,
       }
+      // A future schedule time becomes the publish time: mobile apps already
+      // hide announcements whose published_at is in the future. Clearing the
+      // schedule on an editable announcement publishes it immediately; a
+      // published announcement keeps its original publish time.
+      if (isScheduled) {
+        payload.published_at = scheduledFor.toISOString()
+      } else if (!isEditing || !publishLocked) {
+        payload.published_at = new Date().toISOString()
+      }
 
       if (isEditing) {
         await announcementRepository.updateAnnouncement(id, payload)
@@ -189,7 +208,6 @@ export default function CreateAnnouncementPage() {
           ...payload,
           institution_id: staffContext.institution_id,
           created_by: session.user.id,
-          published_at: new Date().toISOString(),
         })
       }
       navigate('/announcements', { replace: true })
@@ -219,6 +237,7 @@ export default function CreateAnnouncementPage() {
               <div className="form-group"><label htmlFor="announcement-type">Announcement Type <span className="required-mark">*</span></label><select id="announcement-type" className={`input ${fieldErrors.type ? 'invalid' : ''}`} value={form.type} onChange={update('type')}><option value="travel_update">Gate Change / Travel Update</option><option value="boarding">General Boarding Call</option><option value="delay_cancellation">Delay / Cancellation Notice</option><option value="emergency">Emergency Warning</option><option value="general">General Information</option></select>{fieldError('type')}</div>
               <div className="form-group"><label htmlFor="announcement-priority">Priority <span className="required-mark">*</span></label><select id="announcement-priority" className={`input ${fieldErrors.priority ? 'invalid' : ''}`} value={form.priority} onChange={update('priority')}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>{fieldError('priority')}</div>
               <div className="form-group"><label htmlFor="announcement-expiry">Expires At (Optional)</label><input id="announcement-expiry" type="datetime-local" className={`input ${fieldErrors.expiresAt ? 'invalid' : ''}`} value={form.expiresAt} min={new Date().toISOString().slice(0, 16)} onChange={update('expiresAt')} />{fieldError('expiresAt')}</div>
+              <div className="form-group"><label htmlFor="announcement-schedule">Schedule Publish Time (Optional)</label><input id="announcement-schedule" type="datetime-local" className={`input ${fieldErrors.scheduledAt ? 'invalid' : ''}`} value={form.scheduledAt} min={new Date().toISOString().slice(0, 16)} disabled={publishLocked} onChange={update('scheduledAt')} />{fieldError('scheduledAt')}{publishLocked && <div className="field-note">Already published — the schedule can no longer be changed.</div>}</div>
               {isEditing && <div className="form-group"><label htmlFor="announcement-status">Status <span className="required-mark">*</span></label><select id="announcement-status" className={`input ${fieldErrors.status ? 'invalid' : ''}`} value={form.status} onChange={update('status')}><option value="active">Active</option><option value="draft">Draft</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option></select>{fieldError('status')}</div>}
             </div>
             <div className="form-group"><label htmlFor="message-en">Message Content (English) <span className="required-mark">*</span></label><textarea id="message-en" className={`input ${fieldErrors.messageEn ? 'invalid' : ''}`} rows={5} value={form.messageEn} onChange={update('messageEn')} maxLength={2000} placeholder="Type the official announcement in English..." />{fieldError('messageEn')}</div>
@@ -244,7 +263,7 @@ export default function CreateAnnouncementPage() {
               </div>}
             </div>
 
-            <button type="submit" className="btn btn-primary" disabled={submitting} style={{ width: '100%', justifyContent: 'center' }}>{submitting ? (form.autoTranslate ? 'Translating & Saving…' : 'Saving…') : (isEditing ? 'Save Changes' : 'Broadcast Instantly')}</button>
+            <button type="submit" className="btn btn-primary" disabled={submitting} style={{ width: '100%', justifyContent: 'center' }}>{submitting ? (form.autoTranslate ? 'Translating & Saving…' : 'Saving…') : (isEditing ? 'Save Changes' : (form.scheduledAt && new Date(form.scheduledAt) > new Date() ? 'Schedule Broadcast' : 'Broadcast Instantly'))}</button>
           </>}
         </form>
       </div>

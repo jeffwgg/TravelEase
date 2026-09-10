@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
-import '../../models/queue_tracking.dart';
-import '../../repositories/queue_repository.dart';
+import '../../models/entities/queue_tracking.dart';
+import '../../models/repositories/queue_repository.dart';
 import '../../services/queue_notification_service.dart';
 import '../../widgets/app_message_banner.dart';
 
@@ -80,6 +80,19 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
       setState(() => _error = 'Enter your queue number.');
       return;
     }
+    // Instant feedback: a number beyond the selected line's maximum queue
+    // number can never be called, so do not even look it up.
+    final selectedLine = _selectedLine;
+    if (selectedLine != null) {
+      final capError = QueueRepository.maximumQueueNumberViolation(
+        number,
+        selectedLine,
+      );
+      if (capError != null) {
+        setState(() => _error = capError);
+        return;
+      }
+    }
     setState(() {
       _trackingNumber = true;
       _error = null;
@@ -110,9 +123,10 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
       });
       await QueueNotificationService.instance.track(result);
     } catch (error) {
-      if (mounted) {
-        setState(() => _error = 'Unable to track this queue number right now.');
-      }
+      if (!mounted) return;
+      setState(() => _error = error is QueueNumberBeyondMaximumException
+          ? error.message
+          : 'Unable to track this queue number right now.');
     } finally {
       if (mounted) setState(() => _trackingNumber = false);
     }
@@ -268,7 +282,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
   Widget _buildStatusCard(QueueTrackingData tracking) {
     final statusColor = _statusColor(tracking.status);
     final statusMessage = switch (tracking.status) {
-      'called' || 'serving' => 'Please proceed to ${tracking.line.counter}',
+      'called' || 'serving' => 'Please proceed to ${tracking.line.counterLabel}',
       'cancelled' => 'This queue number was cancelled',
       'completed' => 'Service for this queue number is complete',
       _ => 'You will be notified when it is your turn',
@@ -399,8 +413,14 @@ class _QueueTrackingViewState extends State<QueueTrackingView> {
             'Service',
             line.serviceArea,
           ),
-          const Divider(height: 24),
-          _buildInfoRow(Icons.meeting_room_outlined, 'Counter', line.counter),
+          if (line.counter?.trim().isNotEmpty ?? false) ...[
+            const Divider(height: 24),
+            _buildInfoRow(
+              Icons.meeting_room_outlined,
+              'Counter',
+              line.counter!.trim(),
+            ),
+          ],
           const Divider(height: 24),
           _buildInfoRow(
             Icons.schedule_outlined,

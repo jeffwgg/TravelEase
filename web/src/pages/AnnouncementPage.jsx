@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Ban, Eye, Globe2, MapPin, Megaphone, Pencil, Radio, Search } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { announcementRepository } from '../repositories/announcementRepository'
+import { useAutoDismiss } from '../hooks/useAutoDismiss'
 
 const priorityClass = { low: 'muted', normal: 'primary', high: 'secondary', urgent: 'emergency' }
 const statusClass = { active: 'success', draft: 'muted', expired: 'secondary', cancelled: 'emergency' }
@@ -10,6 +11,11 @@ const statusClass = { active: 'success', draft: 'muted', expired: 'secondary', c
 function formatDate(value) {
   if (!value) return 'Not published'
   return new Intl.DateTimeFormat('en-MY', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+
+// Scheduled = active row whose publish time is still in the future.
+function isScheduled(item) {
+  return item.status === 'active' && Boolean(item.published_at) && new Date(item.published_at) > new Date()
 }
 
 export default function AnnouncementPage() {
@@ -21,6 +27,7 @@ export default function AnnouncementPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [cancellingId, setCancellingId] = useState(null)
+  useAutoDismiss(error, () => setError(''))
 
   const loadAnnouncements = useCallback(async () => {
     try {
@@ -42,7 +49,8 @@ export default function AnnouncementPage() {
     const query = search.trim().toLowerCase()
     const priorityRank = { urgent: 4, high: 3, normal: 2, low: 1 }
     return announcements.filter((item) => {
-      const matchesStatus = statusFilter === 'all' || item.status === statusFilter
+      const matchesStatus = statusFilter === 'all'
+        || (statusFilter === 'scheduled' ? isScheduled(item) : item.status === statusFilter)
       const matchesSearch = !query || [item.title, item.message_en, item.message_ms, item.venue_zones?.name]
         .some((value) => value?.toLowerCase().includes(query))
       return matchesStatus && matchesSearch
@@ -55,7 +63,8 @@ export default function AnnouncementPage() {
 
   const summary = useMemo(() => ({
     total: announcements.length,
-    active: announcements.filter((item) => item.status === 'active').length,
+    active: announcements.filter((item) => item.status === 'active' && !isScheduled(item)).length,
+    scheduled: announcements.filter((item) => isScheduled(item)).length,
     urgent: announcements.filter((item) => item.priority === 'urgent' && item.status === 'active').length,
     translated: announcements.filter((item) => Object.keys(item.translations || {}).length > 0).length,
   }), [announcements])
@@ -88,6 +97,7 @@ export default function AnnouncementPage() {
         <div className="announcement-summary" aria-label="Announcement summary">
           <div className="announcement-stat"><span className="announcement-stat-icon primary"><Megaphone size={20} /></span><div><strong>{summary.total}</strong><span>Total broadcasts</span></div></div>
           <div className="announcement-stat"><span className="announcement-stat-icon success"><Radio size={20} /></span><div><strong>{summary.active}</strong><span>Currently active</span></div></div>
+          <div className="announcement-stat"><span className="announcement-stat-icon secondary"><Megaphone size={20} /></span><div><strong>{summary.scheduled}</strong><span>Scheduled</span></div></div>
           <div className="announcement-stat"><span className="announcement-stat-icon emergency"><Ban size={20} /></span><div><strong>{summary.urgent}</strong><span>Urgent and active</span></div></div>
           <div className="announcement-stat"><span className="announcement-stat-icon secondary"><Globe2 size={20} /></span><div><strong>{summary.translated}</strong><span>With translations</span></div></div>
         </div>
@@ -97,7 +107,7 @@ export default function AnnouncementPage() {
             <div><h3>Official Announcements</h3><p>Review, edit and manage broadcasts sent to travellers.</p></div>
             <div className="announcement-filters">
               <label className="announcement-search"><Search size={17} /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search title, message or zone..." aria-label="Search announcements" /></label>
-              <select className="input announcement-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="draft">Draft</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option></select>
+              <select className="input announcement-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="scheduled">Scheduled</option><option value="draft">Draft</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option></select>
             </div>
           </div>
           {loading && <div className="announcement-empty">Loading announcements…</div>}
@@ -112,7 +122,7 @@ export default function AnnouncementPage() {
                 <td><span className={`badge ${statusClass[item.status] || 'muted'}`}>{item.status}</span></td>
                 <td><span className="announcement-table-meta"><MapPin size={14} />{item.venue_zones?.name || 'All Zones'}</span></td>
                 <td><span className="announcement-table-meta"><Globe2 size={14} />{translationCount ? `${translationCount} translation${translationCount === 1 ? '' : 's'}` : 'English only'}</span></td>
-                <td>{formatDate(item.published_at || item.created_at)}</td>
+                <td>{isScheduled(item) ? <span className="badge secondary">Scheduled — {formatDate(item.published_at)}</span> : formatDate(item.published_at || item.created_at)}</td>
                 <td><span className="announcement-table-meta"><Eye size={14} />{item.reach_count ?? 0}</span></td>
                 <td><div className="table-actions"><Link className="btn btn-outline btn-sm" to={`/announcements/${item.id}/edit`}><Pencil size={14} /> Edit</Link>{item.status === 'active' && <button className="btn btn-outline btn-sm announcement-cancel" disabled={cancellingId === item.id} onClick={() => cancelAnnouncement(item.id)}>{cancellingId === item.id ? 'Cancelling…' : 'Cancel'}</button>}</div></td>
               </tr>

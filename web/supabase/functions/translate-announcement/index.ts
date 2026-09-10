@@ -52,19 +52,34 @@ Deno.serve(async (request) => {
     const translations: Record<string, { title: string; message: string }> = {}
     for (const target of targetLanguages) {
       const providerTarget = libreTranslateLanguageCodes[target]
-      const response = await fetch(`${libreTranslateUrl}/translate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(30000),
-        body: JSON.stringify({
-          q: [title, message],
-          source: 'en',
-          target: providerTarget,
-          format: 'text',
-          ...(libreTranslateApiKey ? { api_key: libreTranslateApiKey } : {}),
-        }),
-      })
-      const result = await response.json()
+      let response: Response
+      try {
+        response = await fetch(`${libreTranslateUrl}/translate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(30000),
+          body: JSON.stringify({
+            q: [title, message],
+            source: 'en',
+            target: providerTarget,
+            format: 'text',
+            ...(libreTranslateApiKey ? { api_key: libreTranslateApiKey } : {}),
+          }),
+        })
+      } catch {
+        throw new Error(
+          `Could not reach the self-hosted LibreTranslate service at ${libreTranslateUrl}. The service is offline or its public URL changed; restart it and update the LIBRETRANSLATE_URL secret.`,
+        )
+      }
+      const rawBody = await response.text()
+      let result: { translatedText?: unknown; error?: string }
+      try {
+        result = JSON.parse(rawBody)
+      } catch {
+        throw new Error(
+          `LibreTranslate returned a non-JSON response (HTTP ${response.status}). The service or its public tunnel is unhealthy.`,
+        )
+      }
       if (!response.ok) throw new Error(result?.error || `Translation failed for ${target}.`)
 
       const translatedText = result.translatedText

@@ -4,6 +4,29 @@ import '../../core/supabase_client.dart';
 class AssistanceRepository {
   final _client = SupabaseClientHelper.client;
 
+  // Identity of the signed-in traveller for assistance records. Full name is
+  // taken from user_profiles (source of truth after profile setup), falling
+  // back to auth metadata, then the email handle.
+  Future<String> _currentTravelerName() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return 'Guest';
+    try {
+      final row = await _client
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', user.id)
+          .maybeSingle();
+      final profileName = (row?['full_name'] as String?)?.trim();
+      if (profileName != null && profileName.isNotEmpty) return profileName;
+    } catch (_) {
+      // fall through to metadata below
+    }
+    final metadataName = (user.userMetadata?['full_name'] as String?)?.trim();
+    if (metadataName != null && metadataName.isNotEmpty) return metadataName;
+    final emailHandle = user.email?.split('@').first ?? '';
+    return emailHandle.isNotEmpty ? emailHandle : 'Traveller';
+  }
+
   // Module 5: Get All Assistance Requests for traveler
   Future<List<Map<String, dynamic>>> getAssistanceRequests() async {
     try {
@@ -36,20 +59,22 @@ class AssistanceRepository {
   // Module 5: Submit a New Assistance Request
   Future<Map<String, dynamic>?> createAssistanceRequest({
     required String requestCode,
-    required String travelerName,
     required String preferredCommunication,
     required String category,
     required String venueName,
     required String locationZone,
     required String description,
     required String urgency,
+    required bool shareLocation,
+    required bool analyticsConsent,
   }) async {
     try {
       final response = await _client
           .from('assistance_requests')
           .insert({
             'request_code': requestCode,
-            'traveler_name': travelerName,
+            'user_id': _client.auth.currentUser?.id,
+            'traveler_name': await _currentTravelerName(),
             'preferred_communication': preferredCommunication,
             'category': category,
             'venue_name': venueName,
@@ -57,7 +82,8 @@ class AssistanceRepository {
             'description': description,
             'urgency': urgency,
             'status': 'pending',
-            'share_location': true,
+            'share_location': shareLocation,
+            'analytics_consent': analyticsConsent,
           })
           .select()
           .single();
@@ -95,7 +121,7 @@ class AssistanceRepository {
           .insert({
             'request_id': requestId,
             'sender_type': 'traveler',
-            'sender_name': 'Jeff Wong (Traveler)',
+            'sender_name': '${await _currentTravelerName()} (Traveler)',
             'content': content,
             'message_type': messageType,
             'is_read': false,
@@ -117,19 +143,22 @@ class AssistanceRepository {
     required String locationZone,
     required String description,
     required String severity,
+    required bool analyticsConsent,
   }) async {
     try {
       final response = await _client
           .from('accessibility_issue_reports')
           .insert({
             'report_code': reportCode,
-            'traveler_name': 'Jeff Wong',
+            'user_id': _client.auth.currentUser?.id,
+            'traveler_name': await _currentTravelerName(),
             'issue_type': issueType,
             'venue_name': venueName,
             'location_zone': locationZone,
             'description': description,
             'severity': severity,
             'status': 'reported',
+            'analytics_consent': analyticsConsent,
           })
           .select()
           .single();

@@ -15,6 +15,7 @@ class AssistanceRequestViewModel extends ChangeNotifier {
   String contactMethod = 'chat';
   int urgencyLevel = 1;
   bool shareLocation = true;
+  bool shareAnalytics = false;
   String venueName = '';
   String locationZone = '';
   bool isFetchingLocation = false;
@@ -44,6 +45,11 @@ class AssistanceRequestViewModel extends ChangeNotifier {
 
   void setShareLocation(bool value) {
     shareLocation = value;
+    notifyListeners();
+  }
+
+  void setShareAnalytics(bool value) {
+    shareAnalytics = value;
     notifyListeners();
   }
 
@@ -200,13 +206,14 @@ class AssistanceRequestViewModel extends ChangeNotifier {
     try {
       final result = await _repository.createAssistanceRequest(
         requestCode: _generateRequestCode(),
-        travelerName: 'Jeff Wong',
         preferredCommunication: contactMethod,
         category: selectedCategory!,
         venueName: venueName,
         locationZone: locationZone.isNotEmpty ? locationZone : venueName,
         description: descriptionController.text,
         urgency: urgencyLabel,
+        shareLocation: shareLocation,
+        analyticsConsent: shareAnalytics,
       );
 
       isSubmitting = false;
@@ -233,6 +240,7 @@ class AssistanceRequestViewModel extends ChangeNotifier {
     contactMethod = 'chat';
     urgencyLevel = 1;
     shareLocation = true;
+    shareAnalytics = false;
     descriptionController.clear();
     errorMessage = null;
     submittedRequest = null;

@@ -90,7 +90,10 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
       );
       return;
     }
-    final success = await _viewModel.submitReport(venueName: 'Current Venue');
+    final success = await _viewModel.submitReport(
+      venueName: 'Current Venue',
+      analyticsConsent: _analyticsConsent,
+    );
     if (success && mounted) {
       showDialog(
         context: context,

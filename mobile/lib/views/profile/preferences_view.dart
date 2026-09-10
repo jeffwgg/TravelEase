@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import 'package:permission_handler/permission_handler.dart';
+
 import '../../core/theme.dart';
+import '../../services/accessibility_alert_service.dart';
+import '../../viewmodels/accessibility_preferences_viewmodel.dart';
 
 class PreferencesView extends StatefulWidget {
   const PreferencesView({super.key});
@@ -9,16 +15,20 @@ class PreferencesView extends StatefulWidget {
 }
 
 class _PreferencesViewState extends State<PreferencesView> {
-  bool _visualAlerts = true;
-  bool _vibrationAlerts = true;
-  bool _flashAlerts = false;
-  bool _autoCaption = true;
-  bool _largeCaptions = false;
-  bool _highContrast = false;
-  double _captionSize = 16;
-  String _language = 'en';
-  String _signLanguage = 'bim';
-  String _commMethod = 'sign';
+  late final AccessibilityPreferencesViewModel _viewModel;
+  final _alertService = AccessibilityAlertService();
+
+  @override
+  void initState() {
+    super.initState();
+    _viewModel = AccessibilityPreferencesViewModel()..load();
+  }
+
+  @override
+  void dispose() {
+    _viewModel.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,125 +40,222 @@ class _PreferencesViewState extends State<PreferencesView> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Communication Method
-          _buildSectionHeader('Communication Method'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildRadioOption('Sign Language', 'sign', _commMethod, (v) => setState(() => _commMethod = v!)),
-                  _buildRadioOption('Written Text', 'text', _commMethod, (v) => setState(() => _commMethod = v!)),
-                  _buildRadioOption('Speech-to-Text', 'stt', _commMethod, (v) => setState(() => _commMethod = v!)),
-                  _buildRadioOption('Combined (All)', 'all', _commMethod, (v) => setState(() => _commMethod = v!)),
-                ],
+      body: ListenableBuilder(
+        listenable: _viewModel,
+        builder: (context, _) {
+          if (_viewModel.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _buildSectionHeader('Alert Preferences'),
+              Card(
+                child: Column(
+                  children: [
+                    _buildSwitch(
+                      'Full-Screen Visual Alerts',
+                      'On-screen visual notifications',
+                      Icons.visibility,
+                      _viewModel.fullScreenAlerts,
+                      (value) => _viewModel.update(
+                        () => _viewModel.fullScreenAlerts = value,
+                      ),
+                    ),
+                    _buildTestButton(
+                      label: 'Test full-screen alert',
+                      icon: Icons.fullscreen,
+                      onPressed: _viewModel.fullScreenAlerts
+                          ? _testFullScreenAlert
+                          : null,
+                    ),
+                    const Divider(height: 1, indent: 56),
+                    _buildSwitch(
+                      'Vibration Alerts',
+                      'Haptic feedback for alerts',
+                      Icons.vibration,
+                      _viewModel.vibration,
+                      (value) =>
+                          _viewModel.update(() => _viewModel.vibration = value),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _viewModel.vibrationStrength,
+                        decoration: const InputDecoration(
+                          labelText: 'Vibration Strength',
+                          prefixIcon: Icon(Icons.graphic_eq),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'light',
+                            child: Text('Light'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'medium',
+                            child: Text('Medium'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'strong',
+                            child: Text('Strong'),
+                          ),
+                        ],
+                        onChanged: _viewModel.vibration
+                            ? (value) {
+                                if (value != null) {
+                                  _viewModel.update(
+                                    () => _viewModel.vibrationStrength = value,
+                                  );
+                                }
+                              }
+                            : null,
+                      ),
+                    ),
+                    _buildTestButton(
+                      label: 'Test vibration',
+                      icon: Icons.vibration,
+                      onPressed: _viewModel.vibration ? _testVibration : null,
+                    ),
+                    const Divider(height: 1, indent: 56),
+                    _buildSwitch(
+                      'Flash Alerts',
+                      'Camera flash for emergencies',
+                      Icons.flash_on,
+                      _viewModel.flashAlerts,
+                      (value) => _viewModel.update(
+                        () => _viewModel.flashAlerts = value,
+                      ),
+                    ),
+                    _buildTestButton(
+                      label: 'Test flash',
+                      icon: Icons.flash_on,
+                      onPressed: _viewModel.flashAlerts ? _testFlash : null,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Sign Language
-          _buildSectionHeader('Sign Language'),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  _buildDropdown('Primary Sign Language', _signLanguage, [
-                    const DropdownMenuItem(value: 'bim', child: Text('BIM (Malaysian Sign Language)')),
-                    const DropdownMenuItem(value: 'asl', child: Text('ASL (American Sign Language)')),
-                  ], (v) => setState(() => _signLanguage = v!)),
-                  const SizedBox(height: 16),
-                  _buildDropdown('Display Language', _language, [
-                    const DropdownMenuItem(value: 'en', child: Text('English')),
-                    const DropdownMenuItem(value: 'ms', child: Text('Bahasa Melayu')),
-                    const DropdownMenuItem(value: 'zh', child: Text('中文')),
-                  ], (v) => setState(() => _language = v!)),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Alert Preferences
-          _buildSectionHeader('Alert Preferences'),
-          Card(
-            child: Column(
-              children: [
-                _buildSwitch('Visual Alerts', 'On-screen visual notifications', Icons.visibility, _visualAlerts, (v) => setState(() => _visualAlerts = v)),
-                const Divider(height: 1, indent: 56),
-                _buildSwitch('Vibration Alerts', 'Haptic feedback for alerts', Icons.vibration, _vibrationAlerts, (v) => setState(() => _vibrationAlerts = v)),
-                const Divider(height: 1, indent: 56),
-                _buildSwitch('Flash Alerts', 'Camera flash for emergencies', Icons.flash_on, _flashAlerts, (v) => setState(() => _flashAlerts = v)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Caption Settings
-          _buildSectionHeader('Caption Settings'),
-          Card(
-            child: Column(
-              children: [
-                _buildSwitch('Auto-Caption', 'Automatically caption speech', Icons.closed_caption, _autoCaption, (v) => setState(() => _autoCaption = v)),
-                const Divider(height: 1, indent: 56),
-                _buildSwitch('Large Captions', 'Increase caption text size', Icons.text_increase, _largeCaptions, (v) => setState(() => _largeCaptions = v)),
-                const Divider(height: 1, indent: 56),
-                _buildSwitch('High Contrast', 'Bold text on dark background', Icons.contrast, _highContrast, (v) => setState(() => _highContrast = v)),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              const SizedBox(height: 24),
+              _buildSectionHeader('Caption Settings'),
+              Card(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Caption Size', style: Theme.of(context).textTheme.bodyMedium),
-                          Text('${_captionSize.round()}px', style: const TextStyle(fontWeight: FontWeight.w600)),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.text_increase,
+                                color: AppColors.primary,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 18),
+                              const Expanded(
+                                child: Text(
+                                  'Caption Size',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '${_viewModel.captionSize.round()} px',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Slider(
+                            value: _viewModel.captionSize,
+                            min: 12,
+                            max: 28,
+                            divisions: 8,
+                            activeColor: AppColors.primary,
+                            label: '${_viewModel.captionSize.round()} px',
+                            onChanged: (value) => _viewModel.update(
+                              () => _viewModel.captionSize = value,
+                            ),
+                          ),
+                          const Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Small · 12 px'),
+                              Text('Large · 28 px'),
+                            ],
+                          ),
                         ],
                       ),
-                      Slider(
-                        value: _captionSize,
-                        min: 12,
-                        max: 28,
-                        divisions: 8,
-                        activeColor: AppColors.primary,
-                        onChanged: (v) => setState(() => _captionSize = v),
+                    ),
+                    const Divider(height: 1, indent: 56),
+                    _buildSwitch(
+                      'High Contrast',
+                      'Bold text on dark background',
+                      Icons.contrast,
+                      _viewModel.highContrast,
+                      (value) => _viewModel.update(
+                        () => _viewModel.highContrast = value,
                       ),
-                      // Preview
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: _highContrast ? Colors.black : AppColors.surfaceVariant,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          'Caption preview text',
-                          style: TextStyle(
-                            fontSize: _captionSize,
-                            fontWeight: _largeCaptions ? FontWeight.w700 : FontWeight.w400,
-                            color: _highContrast ? Colors.white : AppColors.textPrimary,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: _viewModel.highContrast
+                                  ? Colors.black
+                                  : AppColors.surfaceVariant,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              'Caption preview text',
+                              style: TextStyle(
+                                fontSize: _viewModel.captionSize,
+                                fontWeight: _viewModel.highContrast
+                                    ? FontWeight.w700
+                                    : FontWeight.w400,
+                                color: _viewModel.highContrast
+                                    ? Colors.white
+                                    : AppColors.textPrimary,
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_viewModel.errorMessage != null) ...[
+                const SizedBox(height: 16),
+                Text(
+                  _viewModel.errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.emergency),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 32),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Save Preferences'),
-          ),
-          const SizedBox(height: 32),
-        ],
+              const SizedBox(height: 32),
+              ElevatedButton(
+                onPressed: _viewModel.isSaving ? null : _save,
+                child: _viewModel.isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Save Preferences'),
+              ),
+              const SizedBox(height: 32),
+            ],
+          );
+        },
       ),
     );
   }
@@ -158,42 +265,140 @@ class _PreferencesViewState extends State<PreferencesView> {
       padding: const EdgeInsets.only(bottom: 12, left: 4),
       child: Text(
         title,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
       ),
     );
   }
 
-  Widget _buildSwitch(String title, String subtitle, IconData icon, bool value, ValueChanged<bool> onChanged) {
+  Widget _buildSwitch(
+    String title,
+    String subtitle,
+    IconData icon,
+    bool value,
+    ValueChanged<bool> onChanged,
+  ) {
     return SwitchListTile(
-      title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+      title: Text(
+        title,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+      ),
       subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
       secondary: Icon(icon, color: AppColors.primary, size: 22),
       value: value,
-      activeColor: AppColors.primary,
+      activeThumbColor: AppColors.primary,
       onChanged: onChanged,
     );
   }
 
-  Widget _buildRadioOption(String title, String value, String groupValue, ValueChanged<String?> onChanged) {
-    return RadioListTile<String>(
-      title: Text(title, style: const TextStyle(fontSize: 15)),
-      value: value,
-      groupValue: groupValue,
-      activeColor: AppColors.primary,
-      onChanged: onChanged,
-      contentPadding: EdgeInsets.zero,
-      dense: true,
+  Widget _buildTestButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(56, 0, 16, 12),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          onPressed: onPressed,
+          icon: Icon(icon, size: 18),
+          label: Text(label),
+        ),
+      ),
     );
   }
 
-  Widget _buildDropdown(String label, String value, List<DropdownMenuItem<String>> items, ValueChanged<String?> onChanged) {
-    return DropdownButtonFormField<String>(
-      value: value,
-      decoration: InputDecoration(labelText: label),
-      items: items,
-      onChanged: onChanged,
+  void _testFullScreenAlert() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog.fullscreen(
+        backgroundColor: AppColors.emergency,
+        child: SafeArea(
+          child: InkWell(
+            onTap: () => Navigator.pop(dialogContext),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.white,
+                      size: 96,
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'VISUAL ALERT TEST',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: _viewModel.captionSize + 8,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Tap anywhere to dismiss',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
+  }
+
+  Future<void> _testVibration() async {
+    await _runHardwareTest(
+      () => _alertService.testVibration(_viewModel.vibrationStrength),
+      'Vibration test sent (${_viewModel.vibrationStrength}).',
+    );
+  }
+
+  Future<void> _testFlash() async {
+    var status = await Permission.camera.status;
+    if (!status.isGranted) status = await Permission.camera.request();
+    if (!status.isGranted) {
+      _showMessage('Allow camera permission to test the flashlight.');
+      return;
+    }
+    await _runHardwareTest(
+      _alertService.testFlash,
+      'Flashlight test started for 1 second.',
+    );
+  }
+
+  Future<void> _runHardwareTest(
+    Future<void> Function() test,
+    String successMessage,
+  ) async {
+    try {
+      await test();
+      _showMessage(successMessage);
+    } on PlatformException catch (error) {
+      _showMessage(error.message ?? 'This test is unavailable on this device.');
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _save() async {
+    if (await _viewModel.save() && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Accessibility preferences saved.')),
+      );
+      context.pop();
+    }
   }
 }

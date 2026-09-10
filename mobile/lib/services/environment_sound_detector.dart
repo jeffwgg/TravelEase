@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
-import '../models/environment_sound.dart';
+import '../models/entities/environment_sound.dart';
 
 class EnvironmentSoundDetector {
   factory EnvironmentSoundDetector() => _instance;
@@ -261,10 +261,19 @@ class EnvironmentSoundDetector {
         value == 'honking') {
       return EnvironmentSoundType.vehicleHorn;
     }
+    // Exact matches only: labels like "Bellow" and "Belly laugh" also
+    // contain "bell" as a substring and must not map here.
     if (value.contains('doorbell') ||
         value.contains('ding-dong') ||
         value.contains('door knock') ||
-        value == 'knock') {
+        value == 'knock' ||
+        value == 'bell' ||
+        value == 'chime' ||
+        value == 'ding' ||
+        value == 'tubular bells' ||
+        value == 'church bell' ||
+        value == 'jingle bell' ||
+        value == 'telephone bell ringing') {
       return EnvironmentSoundType.doorbell;
     }
     if (value.contains('alarm') ||

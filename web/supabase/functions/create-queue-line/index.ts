@@ -31,18 +31,45 @@ Deno.serve(async (request) => {
     if (institutionError) throw institutionError
     if (!institution) return json({ error: 'Active institution account access is required.' }, 403)
 
+    const name = String(input.name || '').trim()
+    if (!name) return json({ error: 'Queue line name is required.' }, 400)
+    const prefix = String(input.prefix || '').trim().toUpperCase()
+    if (!prefix) return json({ error: 'Queue prefix is required.' }, 400)
+    const { data: duplicate, error: duplicateError } = await adminClient
+      .from('queue_lines')
+      .select('id')
+      .eq('institution_id', institutionId)
+      .ilike('name', name)
+      .limit(1)
+      .maybeSingle()
+    if (duplicateError) throw duplicateError
+    if (duplicate) {
+      return json({ error: `A queue line named "${name}" already exists for this institution. Choose a different name.` }, 409)
+    }
+    const { data: duplicatePrefix, error: duplicatePrefixError } = await adminClient
+      .from('queue_lines')
+      .select('id')
+      .eq('institution_id', institutionId)
+      .ilike('prefix', prefix)
+      .limit(1)
+      .maybeSingle()
+    if (duplicatePrefixError) throw duplicatePrefixError
+    if (duplicatePrefix) {
+      return json({ error: `A queue line with the prefix "${prefix}" already exists for this institution. Choose a different prefix.` }, 409)
+    }
+
     const linePayload = {
       institution_id: institutionId,
-      name: String(input.name || '').trim(),
+      name,
       service_area: String(input.service_area || '').trim(),
-      counter: String(input.counter || '').trim(),
-      prefix: String(input.prefix || '').trim().toUpperCase(),
+      prefix,
       current_number: String(input.current_number || '').trim().toUpperCase(),
       upcoming_number: String(input.upcoming_number || '').trim().toUpperCase(),
       status: input.status,
       estimated_service_minutes: input.estimated_service_minutes,
       operating_hours: input.operating_hours || null,
       staff_notes: input.staff_notes || null,
+      max_tracking_number: resolveMaxTrackingNumber(input.max_tracking_number),
       created_by: userData.user.id,
     }
     const { data: line, error: lineError } = await adminClient.from('queue_lines').insert(linePayload).select().single()
@@ -54,6 +81,7 @@ Deno.serve(async (request) => {
       { queue_line_id: line.id, institution_id: institutionId, number: line.upcoming_number, status: 'waiting' },
     ])
     if (numbersError) throw numbersError
+    await ensureTraceableNumbers(adminClient, line)
 
     const { error: eventError } = await adminClient.from('queue_events').insert({
       institution_id: institutionId,
@@ -70,10 +98,77 @@ Deno.serve(async (request) => {
       await adminClient.from('queue_lines').delete().eq('id', createdLineId)
     }
     console.error('create-queue-line failed', error)
+    const code = (error as { code?: string }).code
+    if (code === '23505') {
+      return json({ error: 'A queue line with this name or prefix already exists for your institution. Choose a different name or prefix.' }, 409)
+    }
     return json({ error: error instanceof Error ? error.message : 'Unable to create the queue line.' }, 500)
   }
 })
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+}
+
+const DEFAULT_MAX_TRACKING_NUMBER = 100
+const MAX_GENERATED_PER_RUN = 500
+
+function resolveMaxTrackingNumber(value: unknown): number | null {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  return Math.floor(parsed)
+}
+
+function parseQueueNumber(value: string) {
+  const match = value.trim().toUpperCase().match(/^([A-Z]*)[-\s]?(\d+)$/)
+  if (!match) return null
+  return { prefix: match[1], value: parseInt(match[2], 10), width: match[2].length }
+}
+
+function formatQueueNumber(info: { prefix: string; value: number; width: number }) {
+  const digits = String(info.value).padStart(Math.max(info.width, 3), '0')
+  return info.prefix ? `${info.prefix}-${digits}` : digits
+}
+
+/**
+ * Creates queue_numbers rows for the traceable window ahead of the current
+ * number (current+1 .. current+max_tracking_number, default 100) so that
+ * travellers can track any number inside the window from day one. When a
+ * max_tracking_number is configured it is a hard cap on issued numbers.
+ */
+async function ensureTraceableNumbers(adminClient: any, line: any) {
+  try {
+    const current = parseQueueNumber(line.current_number)
+    if (!current) return
+    const max = Number(line.max_tracking_number) > 0
+      ? Number(line.max_tracking_number)
+      : DEFAULT_MAX_TRACKING_NUMBER
+    const hardCap = Number(line.max_tracking_number) > 0 ? max : null
+    const end = hardCap != null
+      ? hardCap
+      : current.value + Math.min(max, MAX_GENERATED_PER_RUN)
+    const { data: existing, error } = await adminClient
+      .from('queue_numbers')
+      .select('number')
+      .eq('queue_line_id', line.id)
+    if (error) throw error
+    const have = new Set((existing ?? []).map((row: any) => String(row.number).trim().toUpperCase()))
+    const rows: any[] = []
+    for (let value = current.value + 1; value <= end; value += 1) {
+      const formatted = formatQueueNumber({ ...current, value })
+      if (have.has(formatted)) continue
+      rows.push({
+        queue_line_id: line.id,
+        institution_id: line.institution_id,
+        number: formatted,
+        status: 'waiting',
+      })
+    }
+    if (!rows.length) return
+    const { error: insertError } = await adminClient.from('queue_numbers').insert(rows)
+    if (insertError) throw insertError
+  } catch (error) {
+    // Traceability backfill is best-effort; the line creation must not fail.
+    console.error('ensureTraceableNumbers failed', error)
+  }
 }

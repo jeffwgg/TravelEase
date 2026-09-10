@@ -9,9 +9,17 @@ class Announcement {
   final String priority;
   final String status;
   final String? zoneName;
+  final String? institutionName;
   final DateTime publishedAt;
   final DateTime? expiresAt;
   final Map<String, AnnouncementTranslation> translations;
+
+  /// 'official' for institution-published rows, 'captured' for
+  /// microphone-captured public announcements (FR-M2-09).
+  final String source;
+
+  /// Composite confidence of a captured announcement, 0..1. Null for official.
+  final double? confidence;
 
   const Announcement({
     required this.id,
@@ -25,12 +33,18 @@ class Announcement {
     this.zoneId,
     this.messageMs,
     this.zoneName,
+    this.institutionName,
     this.expiresAt,
     this.translations = const {},
+    this.source = 'official',
+    this.confidence,
   });
+
+  bool get isCaptured => source == 'captured';
 
   factory Announcement.fromJson(Map<String, dynamic> json) {
     final zone = json['venue_zones'];
+    final institution = json['institutions'];
     final rawTranslations = json['translations'];
     final translations = <String, AnnouncementTranslation>{};
     if (rawTranslations is Map<String, dynamic>) {
@@ -52,6 +66,9 @@ class Announcement {
       priority: json['priority'] as String,
       status: json['status'] as String,
       zoneName: zone is Map<String, dynamic> ? zone['name'] as String? : null,
+      institutionName: institution is Map<String, dynamic>
+          ? institution['name'] as String?
+          : null,
       publishedAt: DateTime.parse((json['published_at'] ?? json['created_at']) as String).toLocal(),
       expiresAt: json['expires_at'] == null ? null : DateTime.parse(json['expires_at'] as String).toLocal(),
       translations: translations,

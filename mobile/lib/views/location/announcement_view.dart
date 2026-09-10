@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
-import '../../models/announcement.dart';
-import '../../repositories/announcement_repository.dart';
+import '../../models/entities/announcement.dart';
+import '../../models/repositories/announcement_repository.dart';
+import '../../models/repositories/captured_announcement_store.dart';
+import '../../services/venue_session_service.dart';
 import '../../widgets/app_message_banner.dart';
 
 class AnnouncementView extends StatefulWidget {
@@ -20,27 +23,77 @@ class _AnnouncementViewState extends State<AnnouncementView> {
   bool _urgentOnly = false;
   String _language = 'en';
   String? _error;
+  String? _institutionId;
+  String? _institutionName;
 
   @override
   void initState() {
     super.initState();
-    _loadAnnouncements();
-    _channel = _repository.subscribeToAnnouncements(_loadAnnouncements);
+    _syncSession(reload: true);
+    VenueSessionService.instance.addListener(_onSessionChanged);
+    CapturedAnnouncementStore.instance.version.addListener(_onSessionChanged);
   }
 
   @override
   void dispose() {
+    VenueSessionService.instance.removeListener(_onSessionChanged);
+    CapturedAnnouncementStore.instance.version.removeListener(
+      _onSessionChanged,
+    );
     final channel = _channel;
     if (channel != null) _repository.removeSubscription(channel);
     super.dispose();
   }
 
+  void _onSessionChanged() {
+    if (!mounted) return;
+    _syncSession(reload: true);
+  }
+
+  /// Official announcements are institution-scoped, so the list follows the
+  /// active venue session and resubscribes when the session changes.
+  Future<void> _syncSession({required bool reload}) async {
+    final session = VenueSessionService.instance.session;
+    final institutionId = session?.institutionId;
+    final changed = institutionId != _institutionId;
+    setState(() {
+      _institutionId = institutionId;
+      _institutionName = session?.institutionName;
+    });
+    final previous = _channel;
+    _channel = null;
+    if (previous != null) await _repository.removeSubscription(previous);
+    if (institutionId == null) {
+      if (mounted) {
+        setState(() {
+          _announcements = const [];
+          _loading = false;
+          _error = null;
+        });
+      }
+      return;
+    }
+    _channel = _repository.subscribeToAnnouncements(
+      _loadAnnouncements,
+      institutionId: institutionId,
+    );
+    if (reload || changed) await _loadAnnouncements();
+  }
+
   Future<void> _loadAnnouncements() async {
+    final institutionId = _institutionId;
+    if (institutionId == null) return;
     try {
-      final announcements = await _repository.getActiveAnnouncements();
+      final official = await _repository.getActiveAnnouncements(
+        institutionId: institutionId,
+      );
+      final captured = await CapturedAnnouncementStore.instance
+          .announcementsFor(institutionId);
+      final merged = [...official, ...captured]
+        ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
       if (!mounted) return;
       setState(() {
-        _announcements = announcements;
+        _announcements = merged;
         _error = null;
         _loading = false;
       });
@@ -102,10 +155,15 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                 padding: EdgeInsets.all(40),
                 child: Center(child: CircularProgressIndicator()),
               ),
-            if (!_loading && _error != null) _buildError(context),
-            if (!_loading && _error == null && visible.isEmpty)
+            if (!_loading && _institutionId == null) _buildNoSession(context),
+            if (!_loading && _error != null && _institutionId != null)
+              _buildError(context),
+            if (!_loading &&
+                _error == null &&
+                _institutionId != null &&
+                visible.isEmpty)
               _buildEmpty(context),
-            if (!_loading && _error == null)
+            if (!_loading && _error == null && _institutionId != null)
               ...visible.map(
                 (announcement) => _buildAnnouncement(context, announcement),
               ),
@@ -129,28 +187,42 @@ class _AnnouncementViewState extends State<AnnouncementView> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'KLIA Terminal 1',
+              _institutionName ?? 'No active venue session',
               style: Theme.of(
                 context,
               ).textTheme.labelLarge?.copyWith(color: AppColors.primary),
             ),
           ),
-          Container(
-            width: 8,
-            height: 8,
-            decoration: const BoxDecoration(
-              color: AppColors.success,
-              shape: BoxShape.circle,
+          if (_institutionId != null) ...[
+            Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                color: AppColors.success,
+                shape: BoxShape.circle,
+              ),
             ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            'Live',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: AppColors.success),
-          ),
+            const SizedBox(width: 6),
+            Text(
+              'Live',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.success),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildNoSession(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 24),
+      child: AppMessageBanner(
+        message:
+            'Identify your location on the home page and start a venue session '
+            'to receive its official announcements.',
+        type: AppMessageType.information,
       ),
     );
   }
@@ -197,7 +269,10 @@ class _AnnouncementViewState extends State<AnnouncementView> {
   }
 
   Widget _buildAnnouncement(BuildContext context, Announcement announcement) {
-    final color = _colorFor(announcement);
+    final captured = announcement.isCaptured;
+    final color = captured
+        ? AppColors.accent
+        : _colorFor(announcement);
     final translation = announcement.translations[_language];
     final title =
         _language == 'en' || translation == null || translation.title.isEmpty
@@ -216,101 +291,139 @@ class _AnnouncementViewState extends State<AnnouncementView> {
               ? BorderSide(color: color, width: 1.5)
               : BorderSide.none,
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => context.push('/announcement-details?id=${announcement.id}'),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        captured
+                            ? Icons.mic_outlined
+                            : _iconFor(announcement.type),
+                        color: color,
+                        size: 20,
+                      ),
                     ),
-                    child: Icon(
-                      _iconFor(announcement.type),
-                      color: color,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            if (announcement.isUrgent)
-                              Container(
-                                margin: const EdgeInsets.only(right: 8),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.emergency.withValues(
-                                    alpha: 0.1,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              if (captured)
+                                Container(
+                                  margin: const EdgeInsets.only(right: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
                                   ),
-                                  borderRadius: BorderRadius.circular(4),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.accent.withValues(
+                                      alpha: 0.12,
+                                    ),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'CAPTURED • ${((announcement.confidence ?? 0) * 100).round()}%',
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.accent,
+                                    ),
+                                  ),
+                                )
+                              else if (announcement.isUrgent)
+                                Container(
+                                  margin: const EdgeInsets.only(right: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.emergency.withValues(
+                                      alpha: 0.1,
+                                    ),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    announcement.priority.toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.emergency,
+                                    ),
+                                  ),
                                 ),
+                              Expanded(
                                 child: Text(
-                                  announcement.priority.toUpperCase(),
+                                  title,
                                   style: const TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.emergency,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
                                   ),
                                 ),
                               ),
-                            Expanded(
-                              child: Text(
-                                title,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
+                              const Icon(
+                                Icons.chevron_right,
+                                color: AppColors.textMuted,
+                                size: 20,
                               ),
-                            ),
-                          ],
-                        ),
-                        Text(
-                          _relativeTime(announcement.publishedAt),
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
+                            ],
+                          ),
+                          Text(
+                            _relativeTime(announcement.publishedAt),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  message,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                if (_language != 'en' && translation == null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Translation unavailable — showing English.',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
                   ),
                 ],
-              ),
-              const SizedBox(height: 12),
-              Text(message, style: Theme.of(context).textTheme.bodyMedium),
-              if (_language != 'en' && translation == null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'Translation unavailable — showing English.',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.pin_drop_outlined,
+                      size: 14,
+                      color: AppColors.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      announcement.zoneName ?? 'All Zones',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ],
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.pin_drop_outlined,
-                    size: 14,
-                    color: AppColors.textMuted,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    announcement.zoneName ?? 'All Zones',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),

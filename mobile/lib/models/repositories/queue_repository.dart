@@ -1,6 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../core/supabase_client.dart';
-import '../models/queue_tracking.dart';
+import '../../core/supabase_client.dart';
+import '../entities/queue_tracking.dart';
 
 class QueueRepository {
   static const kliaTerminalOneId = '11111111-1111-4111-8111-111111111111';
@@ -30,16 +30,51 @@ class QueueRepository {
         .from('queue_numbers')
         .select('*, queue_lines!inner(*)')
         .eq('institution_id', institutionId)
-        .inFilter('number', _numberCandidates(number, queuePrefix));
+        .inFilter('number', numberCandidates(number, queuePrefix));
     if (queueLineId != null && queueLineId.isNotEmpty) {
       query = query.eq('queue_line_id', queueLineId);
     }
     final response = await query.limit(1).maybeSingle();
     if (response == null) return null;
-    return QueueTrackingData.fromJson(Map<String, dynamic>.from(response));
+    final tracking = QueueTrackingData.fromJson(
+      Map<String, dynamic>.from(response),
+    );
+    enforceMaximumQueueNumber(tracking);
+    return tracking;
   }
 
-  List<String> _numberCandidates(String number, String? prefix) {
+  /// The maximum queue number configured on the web portal is a hard cap:
+  /// waiting numbers beyond it will never be called, so they cannot be
+  /// tracked. Legacy numbers that were already called before the cap keep
+  /// their status visible. Returns a specific error message when [number]
+  /// is beyond [line]'s cap, or null when the number is trackable.
+  static String? maximumQueueNumberViolation(String number, QueueLineInfo line) {
+    final match = RegExp(r'\d+$').firstMatch(number);
+    final value = int.tryParse(match?.group(0) ?? '');
+    if (value == null || value <= line.maxTrackingNumber) return null;
+    final prefix = line.prefix.trim().toUpperCase();
+    final capLabel = prefix.isEmpty
+        ? '${line.maxTrackingNumber}'
+        : '$prefix-${'${line.maxTrackingNumber}'.padLeft(3, '0')}';
+    return 'Queue number ${number.trim().toUpperCase()} is beyond the '
+        'maximum queue number ($capLabel) for this queue line and will not '
+        'be called.';
+  }
+
+  static void enforceMaximumQueueNumber(QueueTrackingData tracking) {
+    if (tracking.status != 'waiting') return;
+    final message = maximumQueueNumberViolation(
+      tracking.number,
+      tracking.line,
+    );
+    if (message != null) {
+      throw QueueNumberBeyondMaximumException(message);
+    }
+  }
+
+  /// Formatting variants for a queue number so lookups tolerate prefixes,
+  /// dashes and zero padding ("A-047", "A047", "a 47"...).
+  static List<String> numberCandidates(String number, String? prefix) {
     final raw = number.trim().toUpperCase();
     final compact = raw.replaceAll(RegExp(r'[\s-]'), '');
     final cleanPrefix = (prefix ?? '').trim().toUpperCase().replaceAll(RegExp(r'[\s-]'), '');
@@ -98,4 +133,14 @@ class QueueRepository {
 
   Future<void> removeSubscription(RealtimeChannel channel) =>
       _client.removeChannel(channel);
+}
+
+/// The tracked queue number is beyond its queue line's maximum queue number.
+class QueueNumberBeyondMaximumException implements Exception {
+  final String message;
+
+  const QueueNumberBeyondMaximumException(this.message);
+
+  @override
+  String toString() => message;
 }

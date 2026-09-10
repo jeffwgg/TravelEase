@@ -1,12 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
-import '../../models/announcement.dart';
-import '../../repositories/announcement_repository.dart';
-import '../../repositories/venue_repository.dart';
-import '../../models/venue_search_result.dart';
+import '../../models/entities/announcement.dart';
+import '../../models/entities/venue_search_result.dart';
+import '../../models/entities/venue_session.dart';
+import '../../models/repositories/announcement_repository.dart';
+import '../../models/repositories/captured_announcement_store.dart';
+import '../../models/repositories/venue_repository.dart';
+import '../../services/venue_session_service.dart';
 import '../../widgets/app_message_banner.dart';
 
 class VenueIdentificationView extends StatefulWidget {
@@ -17,46 +21,116 @@ class VenueIdentificationView extends StatefulWidget {
       _VenueIdentificationViewState();
 }
 
-class _VenueIdentificationViewState extends State<VenueIdentificationView> {
-  static const _nearbyVenues = [
-    _VenueData('KLIA Terminal 1', 'Airport', Icons.flight, '0.5 km', true),
-    _VenueData('Gateway@klia2 Hotel', 'Hotel', Icons.hotel, '1.2 km', true),
-    _VenueData(
-      'Sepang International Circuit',
-      'Attraction',
-      Icons.attractions,
-      '8.5 km',
-      false,
-    ),
-  ];
-  String? _selectedVenue;
-  bool _showNearbyVenues = false;
+class _VenueIdentificationViewState extends State<VenueIdentificationView>
+    with WidgetsBindingObserver {
   final _searchController = TextEditingController();
   final _venueRepository = VenueRepository();
+  final _announcementRepository = AnnouncementRepository();
+
   Timer? _searchDebounce;
+
+  /// Catch-up refresh for the announcement feed: scheduled announcements are
+  /// published when their time arrives without any database change, so
+  /// realtime delivers no event and the list must re-fetch on its own.
+  Timer? _feedRefreshTimer;
   List<VenueSearchResult> _searchResults = const [];
   bool _searching = false;
   String? _searchError;
-  final _announcementRepository = AnnouncementRepository();
+
+  // Location detection (reuses the request-help module's detection settings).
+  bool _locating = false;
+  bool _matching = false;
+  String? _locationStatus;
+  String? _locationError;
+  List<VenueSearchResult> _detectedVenues = const [];
+
+  // Official announcements of the active venue session.
   List<Announcement> _recentAnnouncements = [];
   RealtimeChannel? _announcementChannel;
+
+  VenueSession? _session;
 
   @override
   void initState() {
     super.initState();
-    _loadRecentAnnouncements();
-    _announcementChannel = _announcementRepository.subscribeToAnnouncements(
-      _loadRecentAnnouncements,
+    WidgetsBinding.instance.addObserver(this);
+    _session = VenueSessionService.instance.session;
+    VenueSessionService.instance.addListener(_onSessionChanged);
+    CapturedAnnouncementStore.instance.version.addListener(_onSessionChanged);
+    _refreshAnnouncementFeed();
+    _feedRefreshTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _refreshAnnouncementFeed(),
     );
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Tapping an announcement notification resumes the app after the
+    // background poller raised it; the feed must catch up on return.
+    if (state == AppLifecycleState.resumed) _refreshAnnouncementFeed();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _feedRefreshTimer?.cancel();
+    VenueSessionService.instance.removeListener(_onSessionChanged);
+    CapturedAnnouncementStore.instance.version.removeListener(
+      _onSessionChanged,
+    );
     _searchDebounce?.cancel();
     _searchController.dispose();
     final channel = _announcementChannel;
     if (channel != null) _announcementRepository.removeSubscription(channel);
     super.dispose();
+  }
+
+  void _onSessionChanged() {
+    if (!mounted) return;
+    setState(() => _session = VenueSessionService.instance.session);
+    _refreshAnnouncementFeed();
+  }
+
+  void _refreshAnnouncementFeed() {
+    _loadRecentAnnouncements();
+    _resubscribeToAnnouncements();
+  }
+
+  Future<void> _loadRecentAnnouncements() async {
+    final session = VenueSessionService.instance.session;
+    if (session == null) {
+      if (mounted) setState(() => _recentAnnouncements = const []);
+      return;
+    }
+    try {
+      final official = await _announcementRepository.getActiveAnnouncements(
+        institutionId: session.institutionId,
+      );
+      final captured = await CapturedAnnouncementStore.instance
+          .announcementsFor(session.institutionId);
+      final merged = [...official, ...captured]
+        ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+      if (mounted) {
+        setState(() => _recentAnnouncements = merged.take(2).toList());
+      }
+    } catch (_) {
+      // The full announcement page exposes retry/error UI. Keep the home preview quiet.
+    }
+  }
+
+  Future<void> _resubscribeToAnnouncements() async {
+    final institutionId = VenueSessionService.instance.session?.institutionId;
+    final previous = _announcementChannel;
+    _announcementChannel = null;
+    if (previous != null) {
+      await _announcementRepository.removeSubscription(previous);
+    }
+    if (institutionId == null || !mounted) return;
+    _announcementChannel = _announcementRepository.subscribeToAnnouncements(
+      _loadRecentAnnouncements,
+      institutionId: institutionId,
+    );
   }
 
   void _onSearchChanged(String value) {
@@ -73,7 +147,6 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
     setState(() {
       _searching = true;
       _searchError = null;
-      _showNearbyVenues = false;
     });
     _searchDebounce = Timer(
       const Duration(milliseconds: 350),
@@ -99,15 +172,184 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
     }
   }
 
-  Future<void> _loadRecentAnnouncements() async {
+  /// Detects the traveller's position with the same permission flow and
+  /// accuracy settings used by the request-help location picker (FR-M2-02).
+  Future<void> _detectCurrentLocation() async {
+    if (_locating || _matching) return;
+    setState(() {
+      _locating = true;
+      _locationStatus = 'Detecting your location…';
+      _locationError = null;
+      _detectedVenues = const [];
+    });
     try {
-      final items = await _announcementRepository.getActiveAnnouncements();
-      if (mounted) {
-        setState(() => _recentAnnouncements = items.take(2).toList());
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
       }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (!mounted) return;
+        setState(() {
+          _locating = false;
+          _locationStatus = null;
+          _locationError =
+              'Location permission is required to detect nearby institutions. '
+              'Search for your institution or choose its location on the map instead.';
+        });
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      if (!mounted) return;
+      setState(() => _locationStatus = 'Matching against participating institutions…');
+      await _handleDetectedPosition(position.latitude, position.longitude);
     } catch (_) {
-      // The full announcement page exposes retry/error UI. Keep the home preview quiet.
+      if (!mounted) return;
+      setState(() {
+        _locating = false;
+        _locationStatus = null;
+        _locationError =
+            'Unable to detect your current location. Choose your location on the map instead.';
+      });
     }
+  }
+
+  /// Lets the traveller pick their location on the map when GPS detection is
+  /// unavailable or undesired, using the request-help module's map picker.
+  Future<void> _chooseOnMap() async {
+    if (_locating || _matching) return;
+    final result = await context.push<Map<String, dynamic>>('/location-picker');
+    final latitude = (result?['lat'] as num?)?.toDouble();
+    final longitude = (result?['lng'] as num?)?.toDouble();
+    if (!mounted || latitude == null || longitude == null) return;
+    setState(() {
+      _locationStatus = 'Matching against participating institutions…';
+      _locationError = null;
+      _detectedVenues = const [];
+    });
+    await _handleDetectedPosition(latitude, longitude);
+  }
+
+  /// Compares the chosen position against the institution list: a direct
+  /// match starts a venue session, otherwise nearby institutions are offered
+  /// as a list to choose from (FR-M2-03).
+  Future<void> _handleDetectedPosition(double latitude, double longitude) async {
+    setState(() {
+      _locating = false;
+      _matching = true;
+      _searchResults = const [];
+      _searchError = null;
+    });
+    try {
+      final match = await _venueRepository.matchLocation(
+        latitude: latitude,
+        longitude: longitude,
+      );
+      if (!mounted) return;
+      if (match != null) {
+        setState(() {
+          _matching = false;
+          _locationStatus = null;
+        });
+        await _confirmAndEstablish(match, autoSuggested: true);
+        return;
+      }
+      final nearby = await _venueRepository.nearby(
+        latitude: latitude,
+        longitude: longitude,
+      );
+      if (!mounted) return;
+      setState(() {
+        _matching = false;
+        _locationStatus = null;
+        _detectedVenues = nearby;
+        _locationError = nearby.isEmpty
+            ? 'No participating institution was found near this location. '
+                'Search for your institution manually instead.'
+            : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _matching = false;
+        _locationStatus = null;
+        _locationError =
+            'Unable to match your location against the institution list right now.';
+      });
+    }
+  }
+
+  /// Requires the traveller to confirm the institution before the venue
+  /// session starts (FR-M2-03).
+  Future<void> _confirmAndEstablish(
+    VenueSearchResult venue, {
+    bool autoSuggested = false,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Start venue session?'),
+        content: Text(
+          autoSuggested
+              ? 'You appear to be at ${venue.name}. Start a venue session to '
+                  'receive its official announcements and location services?'
+              : 'Connect to ${venue.name} to receive its official '
+                  'announcements and location services?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Start Session'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await VenueSessionService.instance.establish(
+      VenueSession(
+        institutionId: venue.id,
+        institutionName: venue.name,
+        branch: venue.branch,
+        startedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  /// Ends the active venue session (FR-M2-06, manual end).
+  Future<void> _quitSession() async {
+    final session = _session;
+    if (session == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('End venue session?'),
+        content: Text(
+          'You will stop receiving official announcements from '
+          '${session.institutionName}.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('End Session'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await VenueSessionService.instance.quit();
   }
 
   @override
@@ -250,141 +492,23 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
               ),
               const SizedBox(height: 24),
 
-              // Connected venue
-              if (_selectedVenue != null) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: _buildConnectedVenue(context),
-                ),
-                const SizedBox(height: 24),
-              ],
-
-              // Institution identification section
+              // Venue session: active session card replaces the identification section
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Card(
-                  margin: EdgeInsets.zero,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Identify Your Location',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Search for a participating institution or check venues near you.',
-                          style: TextStyle(
-                            color: AppColors.textMuted,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: _searchController,
-                          onChanged: _onSearchChanged,
-                          decoration: const InputDecoration(
-                            hintText: 'Search institution, airport, hotel...',
-                            prefixIcon: Icon(
-                              Icons.search,
-                              color: AppColors.textMuted,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                style: _venueActionStyle(),
-                                onPressed: () => setState(
-                                  () => _showNearbyVenues = !_showNearbyVenues,
-                                ),
-                                child: _venueActionContent(
-                                  _showNearbyVenues
-                                      ? Icons.expand_less
-                                      : Icons.near_me_outlined,
-                                  _showNearbyVenues
-                                      ? 'Hide Nearby'
-                                      : 'Find Nearby',
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton(
-                                style: _venueActionStyle(),
-                                onPressed: () {},
-                                child: _venueActionContent(
-                                  Icons.qr_code_scanner,
-                                  'Scan QR',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (_searching) ...[
-                          const SizedBox(height: 12),
-                          const LinearProgressIndicator(minHeight: 2),
-                        ],
-                        if (_searchError != null) ...[
-                          const SizedBox(height: 12),
-                          AppMessageBanner(
-                            message: _searchError!,
-                            type: AppMessageType.error,
-                          ),
-                        ],
-                        if (!_searching &&
-                            _searchController.text.trim().isNotEmpty &&
-                            _searchError == null) ...[
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 10),
-                            child: Divider(height: 1),
-                          ),
-                          if (_searchResults.isEmpty)
-                            const AppMessageBanner(
-                              message:
-                                  'No matching participating institution was found.',
-                              type: AppMessageType.information,
-                            )
-                          else
-                            ..._searchResults.map(_buildSearchOption),
-                        ],
-                        AnimatedCrossFade(
-                          duration: const Duration(milliseconds: 220),
-                          crossFadeState: _showNearbyVenues
-                              ? CrossFadeState.showSecond
-                              : CrossFadeState.showFirst,
-                          firstChild: const SizedBox.shrink(),
-                          secondChild: Column(
-                            children: [
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 10),
-                                child: Divider(height: 1),
-                              ),
-                              ..._nearbyVenues.map(
-                                (venue) => _buildNearbyOption(context, venue),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                child: _session != null
+                    ? _buildActiveSessionCard(context, _session!)
+                    : _buildIdentifyLocationCard(context),
               ),
               const SizedBox(height: 24),
 
-              // Recent announcements
+              // Announcements of the active venue session
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Recent Announcements',
+                      'Announcements',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     TextButton(
@@ -394,13 +518,232 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
                   ],
                 ),
               ),
-              ..._recentAnnouncements.map(
-                (announcement) => _buildAnnouncementCard(context, announcement),
-              ),
+              if (_session == null)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: AppMessageBanner(
+                    message:
+                        'Start a venue session to receive official announcements '
+                        'from your institution.',
+                    type: AppMessageType.information,
+                  ),
+                )
+              else if (_recentAnnouncements.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: AppMessageBanner(
+                    message: 'No active announcements at this venue.',
+                    type: AppMessageType.information,
+                  ),
+                )
+              else
+                ..._recentAnnouncements.map(
+                  (announcement) => _buildAnnouncementCard(context, announcement),
+                ),
               const SizedBox(height: 100),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildIdentifyLocationCard(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Identify Your Location',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Detect where you are or search for a participating institution.',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _searchController,
+              onChanged: _onSearchChanged,
+              decoration: const InputDecoration(
+                hintText: 'Search institution, airport, hotel...',
+                prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    style: _venueActionStyle(),
+                    onPressed: _detectCurrentLocation,
+                    child: _venueActionContent(
+                      _locating ? Icons.location_searching : Icons.near_me_outlined,
+                      _locating ? 'Detecting…' : 'Use Current Location',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton(
+                    style: _venueActionStyle(),
+                    onPressed: _chooseOnMap,
+                    child: _venueActionContent(
+                      Icons.map_outlined,
+                      'Choose on Map',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_searching || _matching) ...[
+              const SizedBox(height: 12),
+              const LinearProgressIndicator(minHeight: 2),
+            ],
+            if (_locationStatus != null) ...[
+              const SizedBox(height: 12),
+              AppMessageBanner(
+                message: _locationStatus!,
+                type: AppMessageType.information,
+              ),
+            ],
+            if (_searchError != null) ...[
+              const SizedBox(height: 12),
+              AppMessageBanner(
+                message: _searchError!,
+                type: AppMessageType.error,
+              ),
+            ],
+            if (_locationError != null) ...[
+              const SizedBox(height: 12),
+              AppMessageBanner(
+                message: _locationError!,
+                type: AppMessageType.error,
+              ),
+            ],
+            if (!_searching &&
+                _searchController.text.trim().isNotEmpty &&
+                _searchError == null) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Divider(height: 1),
+              ),
+              if (_searchResults.isEmpty)
+                const AppMessageBanner(
+                  message: 'No matching participating institution was found.',
+                  type: AppMessageType.information,
+                )
+              else
+                ..._searchResults.map(_buildVenueOption),
+            ],
+            if (_detectedVenues.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Divider(height: 1),
+              ),
+              const Text(
+                'Institutions near your location — choose one to connect.',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              ..._detectedVenues.map(_buildVenueOption),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActiveSessionCard(BuildContext context, VenueSession session) {
+    final startedAt = session.startedAt;
+    final startedLabel =
+        '${startedAt.hour.toString().padLeft(2, '0')}:${startedAt.minute.toString().padLeft(2, '0')}';
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.primary,
+            AppColors.primary.withValues(alpha: 0.85),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.location_on, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: AppColors.successLight,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Venue session active',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      session.institutionName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      '${session.branch ?? 'Participating venue'} • since $startedLabel',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _quitSession,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.6)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                textStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              icon: const Icon(Icons.logout, size: 16),
+              label: const Text('Quit Venue Session'),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -426,112 +769,55 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
     ],
   );
 
-  Widget _buildSearchOption(VenueSearchResult venue) => InkWell(
-    borderRadius: BorderRadius.circular(12),
-    onTap: () => setState(() {
-      _selectedVenue = venue.name;
-      _searchController.clear();
-      _searchResults = const [];
-    }),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
+  Widget _buildVenueOption(VenueSearchResult venue) {
+    final distance = venue.distanceLabel;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => _confirmAndEstablish(venue),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.account_balance_outlined,
+                color: AppColors.primary,
+                size: 20,
+              ),
             ),
-            child: const Icon(
-              Icons.account_balance_outlined,
-              color: AppColors.primary,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  venue.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    venue.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  venue.branch,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    distance.isEmpty ? venue.branch : '${venue.branch} • $distance',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
-          ),
-          const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 19),
-        ],
-      ),
-    ),
-  );
-
-  Widget _buildConnectedVenue(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.primary,
-            AppColors.primary.withValues(alpha: 0.85),
+            const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 19),
           ],
         ),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.location_on, color: Colors.white, size: 24),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Connected to',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                Text(
-                  _selectedVenue!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 16,
-                  ),
-                ),
-                const Text(
-                  'Terminal 1, Zone A',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-          const Icon(
-            Icons.check_circle,
-            color: AppColors.successLight,
-            size: 24,
-          ),
-        ],
       ),
     );
   }
@@ -577,140 +863,97 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
     );
   }
 
-  Widget _buildNearbyOption(BuildContext context, _VenueData venue) => InkWell(
-    borderRadius: BorderRadius.circular(12),
-    onTap: () => setState(() {
-      _selectedVenue = venue.name;
-      _showNearbyVenues = false;
-    }),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(venue.icon, color: AppColors.primary, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  venue.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${venue.type} • ${venue.distance}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-          if (venue.accessible)
-            const Padding(
-              padding: EdgeInsets.only(left: 6),
-              child: Icon(Icons.accessible, color: AppColors.success, size: 18),
-            ),
-          const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 19),
-        ],
-      ),
-    ),
-  );
-
-  // Retained for the full venue-list presentation used by future search results.
-  // ignore: unused_element
-  Widget _buildVenueCard(BuildContext context, _VenueData venue) {
+  Widget _buildAnnouncementCard(
+    BuildContext context,
+    Announcement announcement,
+  ) {
+    final captured = announcement.isCaptured;
+    final urgent = announcement.isUrgent;
+    final color = captured
+        ? AppColors.accent
+        : announcement.priority == 'urgent'
+        ? AppColors.emergency
+        : urgent
+        ? AppColors.secondary
+        : AppColors.primary;
+    final icon = captured
+        ? Icons.mic_outlined
+        : switch (announcement.type) {
+            'boarding' => Icons.flight_takeoff,
+            'delay_cancellation' => Icons.schedule,
+            'emergency' => Icons.warning_amber_rounded,
+            'travel_update' => Icons.swap_horiz,
+            _ => Icons.campaign_outlined,
+          };
+    final elapsed = DateTime.now().difference(announcement.publishedAt);
+    final time = elapsed.inMinutes < 1
+        ? 'Just now'
+        : elapsed.inMinutes < 60
+        ? '${elapsed.inMinutes} min ago'
+        : '${elapsed.inHours} hr ago';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       child: Card(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: urgent && !captured
+              ? BorderSide(color: color, width: 1)
+              : BorderSide.none,
+        ),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => setState(() => _selectedVenue = venue.name),
+          onTap: () => context.push('/announcement-details?id=${announcement.id}'),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
                 Container(
-                  width: 48,
-                  height: 48,
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(venue.icon, color: AppColors.primary),
+                  child: Icon(icon, color: color, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        venue.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            venue.type,
-                            style: Theme.of(context).textTheme.bodySmall,
+                          Expanded(
+                            child: Text(
+                              announcement.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 15,
+                              ),
+                            ),
                           ),
-                          const SizedBox(width: 8),
                           Text(
-                            '• ${venue.distance}',
+                            time,
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
                       ),
+                      if (captured) ...[
+                        const SizedBox(height: 4),
+                        _buildCapturedChip(announcement.confidence),
+                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                        announcement.messageEn,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
                     ],
                   ),
                 ),
-                if (venue.accessible)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.successLight.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.accessible,
-                          size: 12,
-                          color: AppColors.success,
-                        ),
-                        SizedBox(width: 4),
-                        Text(
-                          'Accessible',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: AppColors.success,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(width: 8),
                 const Icon(
                   Icons.chevron_right,
                   color: AppColors.textMuted,
@@ -724,95 +967,24 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView> {
     );
   }
 
-  Widget _buildAnnouncementCard(
-    BuildContext context,
-    Announcement announcement,
-  ) {
-    final urgent = announcement.isUrgent;
-    final color = announcement.priority == 'urgent'
-        ? AppColors.emergency
-        : urgent
-        ? AppColors.secondary
-        : AppColors.primary;
-    final icon = switch (announcement.type) {
-      'boarding' => Icons.flight_takeoff,
-      'delay_cancellation' => Icons.schedule,
-      'emergency' => Icons.warning_amber_rounded,
-      'travel_update' => Icons.swap_horiz,
-      _ => Icons.campaign_outlined,
-    };
-    final elapsed = DateTime.now().difference(announcement.publishedAt);
-    final time = elapsed.inMinutes < 1
-        ? 'Just now'
-        : elapsed.inMinutes < 60
-        ? '${elapsed.inMinutes} min ago'
-        : '${elapsed.inHours} hr ago';
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      child: Card(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: urgent ? BorderSide(color: color, width: 1) : BorderSide.none,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: color, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          announcement.title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 15,
-                          ),
-                        ),
-                        Text(
-                          time,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      announcement.messageEn,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+  static Widget _buildCapturedChip(double? confidence) {
+    final label = confidence == null
+        ? 'CAPTURED'
+        : 'CAPTURED • ${(confidence * 100).round()}%';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: AppColors.accent,
         ),
       ),
     );
   }
-}
-
-class _VenueData {
-  final String name, type;
-  final IconData icon;
-  final String distance;
-  final bool accessible;
-  const _VenueData(
-    this.name,
-    this.type,
-    this.icon,
-    this.distance,
-    this.accessible,
-  );
 }

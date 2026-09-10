@@ -2,7 +2,10 @@ class QueueLineInfo {
   final String id;
   final String name;
   final String serviceArea;
-  final String counter;
+
+  /// Optional service counter label. The web portal no longer sets it, so it
+  /// may be absent — [counterLabel] falls back to the service area.
+  final String? counter;
   final String prefix;
   final String currentNumber;
   final String upcomingNumber;
@@ -10,30 +13,48 @@ class QueueLineInfo {
   final int estimatedServiceMinutes;
   final String? operatingHours;
 
+  /// How many numbers ahead of the currently served number travellers can
+  /// register and track. Falls back to the system default of 100 when the
+  /// queue line does not define a value.
+  final int maxTrackingNumber;
+
+  static const defaultMaxTrackingNumber = 100;
+
   const QueueLineInfo({
     required this.id,
     required this.name,
     required this.serviceArea,
-    required this.counter,
+    this.counter,
     required this.prefix,
     required this.currentNumber,
     required this.upcomingNumber,
     required this.status,
     required this.estimatedServiceMinutes,
     this.operatingHours,
+    this.maxTrackingNumber = defaultMaxTrackingNumber,
   });
+
+  /// Where the traveller should go when called: the counter when one is
+  /// configured, otherwise the line's service area.
+  String get counterLabel {
+    final value = counter?.trim();
+    if (value != null && value.isNotEmpty) return value;
+    return serviceArea;
+  }
 
   factory QueueLineInfo.fromJson(Map<String, dynamic> json) => QueueLineInfo(
     id: json['id'] as String,
     name: json['name'] as String,
     serviceArea: json['service_area'] as String,
-    counter: json['counter'] as String,
+    counter: json['counter'] as String?,
     prefix: json['prefix'] as String? ?? '',
     currentNumber: json['current_number'] as String,
     upcomingNumber: json['upcoming_number'] as String,
     status: json['status'] as String,
     estimatedServiceMinutes: json['estimated_service_minutes'] as int? ?? 5,
     operatingHours: json['operating_hours'] as String?,
+    maxTrackingNumber:
+        json['max_tracking_number'] as int? ?? defaultMaxTrackingNumber,
   );
 }
 

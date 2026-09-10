@@ -53,6 +53,14 @@ Copy the generated `https://...trycloudflare.com` URL and store it as the
 Supabase Edge Function secret `LIBRETRANSLATE_URL`. Quick Tunnel URLs change
 when the tunnel container is recreated and are intended only for testing.
 
+After every tunnel restart, run this script instead of updating the secret by
+hand. It reads the current URL from the cloudflared logs, checks that
+LibreTranslate answers through it, and updates the `LIBRETRANSLATE_URL` secret:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File web\supabase\libretranslate\update-tunnel-secret.ps1
+```
+
 ## Hosted Supabase requirement
 
 A hosted Supabase Edge Function cannot access `localhost` on your computer.

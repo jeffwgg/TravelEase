@@ -56,6 +56,7 @@ class _ChatViewState extends State<ChatView> {
 
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
@@ -71,22 +72,41 @@ class _ChatViewState extends State<ChatView> {
               ),
               child: const Icon(Icons.support_agent, size: 18, color: AppColors.primary),
             ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_viewModel.assignedStaffName ?? 'Staff Chat', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                Row(
-                  children: [
-                    Container(
-                      width: 6, height: 6,
-                      decoration: BoxDecoration(color: _viewModel.assignedStaffName != null ? AppColors.success : AppColors.textMuted, shape: BoxShape.circle),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(_viewModel.assignedStaffName != null ? 'Online' : 'Waiting...', style: TextStyle(fontSize: 11, color: _viewModel.assignedStaffName != null ? AppColors.success : AppColors.textMuted)),
-                  ],
-                ),
-              ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _viewModel.assignedStaffName ?? 'Staff Chat',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: _viewModel.assignedStaffName != null ? AppColors.success : AppColors.textMuted,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _viewModel.assignedStaffName != null ? 'Online' : 'Waiting...',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: _viewModel.assignedStaffName != null ? AppColors.success : AppColors.textMuted,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
