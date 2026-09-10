@@ -74,3 +74,4 @@ mobile/.cursorrules
 
 # Browser automation artifacts
 .playwright-mcp/
+/mobile/sign_test_videos
