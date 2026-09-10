@@ -91,6 +91,48 @@ class SignTranslationService {
     },
   };
 
+  /// Word-level translations for every sign the geometric/label vocabulary
+  /// can emit (Phase 3.2). Checked before the phrase dictionary so a single
+  /// recognized sign translates cleanly instead of falling through.
+  static final Map<String, Map<String, String>> _signWordDictionary = {
+    'callonphone': {'en': 'Phone call', 'ms': 'Panggilan telefon', 'zh': '打电话'},
+    'hear': {'en': 'Hear', 'ms': 'Dengar', 'zh': '听见'},
+    'ear': {'en': 'Ear', 'ms': 'Telinga', 'zh': '耳朵'},
+    'sleep': {'en': 'Sleep', 'ms': 'Tidur', 'zh': '睡觉'},
+    'see': {'en': 'See', 'ms': 'Lihat', 'zh': '看见'},
+    'eye': {'en': 'Eye', 'ms': 'Mata', 'zh': '眼睛'},
+    'nose': {'en': 'Nose', 'ms': 'Hidung', 'zh': '鼻子'},
+    'pig': {'en': 'Pig', 'ms': 'Babi', 'zh': '猪'},
+    'bird': {'en': 'Bird', 'ms': 'Burung', 'zh': '鸟'},
+    'water': {'en': 'Water', 'ms': 'Air', 'zh': '水'},
+    'food': {'en': 'Food', 'ms': 'Makanan', 'zh': '食物'},
+    'drink': {'en': 'Drink', 'ms': 'Minuman', 'zh': '喝'},
+    'taste': {'en': 'Taste', 'ms': 'Rasa', 'zh': '尝'},
+    'mouth': {'en': 'Mouth', 'ms': 'Mulut', 'zh': '嘴巴'},
+    'chin': {'en': 'Chin', 'ms': 'Dagu', 'zh': '下巴'},
+    'mom': {'en': 'Mom', 'ms': 'Ibu', 'zh': '妈妈'},
+    'dad': {'en': 'Dad', 'ms': 'Bapa', 'zh': '爸爸'},
+    'milk': {'en': 'Milk', 'ms': 'Susu', 'zh': '牛奶'},
+    'think': {'en': 'Think', 'ms': 'Fikir', 'zh': '想'},
+    'head': {'en': 'Head', 'ms': 'Kepala', 'zh': '头'},
+    'hat': {'en': 'Hat', 'ms': 'Topi', 'zh': '帽子'},
+    'face': {'en': 'Face', 'ms': 'Muka', 'zh': '脸'},
+    'happy': {'en': 'Happy', 'ms': 'Gembira', 'zh': '开心'},
+    'please': {'en': 'Please', 'ms': 'Tolong', 'zh': '请'},
+    'like': {'en': 'Like', 'ms': 'Suka', 'zh': '喜欢'},
+    'yes': {'en': 'Yes', 'ms': 'Ya', 'zh': '是'},
+    'no': {'en': 'No', 'ms': 'Tidak', 'zh': '不'},
+    'hello': {'en': 'Hello', 'ms': 'Halo', 'zh': '你好'},
+    'bye': {'en': 'Bye', 'ms': 'Selamat tinggal', 'zh': '再见'},
+    'airplane': {'en': 'Airplane', 'ms': 'Kapal terbang', 'zh': '飞机'},
+    'cow': {'en': 'Cow', 'ms': 'Lembu', 'zh': '牛'},
+    'book': {'en': 'Book', 'ms': 'Buku', 'zh': '书'},
+    'open': {'en': 'Open', 'ms': 'Buka', 'zh': '打开'},
+    'help': {'en': 'Help', 'ms': 'Bantuan', 'zh': '帮助'},
+    'sorry': {'en': 'Sorry', 'ms': 'Maaf', 'zh': '对不起'},
+    'stop': {'en': 'Stop', 'ms': 'Berhenti', 'zh': '停'},
+  };
+
   /// Gloss translation per sign language
   static final Map<String, Map<SignLanguageType, String>> _glossDictionary = {
     'where is the gate': {
@@ -140,24 +182,31 @@ class SignTranslationService {
     required SignLanguageType sourceDialect,
     String? recognizedPhraseKey,
   }) async {
-    // Simulate real-time neural vision gesture recognition
-    await Future.delayed(const Duration(milliseconds: 300));
+    if (recognizedPhraseKey == null || recognizedPhraseKey.trim().isEmpty) {
+      return {
+        'text': '',
+        'confidence': 0.0,
+        'dialect': sourceDialect.code,
+        'is_confident': false,
+      };
+    }
 
-    final key = recognizedPhraseKey?.toLowerCase().trim() ?? 'where is the gate';
+    final key = recognizedPhraseKey.toLowerCase().trim();
     final spokenCode = sourceDialect.spokenLangCode;
 
-    String text = 'Where is the gate?';
+    String text = recognizedPhraseKey;
+    double confidence = 0.85;
+
     if (_translationDictionary.containsKey(key)) {
       text = _translationDictionary[key]![spokenCode] ?? _translationDictionary[key]!['en']!;
-    } else {
-      text = recognizedPhraseKey ?? 'Where is the gate?';
+      confidence = 0.96;
     }
 
     return {
       'text': text,
-      'confidence': 0.94,
+      'confidence': confidence,
       'dialect': sourceDialect.code,
-      'is_confident': true,
+      'is_confident': confidence >= 0.80,
     };
   }
 
@@ -172,6 +221,15 @@ class SignTranslationService {
     }
 
     final lower = text.toLowerCase().trim();
+
+    // 1. Exact single-sign word match first (recognized glosses like
+    //    "water" / "hello" must not fall through to phrase matching).
+    final word = _signWordDictionary[lower];
+    if (word != null) {
+      return word[toLang] ?? word['en'] ?? text;
+    }
+
+    // 2. Phrase dictionary (substring match).
     for (var entry in _translationDictionary.entries) {
       final translations = entry.value;
       if (translations.values.any((val) => lower.contains(val.toLowerCase()) || val.toLowerCase().contains(lower))) {

@@ -1,54 +1,66 @@
 import 'package:flutter/foundation.dart';
 import '../models/entities/sign_language_entity.dart';
-import '../services/bim_sign_recognition_service.dart';
-import '../services/sign_translation_service.dart';
+import '../services/asl_tflite_service.dart';
+import '../services/sign_frame_data.dart';
 import '../models/repositories/communication_repository.dart';
 import '../core/hardware_services.dart';
+import '../services/translation_service.dart';
 
-/// ViewModel for Camera Sign Translation (FR-M3-01 to FR-M3-06, UC301)
+/// ViewModel for Camera Sign Translation (Alphabet Fingerspelling & Words)
 class SignTranslationCameraViewModel extends ChangeNotifier {
-  final SignTranslationService _service;
-  final BimSignRecognitionService _bimRecognitionService;
   final CommunicationRepository _repository;
   final HardwareServices _hardware;
+  final AslTfliteService _aslTflite = AslTfliteService();
 
   SignTranslationCameraViewModel({
-    SignTranslationService? service,
-    BimSignRecognitionService? bimRecognitionService,
     CommunicationRepository? repository,
     HardwareServices? hardware,
-  }) : _service = service ?? SignTranslationService(),
-       _bimRecognitionService =
-           bimRecognitionService ?? BimSignRecognitionService(),
-       _repository = repository ?? CommunicationRepository(),
-       _hardware = hardware ?? HardwareServices() {
-    _hardware.initialize();
+  })  : _repository = repository ?? CommunicationRepository(),
+        _hardware = hardware ?? HardwareServices() {
+    _initServices();
   }
 
-  // State Properties: No hardcoded dummy text; clean state awaiting real gesture/voice input
+  Future<void> _initServices() async {
+    await _hardware.initialize();
+    await _aslTflite.initialize();
+    notifyListeners();
+  }
+
+  // State Properties - ASL First and English Output First by Default
   bool _isDetecting = true;
-  SignLanguageType _selectedLanguage = SignLanguageType.bim;
-  String _predictedText = '';
+  bool _isHandDetected = false;
+  SignLanguageType _selectedLanguage = SignLanguageType.asl;
+  String _predictedText = ''; // Real recognized character/word
   double _confidenceScore = 0.0;
   bool _isConfirmed = false;
   bool _isPlayingAudio = false;
 
-  /// Target Output Text Language (Default: Bahasa Melayu)
-  String _targetOutputLang = 'ms';
+  /// Which landmark source is driving recognition:
+  /// 'mediapipe' | 'pose-synth' | 'none' | '' (unknown yet).
+  String _trackingSource = '';
+
+  /// Latest 21-point hand skeleton (screen-normalized, mirror-compensated)
+  /// and face/body anchors — rendered as a debug overlay on the camera.
+  List<SGPoint> _handPoints = const [];
+  SignAnchors? _handAnchors;
+  bool _handFromMediaPipe = false;
+
+  /// Target Output Text Language (Default: English 'en' matching ASL)
+  String _targetOutputLang = 'en';
 
   /// Custom overrides per language if edited by the user
   final Map<String, String> _customTranslations = {};
 
-  /// Auto-speak toggle: When enabled, automatically speaks aloud any predicted/confirmed text.
+  /// Auto-speak toggle
   bool _isAutoSpeakEnabled = false;
 
-  bool _isLoading = false;
+  final bool _isLoading = false;
   String? _errorMessage;
-  BimSignRecognition? _lastBimRecognition;
-  List<String> _bimGlosses = const [];
+  DateTime _lastPredictionTime = DateTime.now();
 
   // Getters
   bool get isDetecting => _isDetecting;
+  bool get isHandDetected => _isHandDetected;
   SignLanguageType get selectedLanguage => _selectedLanguage;
   String get predictedText => _predictedText;
   double get confidenceScore => _confidenceScore;
@@ -59,15 +71,25 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   String get targetOutputLang => _targetOutputLang;
   bool get hasContent => _predictedText.trim().isNotEmpty;
-  bool get isBimRecognitionActive => _selectedLanguage == SignLanguageType.bim;
-  List<String> get bimGlosses => List.unmodifiable(_bimGlosses);
+  bool get isAslModelLoaded => _aslTflite.isModelLoaded;
+  String get trackingSource => _trackingSource;
+  List<SGPoint> get handPoints => _handPoints;
+  SignAnchors? get handAnchors => _handAnchors;
+  bool get handFromMediaPipe => _handFromMediaPipe;
 
   bool get isHighConfidence => _confidenceScore >= 0.80;
   bool get isMediumConfidence =>
       _confidenceScore >= 0.50 && _confidenceScore < 0.80;
   bool get isLowConfidence => _confidenceScore < 0.50;
 
-  /// Returns the current active translated text for the single unified text box
+  /// Real machine translation (same Google web endpoint as the dialogue
+  /// flow); results are cached per word+language so re-recognizing a word
+  /// never re-hits the network.
+  final TranslationService _translation = TranslationService();
+  final Map<String, String> _translationCache = {};
+  int _translationSeq = 0;
+
+  /// Returns the active translated text or alphabet string.
   String get currentTranslatedText {
     if (_predictedText.trim().isEmpty) {
       return '';
@@ -77,37 +99,100 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
       return _customTranslations[_targetOutputLang]!;
     }
 
-    final bim = _lastBimRecognition;
-    if (_selectedLanguage == SignLanguageType.bim && bim != null) {
-      return switch (_targetOutputLang) {
-        'zh' => bim.chinese,
-        'en' => bim.english,
-        _ => bim.malay,
-      };
+    final word = _predictedText.trim();
+    // Single letters (alphabet/fingerspelling) pass through directly.
+    if (word.length == 1) {
+      return word.toUpperCase();
     }
+    if (_targetOutputLang == 'en') {
+      return word;
+    }
+    // Show the source word until the real translation lands.
+    return _translationCache['$_targetOutputLang|${word.toLowerCase()}'] ?? word;
+  }
 
-    if (_targetOutputLang == 'ms') {
-      if (_predictedText.toLowerCase().contains('gate')) {
-        return 'Di manakah pintu masuk / perlepasan?';
-      } else if (_predictedText.toLowerCase().contains('toilet') ||
-          _predictedText.toLowerCase().contains('washroom')) {
-        return 'Di manakah tandas terdekat?';
-      } else if (_predictedText.toLowerCase().contains('help')) {
-        return 'Bolehkah anda tolong saya?';
+  /// Kicks off a real translation of the recognized word into the current
+  /// target language (no-op for English and single letters).
+  void _requestTranslation(String word) {
+    final w = word.trim();
+    if (w.isEmpty || w.length == 1 || _targetOutputLang == 'en') return;
+    final lang = _targetOutputLang;
+    final key = '$lang|${w.toLowerCase()}';
+    if (_translationCache.containsKey(key)) return;
+    final seq = ++_translationSeq;
+    _translation.translateText(text: w, fromLang: 'en', toLang: lang).then((translated) {
+      _translationCache[key] = translated;
+      // Only repaint while this exact word+language is still what's shown.
+      if (seq == _translationSeq &&
+          _targetOutputLang == lang &&
+          _predictedText.trim().toLowerCase() == w.toLowerCase()) {
+        notifyListeners();
       }
-      return 'Di manakah pintu pelepasan dan kaunter?';
-    } else if (_targetOutputLang == 'zh') {
-      if (_predictedText.toLowerCase().contains('gate')) {
-        return '登机口在哪里？';
-      } else if (_predictedText.toLowerCase().contains('toilet') ||
-          _predictedText.toLowerCase().contains('washroom')) {
-        return '最近的洗手间在哪里？';
-      } else if (_predictedText.toLowerCase().contains('help')) {
-        return '请问能帮帮我吗？';
+    });
+  }
+
+  /// Live vision frame callback from camera stream (Real-time sign recognition)
+  void onLiveFrameRecognized({
+    required bool hasHand,
+    required String gestureText,
+    required double confidence,
+    String trackingSource = '',
+    List<SGPoint>? handPoints,
+    SignAnchors? anchors,
+    bool handFromMediaPipe = false,
+  }) {
+    final now = DateTime.now();
+    _isHandDetected = hasHand;
+    if (trackingSource.isNotEmpty) _trackingSource = trackingSource;
+    _handPoints = handPoints ?? const [];
+    _handAnchors = anchors;
+    _handFromMediaPipe = handFromMediaPipe;
+
+    if (hasHand && gestureText.trim().isNotEmpty) {
+      final newText = gestureText.trim();
+      // New sign replaces immediately; identical repeats are rate-limited.
+      final isNewSign = newText != _predictedText;
+      if (isNewSign || now.difference(_lastPredictionTime).inMilliseconds > 800) {
+        _lastPredictionTime = now;
+        _predictedText = newText;
+        _confidenceScore = confidence;
+        _customTranslations.clear();
+        _isConfirmed = false;
+        notifyListeners();
+        if (isNewSign) _requestTranslation(newText);
+
+        if (_isAutoSpeakEnabled && hasContent) {
+          speakAloud();
+        }
       }
-      return '请问登机口在哪里？';
     }
-    return _predictedText;
+    // Recognition went quiet: the last recognized word STAYS displayed until
+    // the next recognized word replaces it or the user clears it manually.
+  }
+
+  /// Debug-only: directly set a known letter/word (accuracy harness tray).
+  /// This does NOT touch the TFLite model — the previous implementation fed a
+  /// zero-filled tensor into a temporal model and always produced a garbage
+  /// class regardless of the camera image.
+  void debugCaptureLetter(String letterKey) {
+    _isHandDetected = true;
+    _predictedText = letterKey.trim().toUpperCase();
+    _confidenceScore = 1.0;
+    _customTranslations.clear();
+    _isConfirmed = false;
+    notifyListeners();
+
+    if (_isAutoSpeakEnabled && hasContent) {
+      speakAloud();
+    }
+  }
+
+  /// Clear current recognized text
+  void clearText() {
+    _predictedText = '';
+    _confidenceScore = 0.0;
+    _customTranslations.clear();
+    notifyListeners();
   }
 
   // Actions
@@ -125,9 +210,10 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Switch target output text language (e.g. 'ms', 'zh', 'en')
+  /// Switch target output text language (e.g. 'en', 'ms', 'zh')
   void switchTargetOutputLang(String langCode) {
     _targetOutputLang = langCode;
+    _requestTranslation(_predictedText);
     notifyListeners();
 
     if (_isAutoSpeakEnabled && hasContent) {
@@ -137,10 +223,12 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
 
   void toggleDetection() {
     _isDetecting = !_isDetecting;
+    if (!_isDetecting) {
+      _isHandDetected = false;
+    }
     notifyListeners();
   }
 
-  /// Toggle Auto-Speak mode: once enabled, automatically speaks aloud any predicted/confirmed text.
   void toggleAutoSpeak() {
     _isAutoSpeakEnabled = !_isAutoSpeakEnabled;
     notifyListeners();
@@ -150,14 +238,13 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     }
   }
 
-  /// Directly update translated text in the single unified editable area
   void updateActiveTranslatedText(String newText) {
     if (newText.trim().isEmpty) return;
     _customTranslations[_targetOutputLang] = newText.trim();
     if (_targetOutputLang == 'en' || _predictedText.isEmpty) {
       _predictedText = newText.trim();
     }
-    _confidenceScore = 1.0; // Manual correction has 100% confidence
+    _confidenceScore = 1.0;
     _isConfirmed = false;
     notifyListeners();
 
@@ -166,7 +253,6 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     }
   }
 
-  /// Confirm predicted text (FR-M3-05) & save prediction history
   Future<void> confirmPrediction() async {
     if (!hasContent) return;
     _isConfirmed = true;
@@ -187,7 +273,6 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     }
   }
 
-  /// Synthesize spoken audio output via real device speaker
   Future<void> speakAloud() async {
     if (!hasContent) return;
     _isPlayingAudio = true;
@@ -211,32 +296,10 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     }
   }
 
-  /// Simulate live gesture neural tracking (FR-M3-01, FR-M3-02)
-  Future<void> simulateGestureRecognition({String? keyPhrase}) async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final result = await _service.translateSignToText(
-        sourceDialect: _selectedLanguage,
-        recognizedPhraseKey: keyPhrase ?? 'Where is the departure gate?',
-      );
-
-      _predictedText = result['text'] as String;
-      _confidenceScore = (result['confidence'] as num).toDouble();
-      _customTranslations.clear();
-      _isConfirmed = false;
-      _isLoading = false;
-      notifyListeners();
-
-      if (_isAutoSpeakEnabled) {
-        speakAloud();
-      }
-    } catch (e) {
-      _errorMessage = 'Error detecting gesture: $e';
-      _isLoading = false;
-      notifyListeners();
-    }
+  @override
+  void dispose() {
+    _aslTflite.dispose();
+    super.dispose();
   }
 
   /// Recognise one recorded clip with the BIM-only model service.

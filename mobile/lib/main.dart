@@ -11,6 +11,7 @@ import 'services/chat_notification_service.dart';
 import 'services/environment_sound_monitoring_service.dart';
 import 'services/queue_notification_service.dart';
 import 'services/startup_permission_service.dart';
+import 'services/asl_tflite_service.dart';
 import 'services/venue_session_service.dart';
 import 'services/public_announcement_capture_service.dart';
 import 'services/auth_deep_link_service.dart';
@@ -28,6 +29,7 @@ void main() async {
     router: appRouter,
   );
   await QueueNotificationService.instance.initialize();
+  await AslTfliteService().initialize();
   ChatNotificationService.instance.initialize();
   await AuthDeepLinkService.instance.initialize(
     onAuthSession: (isPasswordRecovery) async {
