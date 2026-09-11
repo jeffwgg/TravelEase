@@ -7,7 +7,6 @@ const profileSelect = [
   'institution_type',
   'official_contact',
   'service_address',
-  'branch',
   'active',
   'verification_status',
   'registration_document_path',
@@ -42,7 +41,6 @@ export const institutionSettingsRepository = {
       institution_type: values.institution_type,
       official_contact: values.official_contact.trim(),
       service_address: values.service_address.trim(),
-      branch: values.branch.trim() || null,
     }
 
     const { data, error } = await supabase
