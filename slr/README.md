@@ -119,3 +119,27 @@ loads the new `best_model_ft.pt`.
   以 `arah`（方向，92%）替代表達；`templates.py` 中相關句型保留但不會命中。
 - **2026-09-06**: 真人實測置信度崩壞（5%），定位三層根因（見上），推理端修復
   + v2 增強重訓。⚠️ `slr/` 曾被 git clean 清掉（當時未 commit），現已納入版本控制。
+- **2026-09-10**: 手機端改走**端側推理**，不再依賴 BIM API：
+  `scripts/export_tflite.py`（`C:/venvs/slr312` 執行）將 `best_model.pt` 移植為
+  tf-keras BiLSTM 後轉 `bim_model.tflite`（40 個真實片段 torch↔tflite top-1
+  40/40 一致；fp16 會翻轉邊界片段，故保留 fp32）。產物在
+  `mobile/assets/models/`：`bim_model.tflite`（輸入 `[1,64,258]`）、
+  `bim_sign_to_prediction_index_map.json`、`bim_norm_stats.json`。
+  Dart 端 `bim_tflite_service.dart` 完整複刻 `demo.py predict_sign`
+  （guard/trim/雙朝向×三時間尺度/標準化）。⚠️ 轉換器匯出的 LSTM 狀態跨
+  invoke 殘留，每次分類必須從零狀態開始；tflite_flutter 0.12.1 的
+  `resetVariableTensors()` 上游守衛寫反（對健康實例恆拋
+  "Should not acces delegate after it has been closed."），故 Dart 端
+  改為**每個詞新建並關閉一個 Interpreter**（asset 有緩存，開銷數毫秒）；
+  Python 對測腳本用 ai_edge_litert 的 `reset_all_variables()` 即可。
+  BIM 改為**即時手勢視窗**識別（與 ASL 同一 motion-gate 流水線，
+  `CameraLandmarkExtractorService.bimMode` 分流），無按鈕、無彈窗；
+  12 個 ensemble forward 以 async 分段執行，避免卡住相機回調。
+  組句暫不套用 templates.py —— 待 ASL/BIM 共用同一套 word→phrase 流程再併入。
+  `bim_api.py` 保留作對照/除錯用途。
+- **2026-09-10（參考視頻）**: `scripts/export_reference_clips.py` 從数据集
+  真人關節點渲染 34 個旅遊詞火柴人 h264 短片到
+  `mobile/assets/signs/bim/<slug>.mp4`（共 ~2.8 MB），與 App 內
+  `SignWordVideoLibrary` 的查找規則一致；改詞表後重跑即可。
+  ⚠️ `.gitignore` 不收 `*.tflite` 與 `assets/signs`——與 ASL 模型/視頻
+  同樣需要線下分發或 `git add -f`。

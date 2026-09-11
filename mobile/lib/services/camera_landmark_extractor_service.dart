@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:hand_landmarker/hand_landmarker.dart';
 import 'asl_tflite_service.dart';
+import 'bim_sign_recognition_service.dart';
+import 'bim_tflite_service.dart';
 import 'geometric_sign_recognizer.dart';
 import 'sign_clip_recorder.dart';
 import 'sign_frame_data.dart';
@@ -80,12 +82,47 @@ class CameraLandmarkExtractorService {
   bool _poseRunning = false;
   static const int _poseMaxAgeMs = 200;
 
+  /// Rolling processed-frames-per-second trace (debug log only).
+  int _perfCount = 0;
+  int _perfWindowStartMs = 0;
+  int _perfDropped = 0;
+  double _perfComputeMs = 0;
+  int _perfComputeN = 0;
+  double _perfFrameMs = 0;
+  double _perfFrameMaxMs = 0;
+
+  /// Called by the camera screen when a frame arrives while the previous one
+  /// is still being processed (busy guard). Dropped >> 0 means the camera
+  /// stream outruns the pipeline; the skeleton then updates at the PROCESSED
+  /// rate, and the compute/frame numbers say what eats the difference.
+  void noteFrameDropped() => _perfDropped++;
+
   // EMA-smoothed pose points for stable synthetic face anchors between the
   // sparse pose runs (hands move fast; the head does not).
   List<SGPoint?> _smoothedPose = const [];
   static const double _poseEmaAlpha = 0.5;
 
   bool _isInitialized = false;
+
+  /// Which word classifier the motion-gated windows feed: false runs the
+  /// ASL GISLR model + geometric fallback, true runs the on-device BIM
+  /// model and suppresses the geometric path.
+  bool get bimMode => _bimMode;
+  bool _bimMode = false;
+  set bimMode(bool value) {
+    if (_bimMode == value) return;
+    _bimMode = value;
+    // A dialect switch must never carry a queued result across the
+    // boundary: an ASL word finalized just before the tap would otherwise
+    // be consumed on the next frame and look like "ASL still recognizes in
+    // BIM mode". Drop the pending word and close any half-open window.
+    _lastTfliteSign = null;
+    _lastTfliteTs = 0;
+    _inGesture = false;
+    _fastStreak = 0;
+    _slowStreak = 0;
+  }
+  final BimTfliteService _bimTflite = BimTfliteService();
 
   // ─── Hand-loss state hygiene (Phase 1.5) ──────────────────────────────
   int _noHandStreak = 0;
@@ -102,6 +139,11 @@ class CameraLandmarkExtractorService {
   static const int _preRollMs = 1200;
   final List<List<double>> _ring = [];
   final List<int> _ringTs = [];
+
+  /// Parallel ring of raw frames (same add/evict schedule as [_ring]) so a
+  /// closed window can be re-cut as [SignFrameData] for the BIM classifier,
+  /// which runs its own 258-channel preprocessing.
+  final List<SignFrameData> _frameRing = [];
   double? _lastWristX, _lastWristY;
   int _lastWristTs = 0;
   bool _inGesture = false;
@@ -215,32 +257,49 @@ class CameraLandmarkExtractorService {
   ) async {
     if (!_isInitialized || _poseDetector == null) return null;
 
+    final frameSw = Stopwatch()..start();
     try {
-      // ── Offload pixel-copy to background isolate ───────────────────────
-      final params = await compute(_buildNv21Params, <dynamic>[
-        image.planes[0].bytes,
-        image.planes[1].bytes,
-        image.planes[2].bytes,
-        image.width,
-        image.height,
-        image.planes[0].bytesPerRow,
-        image.planes[1].bytesPerRow,
-        image.planes[1].bytesPerPixel ?? 1,
-      ]);
+      // ── Pose cadence decision FIRST ────────────────────────────────────
+      // The NV21 conversion (plane copies + compute round-trip, 8-17 ms)
+      // is ONLY needed for the ML Kit pose input. Pose now runs ~5 Hz off
+      // the critical path, so do the pixel work only on frames that
+      // actually launch a pose run — previously every frame paid it and
+      // ~80% of the conversions were thrown away, capping the loop at ~20
+      // fps and letting the pose cache age 200-350 ms.
+      final now0 = DateTime.now().millisecondsSinceEpoch;
+      final runPose = (now0 - _lastPoseTs > _poseMaxAgeMs ||
+              _lastPose == null) &&
+          !_poseRunning;
+      final w = image.width;
+      final h = image.height;
 
-      final nv21 = params['nv21'] as Uint8List;
-      final w    = params['width']  as int;
-      final h    = params['height'] as int;
+      InputImage? inputImage;
+      if (runPose) {
+        final computeSw = Stopwatch()..start();
+        final params = await compute(_buildNv21Params, <dynamic>[
+          image.planes[0].bytes,
+          image.planes[1].bytes,
+          image.planes[2].bytes,
+          image.width,
+          image.height,
+          image.planes[0].bytesPerRow,
+          image.planes[1].bytesPerRow,
+          image.planes[1].bytesPerPixel ?? 1,
+        ]);
+        computeSw.stop();
+        _perfComputeMs += computeSw.elapsedMicroseconds / 1000.0;
+        _perfComputeN++;
 
-      final inputImage = InputImage.fromBytes(
-        bytes: nv21,
-        metadata: InputImageMetadata(
-          size: Size(w.toDouble(), h.toDouble()),
-          rotation: _rotationFromCamera(camera),
-          format: InputImageFormat.nv21,
-          bytesPerRow: w,
-        ),
-      );
+        inputImage = InputImage.fromBytes(
+          bytes: params['nv21'] as Uint8List,
+          metadata: InputImageMetadata(
+            size: Size(w.toDouble(), h.toDouble()),
+            rotation: _rotationFromCamera(camera),
+            format: InputImageFormat.nv21,
+            bytesPerRow: w,
+          ),
+        );
+      }
 
       // ── Hand landmark detection (native MediaPipe, async stream) ───────
       // 3.x direct YUV→ARGB conversion, no JPEG round-trip; the result for
@@ -251,24 +310,21 @@ class CameraLandmarkExtractorService {
         debugPrint('[CameraLandmarkExtractor] HandLandmarker error: $e');
       }
 
-      // ── Pose detection (decoupled cadence) ─────────────────────────────
-      // The CPU pose run is the largest per-frame cost on low-end devices,
-      // while the body moves far slower than the hands. Run it only when the
-      // cached result is stale (>[_poseMaxAgeMs]); otherwise reuse it. This
-      // keeps the hand loop at full frame rate.
-      final now0 = DateTime.now().millisecondsSinceEpoch;
-      final poseStale = now0 - _lastPoseTs > _poseMaxAgeMs;
-      if ((poseStale || _lastPose == null) && !_poseRunning) {
+      // ── Pose detection (decoupled cadence, fire-and-forget) ────────────
+      // The CPU pose run is the largest single cost on low-end devices
+      // (60-150 ms); awaiting it inside this serialized callback would stall
+      // the whole hand loop, so the fresh result lands whenever it's ready
+      // while every frame keeps flowing on the cached pose.
+      if (runPose && inputImage != null) {
         _poseRunning = true;
-        try {
-          final poses = await _poseDetector!.processImage(inputImage);
+        _poseDetector!.processImage(inputImage).then((poses) {
           if (poses.isNotEmpty) {
             _lastPose = poses.first;
             _lastPoseTs = DateTime.now().millisecondsSinceEpoch;
           }
-        } finally {
-          _poseRunning = false;
-        }
+        }, onError: (e) {
+          debugPrint('[CameraLandmarkExtractor] pose error: $e');
+        }).whenComplete(() => _poseRunning = false);
       }
       final pose = _lastPose;
       if (pose == null) {
@@ -294,6 +350,29 @@ class CameraLandmarkExtractorService {
         clipRecorder.addFrame(frameData);
       }
 
+      // [Perf] trace: how fast the serialized camera loop actually runs.
+      // If this sits far below the camera stream rate, whatever blocks the
+      // loop is the thing making the skeleton lag.
+      _perfCount++;
+      if (_perfWindowStartMs == 0) _perfWindowStartMs = now0;
+      if (now0 - _perfWindowStartMs >= 2000) {
+        final secs = (now0 - _perfWindowStartMs) / 1000.0;
+        final denom = _perfCount == 0 ? 1 : _perfCount;
+        debugPrint('[Perf] processed ${(_perfCount / secs).toStringAsFixed(1)} fps '
+            '| dropped $_perfDropped '
+            '| pose-hop ${(_perfComputeMs / math.max(1, _perfComputeN)).toStringAsFixed(1)}ms $_perfComputeN '
+            '| frame avg ${(_perfFrameMs / denom).toStringAsFixed(1)}ms '
+            'max ${_perfFrameMaxMs.toStringAsFixed(0)}ms '
+            '| pose ${_lastPose == null ? 'none' : '${now0 - _lastPoseTs}ms'}');
+        _perfCount = 0;
+        _perfDropped = 0;
+        _perfComputeMs = 0;
+        _perfComputeN = 0;
+        _perfFrameMs = 0;
+        _perfFrameMaxMs = 0;
+        _perfWindowStartMs = now0;
+      }
+
       // ── TEMPORAL TFLITE path (motion-gated window) ─────────────────────
       _updateMotionGate(frameData);
       String character = '';
@@ -307,21 +386,30 @@ class CameraLandmarkExtractorService {
       // ── GEOMETRIC path (fallback / cross-check) ────────────────────────
       // After a temporal result, let it own the screen for a grace period —
       // the static-pose fallback otherwise shouts over the model between
-      // windows.
+      // windows. BIM mode: never — these are ASL-trained rules and would
+      // shout ASL words over the BIM model's output.
       final outcome = _recognizer.processFrame(frameData);
       final temporalGrace = DateTime.now().millisecondsSinceEpoch - _lastTfliteTs <
           _temporalGraceMs;
-      if (character.isEmpty &&
+      if (!bimMode &&
+          character.isEmpty &&
           !temporalGrace &&
           outcome.committedSign.isNotEmpty) {
         character = outcome.committedSign;
         confidence = outcome.committedConfidence;
       }
 
+      frameSw.stop();
+      _perfFrameMs += frameSw.elapsedMicroseconds / 1000.0;
+      _perfFrameMaxMs =
+          math.max(_perfFrameMaxMs, frameSw.elapsedMicroseconds / 1000.0);
+
       return _result(
         true,
         character,
         confidence,
+        // trackingSource stays the skeleton source (mediapipe/pose-synth) —
+        // the model choice is conveyed by the dialect itself.
         outcome.trackingSource,
         hand: frameData.hand,
         anchors: frameData.anchors,
@@ -369,6 +457,7 @@ class CameraLandmarkExtractorService {
       _recognizer.reset();
       _ring.clear();
       _ringTs.clear();
+      _frameRing.clear();
       _inGesture = false;
       _lastWristX = _lastWristY = null;
       _lastPose = null;
@@ -731,9 +820,11 @@ class CameraLandmarkExtractorService {
     // Continuous pre-roll ring (oldest evicted at capacity).
     _ring.add(buildGislrTensor(frame));
     _ringTs.add(ts);
+    _frameRing.add(frame);
     if (_ring.length > _maxRingFrames) {
       _ring.removeAt(0);
       _ringTs.removeAt(0);
+      _frameRing.removeAt(0);
     }
 
     // Wrist speed from the EMA-smoothed wrist (jitter-free stillness read).
@@ -822,7 +913,67 @@ class CameraLandmarkExtractorService {
     }
 
     debugPrint('[Gate] close ${frames.length}f (span ${tsSpan}ms)');
+    if (bimMode) {
+      final bimStart = startIdx.clamp(0, _frameRing.length);
+      _runBimInference(_frameRing.sublist(bimStart));
+      return;
+    }
     _runTemporalInference(frames);
+  }
+
+  /// Run the on-device BIM word classifier over a closed gesture window.
+  /// Inference runs ASYNC (yielding between ensemble views) so the
+  /// frame-processing loop keeps feeding the skeleton overlay while a word
+  /// is being classified — a synchronous 12-view burst froze the overlay
+  /// for hundreds of ms per word. Quality rejects (no person / no motion /
+  /// too short) are logged only: live recognition never interrupts the user
+  /// with popups; the display keeps the previous word until a valid sign
+  /// lands.
+  bool _bimRunning = false;
+
+  void _runBimInference(List<SignFrameData> window) {
+    if (!_bimTflite.isModelLoaded) {
+      debugPrint('[Bim] model not loaded — dropping window (${window.length}f)');
+      _bimTflite.initialize(); // warm up for the next window
+      return;
+    }
+    if (_bimRunning) {
+      debugPrint('[Bim] previous window still classifying — skipping '
+          '${window.length}f');
+      return;
+    }
+    _bimRunning = true;
+    final sw = Stopwatch()..start();
+    unawaited(() async {
+      try {
+        final result = await _bimTflite.recognizeClip(
+            window, previousGlosses: const []);
+        sw.stop();
+        // Same acceptance rule as the ASL path: display only when top-1
+        // clearly beats the runner-up or is decisive alone. Prevents junk
+        // low-confidence guesses from cycling words on screen between signs.
+        final accepted = result.word.isNotEmpty &&
+            (_bimTflite.lastMargin >= _minTopMargin ||
+                result.confidence >= _minTopConfidence);
+        debugPrint('[Bim] window=${window.length}f -> "${result.word}" '
+            'conf=${result.confidence.toStringAsFixed(3)} '
+            'margin=${_bimTflite.lastMargin.toStringAsFixed(3)} '
+            '${accepted ? "" : "BELOW GATE (not shown)"} '
+            '(${sw.elapsedMilliseconds}ms)');
+        // The user may have switched back to ASL while classifying.
+        if (accepted && bimMode) {
+          _lastTfliteSign = result.word;
+          _lastTfliteConf = result.confidence;
+          _lastTfliteTs = DateTime.now().millisecondsSinceEpoch;
+        }
+      } on BimSignRecognitionException catch (e) {
+        debugPrint('[Bim] window rejected: ${e.message}');
+      } catch (e) {
+        debugPrint('[Bim] inference error: $e');
+      } finally {
+        _bimRunning = false;
+      }
+    }());
   }
 
   /// Run the temporal GISLR model over the closed gesture window:

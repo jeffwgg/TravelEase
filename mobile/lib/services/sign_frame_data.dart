@@ -260,6 +260,49 @@ List<double> buildGislrTensor(SignFrameData frame) {
   return tensor;
 }
 
+/// Channel count of the BIM-SIGN Pose layout: 33 pose landmarks with
+/// visibility (33*4) plus two hands with x/y/z (2*21*3).
+const int kBimChannels = 258;
+
+/// Builds one frame of the BIM-SIGN Pose `(T, 258)` tensor layout:
+///
+///   pose 0-131 as (x, y, z, visibility) per landmark,
+///   left hand 132-194 as (x, y, z), right hand 195-257 as (x, y, z).
+///
+/// MediaPipe Holistic produced the training data, so undetected pose points
+/// keep visibility 0 (zeros elsewhere) and undetected hands stay zero-filled.
+/// Coordinates are raw screen-normalized values — the classifier applies its
+/// own shoulder-center normalization afterwards, exactly like `dataset.py`.
+List<double> buildBimTensor(SignFrameData frame) {
+  final tensor = List<double>.filled(kBimChannels, 0.0);
+
+  for (int i = 0; i < 33; i++) {
+    final p = i < frame.pose.length ? frame.pose[i] : null;
+    if (p == null) continue;
+    final idx = i * 4;
+    tensor[idx] = p.x;
+    tensor[idx + 1] = p.y;
+    tensor[idx + 2] = p.z;
+    tensor[idx + 3] = 1.0;
+  }
+
+  final (primaryIsLeft, secondaryIsLeft) = _assignHandSides(frame);
+  void writeHand(List<SGPoint>? hand, bool left) {
+    if (hand == null) return;
+    final base = left ? 132 : 195;
+    for (int i = 0; i < hand.length && i < 21; i++) {
+      final idx = base + i * 3;
+      tensor[idx] = hand[i].x;
+      tensor[idx + 1] = hand[i].y;
+      tensor[idx + 2] = hand[i].z;
+    }
+  }
+
+  writeHand(frame.hand, primaryIsLeft);
+  writeHand(frame.hand2, secondaryIsLeft);
+  return tensor;
+}
+
 /// Assigns anatomical sides to the tracked hands.
 ///
 /// Returns `(primaryIsLeft, secondaryIsLeft)`. Hand and pose landmarks share

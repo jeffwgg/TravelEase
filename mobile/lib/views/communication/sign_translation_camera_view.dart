@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
@@ -11,6 +11,11 @@ import '../../services/camera_landmark_extractor_service.dart';
 import '../../services/sign_frame_data.dart';
 import '../../viewmodels/sign_translation_camera_viewmodel.dart';
 import '../../viewmodels/speech_to_sign_viewmodel.dart';
+
+/// Debug overlays (skeleton painter, harness tray) are hidden in release
+/// builds but shown in BOTH debug and profile — profiling runs are exactly
+/// where the landmark overlay is most useful.
+const bool _debugOverlayEnabled = kDebugMode || kProfileMode;
 
 enum SignTranslationMode {
   signToText, // Sign Language (Camera) -> Text & Voice
@@ -49,7 +54,6 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
   bool _isCameraInitialized = false;
   bool _hasCameraPermission = false;
   bool _isCameraLoading = true;
-  bool _isBimRecording = false;
 
   /// Accuracy-harness tray (debug builds only): long-press the tracking
   /// badge to toggle. Contains the manual letter chips (which previously
@@ -197,7 +201,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
       try {
         _cameraController!.startImageStream((CameraImage image) async {
           if (!_cameraViewModel.isDetecting || _currentMode != SignTranslationMode.signToText) return;
-          if (isProcessing) return;
+          if (isProcessing) {
+            _landmarkExtractor.noteFrameDropped();
+            return;
+          }
           isProcessing = true;
 
           try {
@@ -252,56 +259,6 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
   }
 
   bool get _canFlipCamera => _frontCamera != null && _backCamera != null;
-
-  Future<void> _handleSignRecognition() async {
-    if (_cameraViewModel.isLoading) return;
-    if (_cameraViewModel.selectedLanguage == SignLanguageType.bim) {
-      await _toggleBimRecording();
-    } else {
-      // Preserve the existing ASL/CSL demo path exactly as it was.
-      await _cameraViewModel.simulateGestureRecognition();
-    }
-  }
-
-  Future<void> _toggleBimRecording() async {
-    final camera = _cameraController;
-    if (camera == null || !camera.value.isInitialized) {
-      _showMessage('Camera is still preparing. Please try again in a moment.');
-      return;
-    }
-
-    if (_isBimRecording) {
-      try {
-        if (mounted) setState(() => _isBimRecording = false);
-        final clip = await camera.stopVideoRecording();
-        await _cameraViewModel.recognizeBimVideo(clip.path);
-        final error = _cameraViewModel.errorMessage;
-        if (error != null) _showMessage(error);
-      } on CameraException catch (e) {
-        _showMessage(
-          'Could not save the BIM recording: ${e.description ?? e.code}',
-        );
-      }
-      return;
-    }
-
-    try {
-      await camera.startVideoRecording();
-      if (mounted) setState(() => _isBimRecording = true);
-      _showMessage(
-        'Recording BIM sign. Tap Stop BIM after one word (0.8–4 seconds).',
-      );
-    } on CameraException catch (e) {
-      _showMessage('Could not start BIM recording: ${e.description ?? e.code}');
-    }
-  }
-
-  void _showMessage(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
-    );
-  }
 
   void _toggleTranslationMode() {
     setState(() {
@@ -422,6 +379,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
     return ListenableBuilder(
       listenable: Listenable.merge([_cameraViewModel, _speechViewModel]),
       builder: (context, _) {
+        // Single source of truth for model routing: the extractor's mode
+        // follows the viewmodel's dialect on EVERY rebuild, so no dialect
+        // change path (now or later) can leave it on the wrong model.
+        _landmarkExtractor.bimMode =
+            _cameraViewModel.selectedLanguage == SignLanguageType.bim;
         final isSignToText = _currentMode == SignTranslationMode.signToText;
 
         return Scaffold(
@@ -615,7 +577,6 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
   // ==========================================
   Widget _buildSignToTextView() {
     final hasText = _cameraViewModel.hasContent;
-    final isBim = _cameraViewModel.isBimRecognitionActive;
     final displayText = hasText
         ? _cameraViewModel.currentTranslatedText
         : 'Awaiting sign gesture (or tap to enter)...';
@@ -676,11 +637,13 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                             ? AppColors.primary
                             : AppColors.cardBorder,
                       ),
-                      onSelected: _isBimRecording
-                          ? null
-                          : (val) {
-                              if (val) _cameraViewModel.switchDialect(lang);
-                            },
+                      onSelected: (val) {
+                        if (!val) return;
+                        // Recognition routing follows automatically: the
+                        // builder syncs _landmarkExtractor.bimMode from the
+                        // viewmodel's dialect on the rebuild this triggers.
+                        _cameraViewModel.switchDialect(lang);
+                      },
                     ),
                   );
                 }),
@@ -689,15 +652,15 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           ),
         ),
 
-        // Honest labeling: the geometric engine + TFLite model are ASL-trained;
-        // BIM selection does not change recognition yet (Phase 3.3).
-        if (_cameraViewModel.selectedLanguage != SignLanguageType.asl)
+        // Honest labeling: CSL is the only dialect still running on the
+        // ASL-trained engine (Phase 3.3).
+        if (_cameraViewModel.selectedLanguage == SignLanguageType.csl)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
             color: const Color(0xFFFFF7E6),
             child: const Text(
-              'ℹ️ Recognition currently uses ASL rules for all dialects — BIM coming soon',
+              'ℹ️ Recognition currently uses ASL rules for this dialect — CSL model coming soon',
               style: TextStyle(color: Color(0xFF92600A), fontSize: 10.5, fontWeight: FontWeight.w600),
             ),
           ),
@@ -787,10 +750,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
 
                   // Debug skeleton overlay: the 21 detected hand joints +
                   // face/body anchors, mapped through the same cover-fit
-                  // transform as the preview (debug builds only). If the
-                  // skeleton appears flipped/rotated vs your real hand,
+                  // transform as the preview (debug/profile builds only). If
+                  // the skeleton appears flipped/rotated vs your real hand,
                   // the landmark coordinate space needs fixing.
-                  if (kDebugMode &&
+                  if (_debugOverlayEnabled &&
                       _isCameraInitialized &&
                       _cameraController != null &&
                       _cameraController!.value.isInitialized)
@@ -818,7 +781,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                   // Real-time Full Viewport Tracking Frame with Status Badge
                   // Long-press toggles the debug/harness tray (debug builds).
                   GestureDetector(
-                    onLongPress: kDebugMode
+                    onLongPress: _debugOverlayEnabled
                         ? () => setState(() => _showDebugTray = !_showDebugTray)
                         : null,
                     child: ScaleTransition(
@@ -857,7 +820,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
 
                   // Debug/harness tray: manual letters + clip recorder.
                   // Hidden by default — long-press the tracking badge (debug builds only).
-                  if (kDebugMode && _showDebugTray)
+                  if (_debugOverlayEnabled && _showDebugTray)
                     Positioned(
                       bottom: 12,
                       left: 12,
@@ -1006,7 +969,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                       // Manual capture — debug harness only (the previous
                       // version faked this by feeding a zero tensor into the
                       // temporal model, which always produced a garbage class).
-                      if (kDebugMode && _showDebugTray)
+                      if (_debugOverlayEnabled && _showDebugTray)
                         InkWell(
                           onTap: () => _cameraViewModel.debugCaptureLetter('A'),
                           borderRadius: BorderRadius.circular(8),

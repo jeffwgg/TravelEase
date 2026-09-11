@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import '../models/entities/sign_language_entity.dart';
 import '../services/asl_tflite_service.dart';
+import '../services/bim_sign_recognition_service.dart';
+import '../services/bim_tflite_service.dart';
 import '../services/sign_frame_data.dart';
 import '../models/repositories/communication_repository.dart';
 import '../core/hardware_services.dart';
@@ -11,12 +13,17 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   final CommunicationRepository _repository;
   final HardwareServices _hardware;
   final AslTfliteService _aslTflite = AslTfliteService();
+  final BimSignRecognitionService _bimRecognitionService;
+  final BimTfliteService _bimTflite = BimTfliteService();
 
   SignTranslationCameraViewModel({
     CommunicationRepository? repository,
     HardwareServices? hardware,
+    BimSignRecognitionService? bimRecognitionService,
   })  : _repository = repository ?? CommunicationRepository(),
-        _hardware = hardware ?? HardwareServices() {
+        _hardware = hardware ?? HardwareServices(),
+        _bimRecognitionService =
+            bimRecognitionService ?? BimSignRecognitionService() {
     _initServices();
   }
 
@@ -54,8 +61,10 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   /// Auto-speak toggle
   bool _isAutoSpeakEnabled = false;
 
-  final bool _isLoading = false;
+  bool _isLoading = false;
   String? _errorMessage;
+  BimSignRecognition? _lastBimRecognition;
+  List<String> _bimGlosses = const [];
   DateTime _lastPredictionTime = DateTime.now();
 
   // Getters
@@ -72,6 +81,9 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   String get targetOutputLang => _targetOutputLang;
   bool get hasContent => _predictedText.trim().isNotEmpty;
   bool get isAslModelLoaded => _aslTflite.isModelLoaded;
+  bool get isBimRecognitionActive => _selectedLanguage == SignLanguageType.bim;
+  List<String> get bimGlosses => List.unmodifiable(_bimGlosses);
+  BimSignRecognition? get lastBimRecognition => _lastBimRecognition;
   String get trackingSource => _trackingSource;
   List<SGPoint> get handPoints => _handPoints;
   SignAnchors? get handAnchors => _handAnchors;
@@ -99,28 +111,45 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
       return _customTranslations[_targetOutputLang]!;
     }
 
+    final bim = _lastBimRecognition;
+    if (_selectedLanguage == SignLanguageType.bim && bim != null) {
+      return switch (_targetOutputLang) {
+        'zh' => bim.chinese,
+        'en' => bim.english,
+        _ => bim.malay,
+      };
+    }
+
     final word = _predictedText.trim();
     // Single letters (alphabet/fingerspelling) pass through directly.
     if (word.length == 1) {
       return word.toUpperCase();
     }
-    if (_targetOutputLang == 'en') {
+    if (_targetOutputLang == _sourceLang) {
       return word;
     }
     // Show the source word until the real translation lands.
-    return _translationCache['$_targetOutputLang|${word.toLowerCase()}'] ?? word;
+    return _translationCache['$_sourceLang|$_targetOutputLang|${word.toLowerCase()}'] ?? word;
   }
 
+  /// Language of the raw recognized word: the ASL model emits English
+  /// glosses, the on-device BIM model Malay ones — translation direction
+  /// follows the active dialect.
+  String get _sourceLang =>
+      _selectedLanguage == SignLanguageType.bim ? 'ms' : 'en';
+
   /// Kicks off a real translation of the recognized word into the current
-  /// target language (no-op for English and single letters).
+  /// target language (no-op when the word is already in that language, and
+  /// for single letters).
   void _requestTranslation(String word) {
     final w = word.trim();
-    if (w.isEmpty || w.length == 1 || _targetOutputLang == 'en') return;
+    if (w.isEmpty || w.length == 1 || _targetOutputLang == _sourceLang) return;
     final lang = _targetOutputLang;
-    final key = '$lang|${w.toLowerCase()}';
+    final source = _sourceLang;
+    final key = '$source|$lang|${w.toLowerCase()}';
     if (_translationCache.containsKey(key)) return;
     final seq = ++_translationSeq;
-    _translation.translateText(text: w, fromLang: 'en', toLang: lang).then((translated) {
+    _translation.translateText(text: w, fromLang: source, toLang: lang).then((translated) {
       _translationCache[key] = translated;
       // Only repaint while this exact word+language is still what's shown.
       if (seq == _translationSeq &&
@@ -158,6 +187,14 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
         _confidenceScore = confidence;
         _customTranslations.clear();
         _isConfirmed = false;
+        // BIM words are Malay glosses from the on-device model; accumulate
+        // them into the shared gloss list — the same word→phrase staging
+        // the ASL flow will use once sentence assembly is unified.
+        if (_selectedLanguage == SignLanguageType.bim && isNewSign) {
+          final all = [..._bimGlosses, newText];
+          _bimGlosses = List.unmodifiable(
+              all.length > 8 ? all.sublist(all.length - 8) : all);
+        }
         notifyListeners();
         if (isNewSign) _requestTranslation(newText);
 
@@ -206,6 +243,11 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
       _predictedText = '';
       _confidenceScore = 0;
       _isConfirmed = false;
+    }
+    if (newDialect == SignLanguageType.bim) {
+      // Warm the on-device model while the user hasn't tapped yet;
+      // initialize() is idempotent and cheap on subsequent calls.
+      _bimTflite.initialize();
     }
     notifyListeners();
   }
@@ -296,16 +338,32 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     }
   }
 
+  /// Optional simulation method for testing/fallback gesture triggering
+  Future<void> simulateGestureRecognition({String? keyPhrase}) async {
+    _isHandDetected = true;
+    _predictedText = keyPhrase ?? 'HELLO';
+    _confidenceScore = 0.95;
+    _customTranslations.clear();
+    _isConfirmed = false;
+    notifyListeners();
+
+    if (_isAutoSpeakEnabled && hasContent) {
+      await speakAloud();
+    }
+  }
+
   @override
   void dispose() {
     _aslTflite.dispose();
+    _bimTflite.dispose();
     super.dispose();
   }
 
   /// Recognise one recorded clip with the BIM-only model service.
   ///
-  /// This method intentionally does nothing for ASL/CSL, so their existing
-  /// recognition and translation paths remain isolated from BIM networking.
+  /// Legacy HTTP path kept for reference/debugging: live recognition now
+  /// runs fully on-device (see CameraLandmarkExtractorService.bimMode), so
+  /// nothing calls this unless wired back in.
   Future<void> recognizeBimVideo(String videoPath) async {
     if (_selectedLanguage != SignLanguageType.bim) return;
 
