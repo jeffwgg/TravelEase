@@ -183,8 +183,9 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     if (detection.type == EnvironmentSoundType.speechAnnouncement) {
       if (!mounted) return;
       setState(() {
-        _message =
-            'Public announcement detected. Listening for the spoken message…';
+        _message = VenueSessionService.instance.hasActiveSession
+            ? 'Public announcement detected. Listening for the spoken message…'
+            : 'Spoken announcement detected. Start a venue session to save its transcript.';
         _messageType = AppMessageType.information;
       });
       return;
@@ -264,6 +265,12 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
                 ],
                 const SizedBox(height: 16),
                 _buildMonitoringCard(),
+                if (_enabledTypes.contains(
+                  EnvironmentSoundType.speechAnnouncement,
+                )) ...[
+                  const SizedBox(height: 12),
+                  _buildAnnouncementCaptureGuide(),
+                ],
                 const SizedBox(height: 20),
                 _sectionTitle('Sounds to Detect'),
                 const SizedBox(height: 10),
@@ -378,6 +385,30 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementCaptureGuide() {
+    final ready = VenueSessionService.instance.hasActiveSession;
+    return Card(
+      color: AppColors.accent.withValues(alpha: 0.06),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.campaign_outlined, color: AppColors.accent),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                ready
+                    ? 'Announcement capture is ready. Play or speak the announcement from a second device; when the banner says “Listening”, keep it playing. Captures appear in Announcements and Notifications.'
+                    : 'Start a venue session before testing. Captured public announcements are saved to the active venue and then appear in Announcements and Notifications.',
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -40,6 +40,7 @@ class PublicAnnouncementCaptureService {
   static final instance = PublicAnnouncementCaptureService._();
 
   static const _listenDuration = Duration(seconds: 20);
+  static const _microphoneHandoffDelay = Duration(milliseconds: 100);
   static const _repetitionWindow = Duration(minutes: 5);
   static const _minTranscriptLength = 12;
 
@@ -92,7 +93,10 @@ class PublicAnnouncementCaptureService {
     try {
       // Hand the microphone over from the YAMNet classifier to the recogniser.
       if (wasMonitoring) await _detector.stop();
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      // The classifier has already identified speech. Keep the handoff short
+      // so short real-world PA clips still have enough spoken content left
+      // for the platform recogniser to transcribe.
+      await Future<void>.delayed(_microphoneHandoffDelay);
       await _capture(detection, pagingTone: pagedRecently);
     } catch (error) {
       debugPrint('[PublicAnnouncementCapture] failed: $error');

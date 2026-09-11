@@ -8,6 +8,8 @@ class EnvironmentSoundPreferences {
   static const _typesKey = 'environment_sound_types';
   static const _sensitivityKey = 'environment_sound_sensitivity';
   static const _historyKey = 'environment_sound_history';
+  static const _speechAnnouncementMigrationKey =
+      'environment_sound_speech_announcement_enabled_v1';
 
   Future<bool> loadEnabled() async {
     final preferences = await SharedPreferences.getInstance();
@@ -17,14 +19,25 @@ class EnvironmentSoundPreferences {
   Future<Set<EnvironmentSoundType>> loadTypes() async {
     final preferences = await SharedPreferences.getInstance();
     final saved = preferences.getStringList(_typesKey);
-    if (saved == null) {
-      return EnvironmentSoundType.values
-          .where((type) => type != EnvironmentSoundType.speechAnnouncement)
-          .toSet();
+    final types = saved == null
+        ? EnvironmentSoundType.values.toSet()
+        : EnvironmentSoundType.values
+              .where((type) => saved.contains(type.name))
+              .toSet();
+
+    // The initial release silently left spoken announcements out of the
+    // default set. Enable it once for existing installs so turning on sound
+    // monitoring also enables the PA transcript feature. The master switch
+    // remains off until the traveller chooses to start monitoring.
+    if (!(preferences.getBool(_speechAnnouncementMigrationKey) ?? false)) {
+      types.add(EnvironmentSoundType.speechAnnouncement);
+      await preferences.setStringList(
+        _typesKey,
+        types.map((type) => type.name).toList(),
+      );
+      await preferences.setBool(_speechAnnouncementMigrationKey, true);
     }
-    return EnvironmentSoundType.values
-        .where((type) => saved.contains(type.name))
-        .toSet();
+    return types;
   }
 
   Future<SoundSensitivity> loadSensitivity() async {

@@ -17,7 +17,7 @@ class AccessibilityAlertService {
   Future<void> vibrateForSos() async {
     final operation = ++_sosOperation;
     try {
-      if (!await NotificationSettings.vibrationEnabled()) return;
+      if (!await NotificationSettings.alertVibrationEnabled()) return;
       if (operation != _sosOperation) return;
       final strength = await NotificationSettings.vibrationStrength();
       if (operation != _sosOperation) return;

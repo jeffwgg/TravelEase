@@ -21,7 +21,12 @@ class NotificationSettings {
   static const generalPushKey = 'general_notification_enabled';
   static const generalVibrationKey = 'general_vibration_enabled';
   static const generalFlashKey = 'general_flash_enabled';
+  static const vibrationStrengthKey = 'vibration_strength';
+  static const _accessibilityPreferencesKey = 'accessibility_preferences';
   static const _channelsGenerationKey = 'notification_channels_generation';
+
+  static bool _validStrength(String? value) =>
+      value == 'light' || value == 'medium' || value == 'strong';
 
   static Future<bool> alertPushEnabled() async {
     final preferences = await SharedPreferences.getInstance();

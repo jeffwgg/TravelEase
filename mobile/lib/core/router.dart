@@ -43,9 +43,11 @@ import '../views/home/home_view.dart';
 final AuthRouterNotifier _authRouterNotifier = AuthRouterNotifier();
 
 final GoRouter appRouter = GoRouter(
-  refreshListenable: VenueSessionService.instance,
   initialLocation: _authRouterNotifier.isAuthenticated ? '/home' : '/auth',
-  refreshListenable: _authRouterNotifier,
+  refreshListenable: Listenable.merge([
+    VenueSessionService.instance,
+    _authRouterNotifier,
+  ]),
   redirect: (context, state) {
     final path = state.uri.path;
     final isAuthenticated = _authRouterNotifier.isAuthenticated;

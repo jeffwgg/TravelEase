@@ -64,7 +64,7 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
     final difference = today.difference(day).inDays;
     if (difference == 0) return 'Today';
     if (difference == 1) return 'Yesterday';
-    return MaterialLocalizations.of(context).formatFullDate(day);
+    return MaterialLocalizations.of(context).formatMediumDate(day);
   }
 
   String _timeLabel(DateTime time) {
@@ -75,7 +75,8 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
     if (difference.inDays < 1) {
       return TimeOfDay.fromDateTime(time).format(context);
     }
-    return '${TimeOfDay.fromDateTime(time).format(context)} · ${_dayLabel(time)}';
+    return '${MaterialLocalizations.of(context).formatCompactDate(time)} · '
+        '${TimeOfDay.fromDateTime(time).format(context)}';
   }
 
   IconData _iconFor(String kind) => switch (kind) {
@@ -216,6 +217,8 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
                           Expanded(
                             child: Text(
                               entry.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontWeight: entry.read
                                     ? FontWeight.w500
@@ -243,12 +246,16 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Text(
-                            _timeLabel(entry.createdAt),
-                            style: Theme.of(context).textTheme.bodySmall,
+                          Expanded(
+                            child: Text(
+                              _timeLabel(entry.createdAt),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                           ),
                           if (tappable) ...[
-                            const Spacer(),
+                            const SizedBox(width: 8),
                             Icon(
                               Icons.chevron_right,
                               size: 16,
@@ -260,13 +267,6 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
                     ],
                   ),
                 ),
-                if (!entry.read)
-                  IconButton(
-                    tooltip: 'Mark as read',
-                    icon: Icon(Icons.done_all, size: 18, color: color),
-                    onPressed: () =>
-                        AppNotificationService.instance.markAsRead(entry),
-                  ),
               ],
             ),
           ),
