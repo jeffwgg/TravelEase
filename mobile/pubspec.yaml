@@ -4,7 +4,10 @@ publish_to: 'none'
 version: 0.1.0
 
 environment:
-  sdk: ^3.10.7
+  # Keep this aligned with .fvmrc. An incompatible SDK fails at `pub get`,
+  # before Android compilation can use an unsupported plugin implementation.
+  sdk: ">=3.13.1 <4.0.0"
+  flutter: "3.47.1"
 
 dependencies:
   app_links: ^7.0.0
@@ -19,7 +22,9 @@ dependencies:
   share_plus: ^13.3.0
   speech_to_text: ^7.4.0
   supabase_flutter: ^2.8.0
-  video_player: 2.8.2
+  # 2.8.2 resolved video_player_android 2.4.17, which uses Flutter's removed
+  # v1 Android embedding (PluginRegistry.Registrar). Keep the tested version.
+  video_player: 2.14.0
   path_provider: ^2.1.0
   google_maps_flutter: ^2.10.0
   http: ^1.6.0
@@ -29,11 +34,11 @@ dependencies:
   tflite_flutter: 0.12.1
   flutter_dotenv: ^6.0.1
   flutter_local_notifications: ^22.2.0
-  # 2.0+ requires Dart 3.12; Flutter 3.41 ships Dart 3.11.
+  # Pinned to the version validated by the project toolchain.
   torch_light: ^1.1.0
   flutter_background_service: ^5.1.0
   image_picker: ^1.1.2
-  # 6.8+ requires Flutter 3.44; keep compatibility with Flutter 3.41.x.
+  # Keep the lockfile-resolved version consistent across machines.
   audioplayers: ^6.7.1
   huawei_ml_language: ^3.13.0+301
   google_mlkit_pose_detection: ^0.12.0
