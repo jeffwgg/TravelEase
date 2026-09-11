@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
@@ -13,7 +15,12 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView> {
   int _currentIndex = 0;
 
-  static const _tabs = ['/home', '/communicate', '/assistance-request', '/profile'];
+  static const _tabs = [
+    '/home',
+    '/communicate',
+    '/assistance-request',
+    '/profile',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +35,8 @@ class _HomeViewState extends State<HomeView> {
 
     return Scaffold(
       body: widget.child,
+      floatingActionButton: const _SosFloatingButton(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: AppColors.surface,
@@ -136,6 +145,97 @@ class _HomeViewState extends State<HomeView> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SosFloatingButton extends StatefulWidget {
+  const _SosFloatingButton();
+
+  @override
+  State<_SosFloatingButton> createState() => _SosFloatingButtonState();
+}
+
+class _SosFloatingButtonState extends State<_SosFloatingButton> {
+  static const _holdDuration = Duration(milliseconds: 1200);
+  Timer? _holdTimer;
+  bool _activated = false;
+
+  void _startHold(TapDownDetails _) {
+    _holdTimer?.cancel();
+    _activated = false;
+    _holdTimer = Timer(_holdDuration, () {
+      if (!mounted) return;
+      _activated = true;
+      context.push('/sos-countdown');
+    });
+  }
+
+  void _finishTap(TapUpDetails _) {
+    _holdTimer?.cancel();
+    if (_activated) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Hold to activate SOS'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  void _cancelHold() {
+    _holdTimer?.cancel();
+  }
+
+  @override
+  void dispose() {
+    _holdTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Emergency SOS. Hold for 1.2 seconds to activate.',
+      child: GestureDetector(
+        onTapDown: _startHold,
+        onTapUp: _finishTap,
+        onTapCancel: _cancelHold,
+        child: Container(
+          width: 66,
+          height: 66,
+          decoration: BoxDecoration(
+            color: AppColors.emergency,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.emergency.withValues(alpha: 0.35),
+                blurRadius: 16,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.sos_rounded, color: Colors.white, size: 27),
+              Text(
+                'HOLD',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

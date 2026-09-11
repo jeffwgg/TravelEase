@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
+import '../../core/nationalities.dart';
 import '../../viewmodels/profile_viewmodel.dart';
 
 class EditProfileView extends StatefulWidget {
@@ -58,7 +59,7 @@ class _EditProfileViewState extends State<EditProfileView> {
                     labelText: 'Nationality',
                     prefixIcon: Icon(Icons.public),
                   ),
-                  items: _nationalityOptions(_viewModel.nationality)
+                  items: nationalityOptions(_viewModel.nationality)
                       .map(
                         (nationality) => DropdownMenuItem(
                           value: nationality,
@@ -151,40 +152,6 @@ class _EditProfileViewState extends State<EditProfileView> {
         ),
       ),
     );
-  }
-
-  List<String> _nationalityOptions(String currentNationality) {
-    const nationalities = [
-      'Malaysian',
-      'Australian',
-      'Bangladeshi',
-      'British',
-      'Bruneian',
-      'Cambodian',
-      'Canadian',
-      'Chinese',
-      'Filipino',
-      'French',
-      'German',
-      'Indian',
-      'Indonesian',
-      'Japanese',
-      'Myanmar',
-      'Nepalese',
-      'New Zealander',
-      'Pakistani',
-      'Singaporean',
-      'South Korean',
-      'Sri Lankan',
-      'Thai',
-      'Vietnamese',
-      'Other',
-    ];
-    if (currentNationality.isEmpty ||
-        nationalities.contains(currentNationality)) {
-      return nationalities;
-    }
-    return [currentNationality, ...nationalities];
   }
 
   Future<void> _save() async {

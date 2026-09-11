@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Local mirror of the profile notification configuration. The profile
@@ -53,6 +55,26 @@ class NotificationSettings {
     final preferences = await SharedPreferences.getInstance();
     final push = preferences.getBool(generalPushKey) ?? true;
     return push && (preferences.getBool(generalFlashKey) ?? true);
+  }
+
+  static Future<String> vibrationStrength() async {
+    final preferences = await SharedPreferences.getInstance();
+    final stored = preferences.getString(vibrationStrengthKey);
+    if (_validStrength(stored)) return stored!;
+
+    // Existing installations already cache the complete accessibility profile
+    // under this key. Read it as a migration fallback until the next save.
+    final profileJson = preferences.getString(_accessibilityPreferencesKey);
+    if (profileJson != null) {
+      try {
+        final profile = jsonDecode(profileJson) as Map<String, dynamic>;
+        final profileStrength = profile['vibration_strength'] as String?;
+        if (_validStrength(profileStrength)) return profileStrength!;
+      } catch (_) {
+        // A damaged cache falls back safely to the established default.
+      }
+    }
+    return 'medium';
   }
 
   static Future<void> store({

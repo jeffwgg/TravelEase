@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
+import '../../core/nationalities.dart';
 import '../../viewmodels/auth_viewmodel.dart';
 import '../../viewmodels/profile_viewmodel.dart';
 
@@ -276,6 +277,31 @@ class _AuthenticationViewState extends State<AuthenticationView>
           ),
         ),
         const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          initialValue:
+              _viewModel.registrationNationalityController.text.isEmpty
+              ? null
+              : _viewModel.registrationNationalityController.text,
+          decoration: const InputDecoration(
+            labelText: 'Nationality',
+            prefixIcon: Icon(Icons.public, color: AppColors.textMuted),
+          ),
+          items: travellerNationalities
+              .map(
+                (nationality) => DropdownMenuItem(
+                  value: nationality,
+                  child: Text(nationality),
+                ),
+              )
+              .toList(),
+          onChanged: _viewModel.isLoading
+              ? null
+              : (value) {
+                  _viewModel.registrationNationalityController.text =
+                      value ?? '';
+                },
+        ),
+        const SizedBox(height: 16),
         TextField(
           controller: _viewModel.registrationEmailController,
           keyboardType: TextInputType.emailAddress,
@@ -374,7 +400,7 @@ class _AuthenticationViewState extends State<AuthenticationView>
     final result = await _viewModel.register();
     if (!mounted || result == null) return;
     if (result == RegistrationResult.authenticated) {
-      context.go('/profile-setup');
+      context.go('/home');
       return;
     }
     final email = Uri.encodeQueryComponent(

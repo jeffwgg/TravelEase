@@ -12,12 +12,17 @@ class AuthRepository {
     required String email,
     required String password,
     required String fullName,
+    required String nationality,
   }) {
     return _client.auth.signUp(
       email: email,
       password: password,
       emailRedirectTo: 'travelease://auth/callback',
-      data: {'full_name': fullName},
+      data: {
+        'full_name': fullName,
+        'nationality': nationality,
+        'account_type': 'traveller',
+      },
     );
   }
 

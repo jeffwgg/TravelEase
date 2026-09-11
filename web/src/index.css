@@ -886,6 +886,60 @@ a.btn:focus { text-decoration: none; }
   .service-area-map-detail { grid-template-columns: auto minmax(0,1fr) auto; }
   .service-area-map-detail small { grid-column: 2 / -1; }
 }
+
+/* Institution SOS handling */
+.sos-page-header h1 { font-size: 22px; }
+.sos-page-header p { margin-top: 3px; color: var(--text-secondary); font-size: 13px; }
+.sos-page-header .btn, .sos-request-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.sos-page > .form-alert { margin: 20px 32px 0; }
+.sos-section { padding: 24px 32px 0; }
+.sos-section:last-of-type { padding-bottom: 32px; }
+.sos-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.sos-section-heading > div { display: flex; align-items: center; gap: 11px; }
+.sos-section-heading h2 { font-size: 17px; }
+.sos-section-heading p { margin-top: 2px; color: var(--text-muted); font-size: 12px; }
+.sos-heading-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 11px; color: #b91c1c; background: #fee2e2; }
+.sos-heading-icon.resolved { color: #047857; background: #d1fae5; }
+.sos-count { display: inline-grid; min-width: 30px; height: 30px; padding: 0 8px; place-items: center; border-radius: 999px; color: #fff; background: var(--emergency); font-size: 12px; font-weight: 800; }
+.sos-count.muted { background: var(--text-muted); }
+.sos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 14px; }
+.sos-request-card { padding: 18px; border-left: 4px solid var(--emergency); box-shadow: var(--shadow-sm); }
+.sos-request-card.resolved { border-left-color: var(--success); opacity: .9; }
+.sos-request-topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.sos-request-topline > div { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.sos-request-topline strong { overflow: hidden; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.sos-request-topline div span { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; }
+.sos-status { padding: 5px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.sos-status.sent { color: #b91c1c; background: #fee2e2; }
+.sos-status.acknowledged { color: #92400e; background: #fef3c7; }
+.sos-status.resolved { color: #047857; background: #d1fae5; }
+.sos-request-details { display: grid; gap: 10px; margin: 17px 0; }
+.sos-request-details > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; }
+.sos-request-details dt { color: var(--text-muted); font-size: 11px; font-weight: 600; }
+.sos-request-details dd { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.sos-request-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 13px; border-top: 1px solid var(--divider); }
+.sos-empty { display: flex; min-height: 145px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: var(--text-muted); text-align: center; }
+.sos-empty strong { color: var(--text-primary); }
+.sos-empty span { font-size: 12px; }
+.sos-empty.compact { min-height: 82px; }
+.sos-map-backdrop { position: fixed; z-index: 2100; inset: 0; display: grid; padding: 24px; place-items: center; background: rgba(15,23,42,.65); backdrop-filter: blur(3px); }
+.sos-map-dialog { width: min(680px, 100%); overflow: hidden; border: 1px solid var(--card-border); border-radius: var(--radius-xl); background: var(--surface); box-shadow: 0 22px 60px rgba(15,23,42,.35); }
+.sos-map-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px; }
+.sos-map-header h2 { font-size: 18px; }
+.sos-map-header p { margin-top: 4px; color: var(--text-muted); font-size: 12px; }
+.sos-location-map { height: 390px; border-block: 1px solid var(--divider); background: #dce5e4; }
+.sos-location-map .leaflet-container { width: 100%; height: 100%; }
+.sos-map-actions { display: flex; justify-content: flex-end; padding: 14px 20px; }
+@media (max-width: 640px) {
+  .sos-section { padding-inline: 16px; }
+  .sos-page > .form-alert { margin-inline: 16px; }
+  .sos-page-header { align-items: flex-start; gap: 14px; }
+  .sos-section-heading { align-items: flex-start; }
+  .sos-request-details > div { grid-template-columns: 1fr; gap: 3px; }
+  .sos-request-actions .btn { flex: 1 1 auto; }
+  .sos-map-backdrop { padding: 12px; }
+  .sos-location-map { height: 330px; }
+}
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active { background: var(--surface, #fff); color: var(--text); box-shadow: 0 1px 4px rgba(15,23,42,0.14); }
 .tab-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
