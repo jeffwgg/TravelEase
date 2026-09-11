@@ -24,17 +24,24 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let active = true
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (!active) return
+    const restoreSession = async () => {
       try {
+        const { data, error } = await supabase.auth.getSession()
+        if (error) throw error
+        if (!active) return
         await loadStaffContext(data.session)
       } catch (error) {
         console.error('Unable to load staff authorization:', error)
-        setStaffContext(null)
+        if (active) {
+          setSession(null)
+          setStaffContext(null)
+        }
       } finally {
         if (active) setLoading(false)
       }
-    })
+    }
+
+    restoreSession()
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setTimeout(async () => {

@@ -36,10 +36,12 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { NotificationProvider, useNotifications } from './context/NotificationContext'
 
 function Sidebar() {
-  const { session, signOut } = useAuth()
+  const { session, staffContext, signOut } = useAuth()
   const { permission, requestBrowserPermission } = useNotifications()
-  const displayName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Staff User'
-  const initials = displayName.split(/\s|@/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('')
+  const institutionName = staffContext?.institutions?.name || 'Loading institution…'
+  const institutionRole = staffContext?.role || 'Institution Admin'
+  const initialsSource = staffContext?.institutions?.name || session?.user?.email || 'Institution'
+  const initials = initialsSource.split(/\s|@/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('')
 
   return (
     <aside className="sidebar">
@@ -134,8 +136,8 @@ function Sidebar() {
       <div className="sidebar-user">
         <div className="user-avatar">{initials || 'ST'}</div>
         <div className="user-info">
-          <div className="user-name">{displayName}</div>
-          <div className="user-role">KLIA Terminal 1 • Admin</div>
+          <div className="user-name" title={institutionName}>{institutionName}</div>
+          <div className="user-role">{institutionRole}</div>
         </div>
         <button className="sidebar-signout" onClick={signOut} title="Sign out">Sign out</button>
       </div>
