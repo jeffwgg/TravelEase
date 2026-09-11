@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -14,6 +16,7 @@ class AuthViewModel extends ChangeNotifier {
   final loginEmailController = TextEditingController();
   final loginPasswordController = TextEditingController();
   final registrationNameController = TextEditingController();
+  final registrationNationalityController = TextEditingController();
   final registrationEmailController = TextEditingController();
   final registrationPasswordController = TextEditingController();
   final registrationConfirmPasswordController = TextEditingController();
@@ -24,6 +27,8 @@ class AuthViewModel extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
   String? _successMessage;
+  Timer? _errorTimer;
+  bool _disposed = false;
 
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
@@ -63,12 +68,21 @@ class AuthViewModel extends ChangeNotifier {
 
   Future<RegistrationResult?> register() async {
     final name = registrationNameController.text.trim();
+    final nationality = registrationNationalityController.text.trim();
     final email = registrationEmailController.text.trim();
     final password = registrationPasswordController.text;
     final confirmPassword = registrationConfirmPasswordController.text;
 
     if (name.length < 2 || name.length > 80) {
       _setError('Full name must be between 2 and 80 characters.');
+      return null;
+    }
+    if (nationality.isEmpty) {
+      _setError('Please enter your nationality.');
+      return null;
+    }
+    if (nationality.length > 80) {
+      _setError('Nationality must be 80 characters or fewer.');
       return null;
     }
     final validationError =
@@ -88,6 +102,7 @@ class AuthViewModel extends ChangeNotifier {
         email: email,
         password: password,
         fullName: name,
+        nationality: nationality,
       );
       if (response.user != null &&
           (response.user!.identities?.isEmpty ?? false)) {
@@ -191,6 +206,8 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   void clearMessages() {
+    _errorTimer?.cancel();
+    _errorTimer = null;
     if (_errorMessage == null && _successMessage == null) return;
     _errorMessage = null;
     _successMessage = null;
@@ -272,6 +289,8 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   void _startRequest() {
+    _errorTimer?.cancel();
+    _errorTimer = null;
     _isLoading = true;
     _errorMessage = null;
     _successMessage = null;
@@ -284,17 +303,27 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   void _setError(String message) {
+    _errorTimer?.cancel();
     _isLoading = false;
     _errorMessage = message;
     _successMessage = null;
     notifyListeners();
+    _errorTimer = Timer(const Duration(seconds: 10), () {
+      if (_disposed || _errorMessage != message) return;
+      _errorMessage = null;
+      _errorTimer = null;
+      notifyListeners();
+    });
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _errorTimer?.cancel();
     loginEmailController.dispose();
     loginPasswordController.dispose();
     registrationNameController.dispose();
+    registrationNationalityController.dispose();
     registrationEmailController.dispose();
     registrationPasswordController.dispose();
     registrationConfirmPasswordController.dispose();

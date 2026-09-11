@@ -69,6 +69,7 @@ class AccessibilityPreferencesViewModel extends ChangeNotifier {
       // Notifications (and the torch flash) follow the saved configuration.
       await AppNotificationService.instance.applyNotificationSettings(
         vibration: vibration,
+        vibrationStrength: vibrationStrength,
         flash: flashAlerts,
       );
       isSaving = false;

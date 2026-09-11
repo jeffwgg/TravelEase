@@ -35,6 +35,52 @@ class EmergencyContactRepository {
     }
   }
 
+  Future<EmergencyContact?> getPreferredVerifiedContact() async {
+    try {
+      final response = await _client
+          .from('emergency_contacts')
+          .select()
+          .eq('user_id', _userId)
+          .eq('is_verified', true)
+          .order('is_primary', ascending: false)
+          .order('created_at')
+          .limit(1)
+          .maybeSingle();
+      return response == null ? null : EmergencyContact.fromJson(response);
+    } on PostgrestException catch (error) {
+      _logSupabaseException('load preferred verified contact', error);
+      rethrow;
+    }
+  }
+
+  Future<void> sendSosNotification({
+    required String contactId,
+    required DateTime triggeredAt,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final response = await _invokeFunction(
+      'send-sos-contact',
+      body: {
+        'contact_id': contactId,
+        'triggered_at': triggeredAt.toUtc().toIso8601String(),
+        'latitude': latitude,
+        'longitude': longitude,
+      },
+      fallbackMessage: 'Unable to notify the emergency contact.',
+    );
+    _throwForFunctionError(
+      response,
+      fallbackMessage: 'Unable to notify the emergency contact.',
+    );
+    final data = response.data;
+    if (data is! Map || data['success'] != true) {
+      throw const EmergencyContactRepositoryException(
+        'The emergency contact notification was not confirmed.',
+      );
+    }
+  }
+
   Future<EmergencyContact> addContact({
     required String name,
     required String relationship,
@@ -139,6 +185,7 @@ class EmergencyContactRepository {
   Future<FunctionResponse> _invokeFunction(
     String name, {
     required Map<String, dynamic> body,
+    String fallbackMessage = 'Unable to verify this contact.',
   }) async {
     try {
       return await _client.functions.invoke(name, body: body);
@@ -146,17 +193,20 @@ class EmergencyContactRepository {
       final details = error.details;
       final message = details is Map && details['error'] is String
           ? details['error'] as String
-          : 'Unable to verify this contact.';
+          : fallbackMessage;
       throw EmergencyContactRepositoryException(message);
     }
   }
 
-  void _throwForFunctionError(FunctionResponse response) {
+  void _throwForFunctionError(
+    FunctionResponse response, {
+    String fallbackMessage = 'Unable to verify this contact.',
+  }) {
     if (response.status < 400) return;
     final data = response.data;
     final message = data is Map && data['error'] is String
         ? data['error'] as String
-        : 'Unable to verify this contact.';
+        : fallbackMessage;
     throw EmergencyContactRepositoryException(message);
   }
 

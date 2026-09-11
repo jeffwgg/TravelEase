@@ -37,10 +37,13 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "vibrate" -> vibrate(
                     call.argument<String>("strength") ?: "medium",
+                    call.argument<Boolean>("sosPattern") ?: false,
                     result
                 )
 
                 "flash" -> flash(result)
+
+                "stopVibration" -> stopVibration(result)
 
                 else -> result.notImplemented()
             }
@@ -171,6 +174,7 @@ class MainActivity : FlutterActivity() {
 
     private fun vibrate(
         strength: String,
+        sosPattern: Boolean,
         result: MethodChannel.Result
     ) {
 
@@ -206,17 +210,43 @@ class MainActivity : FlutterActivity() {
             Build.VERSION.SDK_INT >=
             Build.VERSION_CODES.O
         ) {
-            vibrator.vibrate(
-                VibrationEffect.createOneShot(
-                    duration,
-                    amplitude
+            if (sosPattern) {
+                vibrator.vibrate(
+                    VibrationEffect.createWaveform(
+                        longArrayOf(0L, 400L, 250L, 400L, 250L),
+                        intArrayOf(0, amplitude, 0, amplitude, 0),
+                        0
+                    )
                 )
-            )
+            } else {
+                vibrator.vibrate(
+                    VibrationEffect.createOneShot(
+                        duration,
+                        amplitude
+                    )
+                )
+            }
         } else {
             @Suppress("DEPRECATION")
-            vibrator.vibrate(duration)
+            if (sosPattern) {
+                vibrator.vibrate(longArrayOf(0L, 400L, 250L, 400L, 250L), 0)
+            } else {
+                vibrator.vibrate(duration)
+            }
         }
 
+        result.success(null)
+    }
+
+    private fun stopVibration(result: MethodChannel.Result) {
+        val vibrator =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                getSystemService(VibratorManager::class.java).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+        vibrator.cancel()
         result.success(null)
     }
 

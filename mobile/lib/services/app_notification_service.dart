@@ -85,9 +85,14 @@ class AppNotificationService {
   /// when the traveller saves their profile preferences.
   Future<void> applyNotificationSettings({
     required bool vibration,
+    required String vibrationStrength,
     required bool flash,
   }) async {
-    await NotificationSettings.store(vibration: vibration, flash: flash);
+    await NotificationSettings.store(
+      vibration: vibration,
+      vibrationStrength: vibrationStrength,
+      flash: flash,
+    );
     await _applyChannelVibration();
   }
 

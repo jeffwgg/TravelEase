@@ -12,7 +12,8 @@ import {
   Hand,
   MessageCircle,
   Building2,
-  Bell
+  Bell,
+  Siren
 } from 'lucide-react'
 import './index.css'
 import AuthPage from './pages/AuthPage'
@@ -32,6 +33,7 @@ import ServicePerformancePage from './pages/ServicePerformancePage'
 import ReportGenerationPage from './pages/ReportGenerationPage'
 import SignDictionaryMgmtPage from './pages/SignDictionaryMgmtPage'
 import SignFeedbackPage from './pages/SignFeedbackPage'
+import SosRequestsPage from './pages/SosRequestsPage'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { NotificationProvider, useNotifications } from './context/NotificationContext'
 
@@ -70,6 +72,9 @@ function Sidebar() {
         </div>
         <div className="sidebar-section">
           <div className="sidebar-section-title">Assistance</div>
+          <NavLink to="/sos" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="link-icon"><Siren size={18} /></span> SOS / Emergency
+          </NavLink>
           <NavLink to="/requests" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><LifeBuoy size={18} /></span> Requests
           </NavLink>
@@ -190,6 +195,7 @@ function AppRoutes() {
         <Route path="/queue" element={<QueueUpdatePage />} />
         <Route path="/queue/add" element={<AddQueueLinePage />} />
         <Route path="/requests" element={<AssistanceRequestPage />} />
+        <Route path="/sos" element={<SosRequestsPage />} />
         <Route path="/chat" element={<StaffChatPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/usage" element={<UsageInsightsPage />} />
