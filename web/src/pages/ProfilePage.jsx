@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { institutionSettingsRepository } from '../repositories/institutionSettingsRepository'
+import ServiceAreaManager from '../components/ServiceAreaManager'
 
 const emptyProfile = {
   name: '',
   institution_type: '',
   official_contact: '',
   service_address: '',
-  branch: '',
 }
 
 export default function ProfilePage() {
-  const { refreshStaffContext } = useAuth()
+  const { session, refreshStaffContext } = useAuth()
   const [profile, setProfile] = useState(emptyProfile)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -30,7 +30,6 @@ export default function ProfilePage() {
           institution_type: data.institution_type || '',
           official_contact: data.official_contact || '',
           service_address: data.service_address || '',
-          branch: data.branch || '',
         })
       })
       .catch((loadError) => {
@@ -68,7 +67,6 @@ export default function ProfilePage() {
         institution_type: saved.institution_type || '',
         official_contact: saved.official_contact || '',
         service_address: saved.service_address || '',
-        branch: saved.branch || '',
       })
       await refreshStaffContext()
       setSuccess('Institution details saved successfully.')
@@ -86,7 +84,7 @@ export default function ProfilePage() {
       <div className="page-header">
         <div>
           <h2>Organization Profile Management</h2>
-          <div className="header-subtitle">Manage venue profiles, branches, service zones, and staff access roles.</div>
+          <div className="header-subtitle">Manage institution details and location-based service coverage.</div>
         </div>
         <button className="btn btn-primary" onClick={saveProfile} disabled={loading || saving}>
           {saving ? 'Saving…' : 'Save Changes'}
@@ -111,6 +109,11 @@ export default function ProfilePage() {
               <input type="text" className="input" value={profile.name} onChange={updateField('name')} disabled={loading || saving} />
             </div>
             <div className="form-group">
+              <label>Account Email</label>
+              <input type="email" className="input" value={session?.user?.email || 'Loading account…'} readOnly aria-describedby="account-email-help" />
+              <small id="account-email-help" className="field-help">Managed through your Supabase authentication account.</small>
+            </div>
+            <div className="form-group">
               <label>Category</label>
               <select className="input" value={profile.institution_type} onChange={updateField('institution_type')} disabled={loading || saving}>
                 <option value="">Select institution type</option>
@@ -127,18 +130,15 @@ export default function ProfilePage() {
               <textarea className="input" rows={3} value={profile.service_address} onChange={updateField('service_address')} disabled={loading || saving}></textarea>
             </div>
             <div className="form-group">
-              <label>Branch</label>
-              <input type="text" className="input" value={profile.branch} onChange={updateField('branch')} disabled={loading || saving} />
-            </div>
-            <div className="form-group">
               <label>Support Contact Hotline (SMS/Text)</label>
               <input type="text" className="input" value={profile.official_contact} onChange={updateField('official_contact')} disabled={loading || saving} />
             </div>
           </div>
 
-          {/* Zones & Staff */}
+          {/* Service areas and existing staff summary */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <div className="card">
+            <ServiceAreaManager />
+            {profile.showLegacyServiceZones && <div className="card">
               <div className="card-header">
                 <h3>Active Service Zones / Branches</h3>
                 <button className="btn btn-outline btn-sm">+ Add Zone</button>
@@ -169,7 +169,7 @@ export default function ProfilePage() {
                   </tr>
                 </tbody>
               </table>
-            </div>
+            </div>}
 
             <div className="card">
               <div className="card-header">
@@ -218,7 +218,6 @@ function validateProfile(profile) {
   if (profile.service_address.trim().length < 10 || profile.service_address.trim().length > 500) {
     return 'Official address must be between 10 and 500 characters.'
   }
-  if (profile.branch.trim().length > 160) return 'Branch must be 160 characters or fewer.'
   if (profile.official_contact.trim().length < 5 || profile.official_contact.trim().length > 100) {
     return 'Enter a valid support contact.'
   }

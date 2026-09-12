@@ -21,6 +21,12 @@ class AppNotificationService {
   static final instance = AppNotificationService._();
 
   static const _markReadActionId = 'travelease_mark_read';
+  static const _markReadAction = AndroidNotificationAction(
+    _markReadActionId,
+    'Mark as read',
+    cancelNotification: true,
+    semanticAction: SemanticAction.markAsRead,
+  );
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -198,6 +204,7 @@ class AppNotificationService {
   /// never breaks the notification itself.
   Future<String> _recordHistory({
     required String entryId,
+    required int notificationId,
     required String kind,
     required String title,
     required String body,
@@ -211,6 +218,7 @@ class AppNotificationService {
           title: title,
           body: body,
           route: route,
+          notificationId: notificationId,
           createdAt: DateTime.now(),
         ),
       );
@@ -242,7 +250,7 @@ class AppNotificationService {
     return null;
   }
 
-  void _handleResponse(NotificationResponse response) {
+  Future<void> _handleResponse(NotificationResponse response) async {
     final isMarkRead =
         response.actionId == _markReadActionId ||
         response.notificationResponseType ==
@@ -252,13 +260,11 @@ class AppNotificationService {
       // notification, and do not navigate.
       final entryId = _resolveEntryId(response);
       if (entryId != null) {
-        NotificationHistoryStore.instance
-            .markRead(entryId)
-            .catchError((Object _) {});
+        await NotificationHistoryStore.instance.markRead(entryId);
       }
       final id = response.id;
       if (id != null) {
-        _plugin.cancel(id: id).catchError((Object _) {});
+        await _plugin.cancel(id: id);
         _entryIdByNotificationId.remove(id);
       }
       return;
@@ -267,9 +273,7 @@ class AppNotificationService {
     if (payload == null || payload.isEmpty) return;
     final entryId = _resolveEntryId(response);
     if (entryId != null) {
-      NotificationHistoryStore.instance
-          .markRead(entryId)
-          .catchError((Object _) {});
+      await NotificationHistoryStore.instance.markRead(entryId);
     }
     final route = _routeForPayload(payload);
     if (_onTap != null) {
@@ -280,11 +284,38 @@ class AppNotificationService {
   }
 
   String _routeForPayload(String payload) {
-    if (!payload.startsWith('chat:')) return payload;
-    final requestId = Uri.encodeQueryComponent(
-      payload.replaceFirst('chat:', ''),
-    );
+    final separator = payload.indexOf('|');
+    final route = separator > 0 ? payload.substring(separator + 1) : payload;
+    if (!route.startsWith('chat:')) return route;
+    final requestId = Uri.encodeQueryComponent(route.replaceFirst('chat:', ''));
     return '/chat?requestId=$requestId';
+  }
+
+  /// Marks an in-app history item read and removes the same notification
+  /// from the phone tray, even after the app has restarted.
+  Future<void> markAsRead(NotificationHistoryEntry entry) async {
+    await NotificationHistoryStore.instance.markRead(entry.id);
+    final notificationId = entry.notificationId;
+    if (notificationId != null) {
+      await _plugin.cancel(id: notificationId);
+      _entryIdByNotificationId.remove(notificationId);
+    }
+  }
+
+  /// Marks the complete history read and clears every linked phone
+  /// notification. Old entries created before notification ids were stored
+  /// remain backward-compatible.
+  Future<void> markAllAsRead() async {
+    final entries = await NotificationHistoryStore.instance.entries();
+    await NotificationHistoryStore.instance.markAllRead();
+    for (final notificationId
+        in entries
+            .map((entry) => entry.notificationId)
+            .whereType<int>()
+            .toSet()) {
+      await _plugin.cancel(id: notificationId);
+      _entryIdByNotificationId.remove(notificationId);
+    }
   }
 
   Future<void> requestPermission() async {
@@ -309,15 +340,17 @@ class AppNotificationService {
   }) async {
     final entryId = 'request-$requestId';
     final route = '/chat?requestId=${Uri.encodeQueryComponent(requestId)}';
+    final notificationId = requestId.hashCode & 0x7fffffff;
     await _recordHistory(
       entryId: entryId,
+      notificationId: notificationId,
       kind: 'request',
       title: '💬 $senderName',
       body: message,
       route: route,
     );
     if (!await NotificationSettings.generalPushEnabled()) return;
-    final notificationId = requestId.hashCode & 0x7fffffff;
+    final vibration = await NotificationSettings.generalVibrationEnabled();
     _rememberEntry(notificationId, entryId);
     return _plugin.show(
       id: notificationId,
@@ -325,16 +358,14 @@ class AppNotificationService {
       body: message,
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          'chat_messages',
+          _channelId('chat_messages'),
           'Chat Messages',
           channelDescription: 'New messages from staff in your assistance chat',
           importance: Importance.high,
           priority: Priority.high,
-          enableVibration: true,
+          enableVibration: vibration,
           icon: '@mipmap/ic_launcher',
-          actions: [
-            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
-          ],
+          actions: [_markReadAction],
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
@@ -351,15 +382,18 @@ class AppNotificationService {
     required String counter,
   }) async {
     final entryId = 'queue-called-$number';
+    final notificationId = number.hashCode & 0x7fffffff;
     await _recordHistory(
       entryId: entryId,
+      notificationId: notificationId,
       kind: 'queue',
       title: 'Queue $number is being called',
       body: 'Please proceed to $counter.',
       route: '/queue',
     );
     if (!await NotificationSettings.generalPushEnabled()) return;
-    final notificationId = number.hashCode & 0x7fffffff;
+    final vibration = await NotificationSettings.generalVibrationEnabled();
+    final flash = await NotificationSettings.generalFlashEnabled();
     _rememberEntry(notificationId, entryId);
     return _plugin.show(
       id: notificationId,
@@ -374,11 +408,9 @@ class AppNotificationService {
           importance: Importance.max,
           priority: Priority.high,
           playSound: true,
-          enableVibration: true,
-          enableLights: true,
-          actions: [
-            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
-          ],
+          enableVibration: vibration,
+          enableLights: flash,
+          actions: [_markReadAction],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),
@@ -392,15 +424,18 @@ class AppNotificationService {
     required int minutes,
   }) async {
     final entryId = 'queue-wait-$number';
+    final notificationId = 'wait:$number'.hashCode & 0x7fffffff;
     await _recordHistory(
       entryId: entryId,
+      notificationId: notificationId,
       kind: 'queue',
       title: 'Queue $number is coming up',
       body: 'Your number is about $minutes min away. Please stay nearby.',
       route: '/queue',
     );
     if (!await NotificationSettings.generalPushEnabled()) return;
-    final notificationId = 'wait:$number'.hashCode & 0x7fffffff;
+    final vibration = await NotificationSettings.generalVibrationEnabled();
+    final flash = await NotificationSettings.generalFlashEnabled();
     _rememberEntry(notificationId, entryId);
     return _plugin.show(
       id: notificationId,
@@ -415,11 +450,9 @@ class AppNotificationService {
           importance: Importance.max,
           priority: Priority.high,
           playSound: true,
-          enableVibration: true,
-          enableLights: true,
-          actions: [
-            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
-          ],
+          enableVibration: vibration,
+          enableLights: flash,
+          actions: [_markReadAction],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),
@@ -433,15 +466,18 @@ class AppNotificationService {
   }) async {
     final entryId = 'ann-$id';
     final route = '/announcement-details?id=$id';
+    final notificationId = 'ann:$id'.hashCode & 0x7fffffff;
     await _recordHistory(
       entryId: entryId,
+      notificationId: notificationId,
       kind: 'announcement',
       title: title,
       body: message,
       route: route,
     );
     if (!await NotificationSettings.generalPushEnabled()) return;
-    final notificationId = 'ann:$id'.hashCode & 0x7fffffff;
+    final vibration = await NotificationSettings.generalVibrationEnabled();
+    final flash = await NotificationSettings.generalFlashEnabled();
     _rememberEntry(notificationId, entryId);
     return _plugin.show(
       id: notificationId,
@@ -457,11 +493,9 @@ class AppNotificationService {
           importance: Importance.max,
           priority: Priority.high,
           playSound: true,
-          enableVibration: true,
-          enableLights: true,
-          actions: [
-            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
-          ],
+          enableVibration: vibration,
+          enableLights: flash,
+          actions: [_markReadAction],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),
@@ -476,15 +510,18 @@ class AppNotificationService {
   }) async {
     final entryId = 'cap-$id';
     final route = '/announcement-details?id=$id';
+    final notificationId = 'cap:$id'.hashCode & 0x7fffffff;
     await _recordHistory(
       entryId: entryId,
+      notificationId: notificationId,
       kind: 'captured',
       title: title,
       body: message,
       route: route,
     );
     if (!await NotificationSettings.generalPushEnabled()) return;
-    final notificationId = 'cap:$id'.hashCode & 0x7fffffff;
+    final vibration = await NotificationSettings.generalVibrationEnabled();
+    final flash = await NotificationSettings.generalFlashEnabled();
     _rememberEntry(notificationId, entryId);
     return _plugin.show(
       id: notificationId,
@@ -500,11 +537,9 @@ class AppNotificationService {
           importance: Importance.max,
           priority: Priority.high,
           playSound: true,
-          enableVibration: true,
-          enableLights: true,
-          actions: [
-            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
-          ],
+          enableVibration: vibration,
+          enableLights: flash,
+          actions: [_markReadAction],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),
@@ -516,17 +551,19 @@ class AppNotificationService {
     required String details,
   }) async {
     final entryId = 'sound-${DateTime.now().microsecondsSinceEpoch}';
+    final notificationId = DateTime.now().millisecondsSinceEpoch.remainder(
+      0x7fffffff,
+    );
     await _recordHistory(
       entryId: entryId,
+      notificationId: notificationId,
       kind: 'sound',
       title: title,
       body: details,
       route: null,
     );
     if (!await NotificationSettings.alertPushEnabled()) return;
-    final notificationId = DateTime.now().millisecondsSinceEpoch.remainder(
-      0x7fffffff,
-    );
+    final vibration = await NotificationSettings.alertVibrationEnabled();
     _rememberEntry(notificationId, entryId);
     return _plugin.show(
       id: notificationId,
@@ -541,10 +578,8 @@ class AppNotificationService {
           importance: Importance.max,
           priority: Priority.high,
           playSound: true,
-          enableVibration: true,
-          actions: [
-            const AndroidNotificationAction(_markReadActionId, 'Mark as read'),
-          ],
+          enableVibration: vibration,
+          actions: [_markReadAction],
         ),
         iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
       ),

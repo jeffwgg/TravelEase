@@ -73,13 +73,7 @@ class ProfileViewModel extends ChangeNotifier {
         _authRepository.currentSession == null) {
       return '/auth';
     }
-    try {
-      return await _profileRepository.isCurrentUserProfileComplete()
-          ? '/home'
-          : '/profile-setup';
-    } catch (_) {
-      return '/profile-setup';
-    }
+    return '/home';
   }
 
   Future<bool> saveProfile() async {

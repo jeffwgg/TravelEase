@@ -16,6 +16,10 @@ class NotificationHistoryEntry {
 
   /// Deep-link route tapped by the traveller; null rows are not tappable.
   final String? route;
+
+  /// Android/iOS local-notification id used to dismiss the matching phone
+  /// notification when this history entry is read inside the app.
+  final int? notificationId;
   final DateTime createdAt;
   bool read;
 
@@ -25,6 +29,7 @@ class NotificationHistoryEntry {
     required this.title,
     required this.body,
     required this.route,
+    this.notificationId,
     required this.createdAt,
     this.read = false,
   });
@@ -35,6 +40,7 @@ class NotificationHistoryEntry {
     'title': title,
     'body': body,
     'route': route,
+    'notificationId': notificationId,
     'createdAt': createdAt.toIso8601String(),
     'read': read,
   };
@@ -46,6 +52,7 @@ class NotificationHistoryEntry {
         title: json['title'] as String? ?? '',
         body: json['body'] as String? ?? '',
         route: json['route'] as String?,
+        notificationId: (json['notificationId'] as num?)?.toInt(),
         createdAt:
             DateTime.tryParse(json['createdAt'] as String? ?? '') ??
             DateTime.now(),

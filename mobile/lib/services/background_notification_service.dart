@@ -22,7 +22,7 @@ import 'queue_notification_service.dart';
 const _backgroundChannelId = 'travelease_background';
 
 /// Poll interval for the background alert poller.
-const _pollInterval = Duration(seconds: 60);
+const _pollInterval = Duration(seconds: 15);
 
 /// Freshness window for announcement alerts, matching the foreground service.
 const _freshWindow = Duration(minutes: 30);
@@ -58,7 +58,9 @@ Future<void> _ensureBackgroundChannel() async {
 /// Some Android builds (MIUI in particular) reject an FGS start issued while
 /// the app is not yet foreground (e.g. launch with the screen off), so
 /// failures are retried until the system allows it.
-Future<void> startBackgroundNotificationService({int attemptsRemaining = 5}) async {
+Future<void> startBackgroundNotificationService({
+  int attemptsRemaining = 5,
+}) async {
   if (_backgroundServiceStarted) return;
   await _ensureBackgroundChannel();
   final service = FlutterBackgroundService();
@@ -96,6 +98,11 @@ Future<void> startBackgroundNotificationService({int attemptsRemaining = 5}) asy
 @pragma('vm:entry-point')
 Future<void> backgroundNotificationEntryPoint(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
+  // flutter_background_service runs in a separate Dart isolate. Supabase's
+  // singleton state is isolate-local, so the foreground initialization in
+  // main.dart is not visible here. Initialize it before constructing queue or
+  // announcement services that read Supabase.instance.
+  await SupabaseClientHelper.initialize();
   await AppNotificationService.instance.initialize();
   Timer.periodic(_pollInterval, (_) => _poll());
   await _poll();
@@ -118,15 +125,13 @@ Future<Map<String, dynamic>?> _trackedSession() async {
   final preferences = await SharedPreferences.getInstance();
   final institutionId = preferences.getString('venue_session_institution_id');
   if (institutionId == null) return null;
-  return {
-    'institutionId': institutionId,
-    'preferences': preferences,
-  };
+  return {'institutionId': institutionId, 'preferences': preferences};
 }
 
 Future<List<dynamic>> _restGet(String path, Map<String, String> query) async {
-  final uri = Uri.parse('${SupabaseClientHelper.supabaseUrl}/rest/v1/$path')
-      .replace(queryParameters: query);
+  final uri = Uri.parse(
+    '${SupabaseClientHelper.supabaseUrl}/rest/v1/$path',
+  ).replace(queryParameters: query);
   final response = await http.get(
     uri,
     headers: {
@@ -150,7 +155,7 @@ Future<void> _pollAnnouncements() async {
   final seen = (preferences.getStringList(seenKey) ?? const <String>[]).toSet();
 
   final rows = await _restGet('announcements', {
-    'select': 'id,title,message_en,published_at,expires_at',
+    'select': 'id,title,message_en,published_at',
     'institution_id': 'eq.$institutionId',
     'status': 'eq.active',
     'order': 'published_at.desc',
@@ -165,12 +170,10 @@ Future<void> _pollAnnouncements() async {
     final data = row as Map<String, dynamic>;
     final id = data['id'] as String?;
     if (id == null) continue;
-    final publishedAt = DateTime.tryParse(data['published_at'] as String? ?? '');
-    final expiresAt = data['expires_at'] == null
-        ? null
-        : DateTime.tryParse(data['expires_at'] as String);
+    final publishedAt = DateTime.tryParse(
+      data['published_at'] as String? ?? '',
+    );
     if (publishedAt == null || publishedAt.isAfter(now)) continue;
-    if (expiresAt != null && expiresAt.isBefore(now)) continue;
     if (seen.contains(id)) continue;
     if (publishedAt.isBefore(cutoff)) continue;
     fresh.add(data);
@@ -203,6 +206,8 @@ Future<void> _pollAnnouncements() async {
 
 Future<void> _pollQueue() async {
   final preferences = await SharedPreferences.getInstance();
+  await preferences.reload();
+  if (preferences.getString('venue_session_institution_id') == null) return;
   final lineId = preferences.getString('tracked_queue_line_id');
   final number = preferences.getString('tracked_queue_number');
   if (lineId == null || number == null) return;

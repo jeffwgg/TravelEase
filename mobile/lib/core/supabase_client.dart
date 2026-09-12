@@ -9,9 +9,13 @@ class SupabaseClientHelper {
     await Supabase.initialize(
       url: supabaseUrl,
       anonKey: supabaseAnonKey,
+      authOptions: const FlutterAuthClientOptions(
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUri: true,
+      ),
     );
   }
 
   static SupabaseClient get client => Supabase.instance.client;
 }
-

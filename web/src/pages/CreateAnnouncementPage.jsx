@@ -10,8 +10,8 @@ const languageOptions = [
 ]
 
 const initialForm = {
-  title: '', zoneId: 'all', type: 'travel_update', priority: 'normal',
-  messageEn: '', messageMs: '', messageZh: '', expiresAt: '', scheduledAt: '', autoTranslate: false,
+  title: '', zoneId: 'all', type: '', priority: 'normal',
+  messageEn: '', messageMs: '', messageZh: '', scheduledAt: '', autoTranslate: false,
   targetLanguages: ['ms'], status: 'active',
 }
 
@@ -56,9 +56,8 @@ export default function CreateAnnouncementPage() {
             type: item.announcement_type,
             priority: item.priority,
             messageEn: item.message_en,
-            messageMs: item.message_ms || '',
+            messageMs: item.translations?.ms?.message || '',
             messageZh: item.translations?.zh?.message || '',
-            expiresAt: toLocalDateTime(item.expires_at),
             scheduledAt: toLocalDateTime(item.published_at),
             autoTranslate: item.auto_translated || false,
             targetLanguages: Object.keys(item.translations || {}).length ? Object.keys(item.translations) : ['ms'],
@@ -68,7 +67,7 @@ export default function CreateAnnouncementPage() {
           setTranslations({
             ms: {
               title: item.translations?.ms?.title || '',
-              message: item.translations?.ms?.message || item.message_ms || '',
+              message: item.translations?.ms?.message || '',
             },
             zh: {
               title: item.translations?.zh?.title || '',
@@ -137,12 +136,10 @@ export default function CreateAnnouncementPage() {
     const next = {}
     if (!form.title.trim()) next.title = 'Title / Subject is required.'
     if (!form.zoneId) next.zoneId = 'Target Zone / Area is required.'
-    if (!form.type) next.type = 'Announcement Type is required.'
     if (!form.priority) next.priority = 'Priority is required.'
     if (isEditing && !form.status) next.status = 'Status is required.'
     if (!form.messageEn.trim()) next.messageEn = 'English message content is required.'
     if (form.autoTranslate && form.targetLanguages.length === 0) next.targetLanguages = 'Choose at least one translation language.'
-    if (form.expiresAt && new Date(form.expiresAt) <= new Date()) next.expiresAt = 'Expiry must be a future date and time.'
     // A published announcement keeps its original (past) publish time in the
     // disabled schedule field — that must not fail validation.
     if (!publishLocked && form.scheduledAt && new Date(form.scheduledAt) <= new Date()) next.scheduledAt = 'Schedule publish time must be in the future.'
@@ -183,11 +180,9 @@ export default function CreateAnnouncementPage() {
         zone_id: form.zoneId === 'all' ? null : form.zoneId,
         title: form.title.trim(),
         message_en: form.messageEn.trim(),
-        message_ms: translationsPayload.ms?.message || form.messageMs.trim() || null,
         announcement_type: form.type,
         priority: form.priority,
         status: form.status,
-        expires_at: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
         translations: translationsPayload,
         auto_translated: form.autoTranslate,
       }
@@ -234,11 +229,10 @@ export default function CreateAnnouncementPage() {
             <div className="form-group"><label htmlFor="announcement-title">Title / Subject <span className="required-mark">*</span></label><input id="announcement-title" className={`input ${fieldErrors.title ? 'invalid' : ''}`} value={form.title} onChange={update('title')} maxLength={160} placeholder="e.g. Gate Change — MH370" />{fieldError('title')}</div>
             <div className="form-grid">
               <div className="form-group"><label htmlFor="announcement-zone">Target Zone / Area <span className="required-mark">*</span></label><select id="announcement-zone" className={`input ${fieldErrors.zoneId ? 'invalid' : ''}`} value={form.zoneId} onChange={update('zoneId')}><option value="all">All Zones (Entire Venue)</option>{zones.filter((zone) => zone.code !== 'ALL').map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</select>{fieldError('zoneId')}</div>
-              <div className="form-group"><label htmlFor="announcement-type">Announcement Type <span className="required-mark">*</span></label><select id="announcement-type" className={`input ${fieldErrors.type ? 'invalid' : ''}`} value={form.type} onChange={update('type')}><option value="travel_update">Gate Change / Travel Update</option><option value="boarding">General Boarding Call</option><option value="delay_cancellation">Delay / Cancellation Notice</option><option value="emergency">Emergency Warning</option><option value="general">General Information</option></select>{fieldError('type')}</div>
+              <div className="form-group"><label htmlFor="announcement-type">Announcement Type </label><input id="announcement-type" className={`input ${fieldErrors.type ? 'invalid' : ''}`} value={form.type} onChange={update('type')} maxLength={160} placeholder="e.g. General Information" />{fieldError('type')}</div>
               <div className="form-group"><label htmlFor="announcement-priority">Priority <span className="required-mark">*</span></label><select id="announcement-priority" className={`input ${fieldErrors.priority ? 'invalid' : ''}`} value={form.priority} onChange={update('priority')}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>{fieldError('priority')}</div>
-              <div className="form-group"><label htmlFor="announcement-expiry">Expires At (Optional)</label><input id="announcement-expiry" type="datetime-local" className={`input ${fieldErrors.expiresAt ? 'invalid' : ''}`} value={form.expiresAt} min={new Date().toISOString().slice(0, 16)} onChange={update('expiresAt')} />{fieldError('expiresAt')}</div>
               <div className="form-group"><label htmlFor="announcement-schedule">Schedule Publish Time (Optional)</label><input id="announcement-schedule" type="datetime-local" className={`input ${fieldErrors.scheduledAt ? 'invalid' : ''}`} value={form.scheduledAt} min={new Date().toISOString().slice(0, 16)} disabled={publishLocked} onChange={update('scheduledAt')} />{fieldError('scheduledAt')}{publishLocked && <div className="field-note">Already published — the schedule can no longer be changed.</div>}</div>
-              {isEditing && <div className="form-group"><label htmlFor="announcement-status">Status <span className="required-mark">*</span></label><select id="announcement-status" className={`input ${fieldErrors.status ? 'invalid' : ''}`} value={form.status} onChange={update('status')}><option value="active">Active</option><option value="draft">Draft</option><option value="expired">Expired</option><option value="cancelled">Cancelled</option></select>{fieldError('status')}</div>}
+              {isEditing && <div className="form-group"><label htmlFor="announcement-status">Status <span className="required-mark">*</span></label><select id="announcement-status" className={`input ${fieldErrors.status ? 'invalid' : ''}`} value={form.status} onChange={update('status')}><option value="active">Active</option><option value="draft">Draft</option><option value="cancelled">Cancelled</option></select>{fieldError('status')}</div>}
             </div>
             <div className="form-group"><label htmlFor="message-en">Message Content (English) <span className="required-mark">*</span></label><textarea id="message-en" className={`input ${fieldErrors.messageEn ? 'invalid' : ''}`} rows={5} value={form.messageEn} onChange={update('messageEn')} maxLength={2000} placeholder="Type the official announcement in English..." />{fieldError('messageEn')}</div>
 

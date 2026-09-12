@@ -17,7 +17,6 @@ class AnnouncementRepository {
         .eq('institution_id', institutionId)
         .eq('status', 'active')
         .lte('published_at', now)
-        .or('expires_at.is.null,expires_at.gt.$now')
         .order('published_at', ascending: false);
 
     return (response as List<dynamic>)

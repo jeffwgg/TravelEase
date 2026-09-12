@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Local mirror of the profile notification configuration. The profile
@@ -19,7 +21,12 @@ class NotificationSettings {
   static const generalPushKey = 'general_notification_enabled';
   static const generalVibrationKey = 'general_vibration_enabled';
   static const generalFlashKey = 'general_flash_enabled';
+  static const vibrationStrengthKey = 'vibration_strength';
+  static const _accessibilityPreferencesKey = 'accessibility_preferences';
   static const _channelsGenerationKey = 'notification_channels_generation';
+
+  static bool _validStrength(String? value) =>
+      value == 'light' || value == 'medium' || value == 'strong';
 
   static Future<bool> alertPushEnabled() async {
     final preferences = await SharedPreferences.getInstance();
@@ -28,12 +35,14 @@ class NotificationSettings {
 
   static Future<bool> alertVibrationEnabled() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool(alertVibrationKey) ?? true;
+    final push = preferences.getBool(alertPushKey) ?? true;
+    return push && (preferences.getBool(alertVibrationKey) ?? true);
   }
 
   static Future<bool> alertFlashEnabled() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool(alertFlashKey) ?? true;
+    final push = preferences.getBool(alertPushKey) ?? true;
+    return push && (preferences.getBool(alertFlashKey) ?? true);
   }
 
   static Future<bool> generalPushEnabled() async {
@@ -43,12 +52,34 @@ class NotificationSettings {
 
   static Future<bool> generalVibrationEnabled() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool(generalVibrationKey) ?? true;
+    final push = preferences.getBool(generalPushKey) ?? true;
+    return push && (preferences.getBool(generalVibrationKey) ?? true);
   }
 
   static Future<bool> generalFlashEnabled() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getBool(generalFlashKey) ?? true;
+    final push = preferences.getBool(generalPushKey) ?? true;
+    return push && (preferences.getBool(generalFlashKey) ?? true);
+  }
+
+  static Future<String> vibrationStrength() async {
+    final preferences = await SharedPreferences.getInstance();
+    final stored = preferences.getString(vibrationStrengthKey);
+    if (_validStrength(stored)) return stored!;
+
+    // Existing installations already cache the complete accessibility profile
+    // under this key. Read it as a migration fallback until the next save.
+    final profileJson = preferences.getString(_accessibilityPreferencesKey);
+    if (profileJson != null) {
+      try {
+        final profile = jsonDecode(profileJson) as Map<String, dynamic>;
+        final profileStrength = profile['vibration_strength'] as String?;
+        if (_validStrength(profileStrength)) return profileStrength!;
+      } catch (_) {
+        // A damaged cache falls back safely to the established default.
+      }
+    }
+    return 'medium';
   }
 
   static Future<void> store({
@@ -59,6 +90,13 @@ class NotificationSettings {
     required bool generalVibration,
     required bool generalFlash,
   }) async {
+    // Vibration and flash are child behaviours of notifications. Keeping
+    // them false when their parent is off prevents background isolates from
+    // producing an accessibility alert without a notification.
+    alertVibration = alertPush && alertVibration;
+    alertFlash = alertPush && alertFlash;
+    generalVibration = generalPush && generalVibration;
+    generalFlash = generalPush && generalFlash;
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(alertPushKey, alertPush);
     await preferences.setBool(alertVibrationKey, alertVibration);

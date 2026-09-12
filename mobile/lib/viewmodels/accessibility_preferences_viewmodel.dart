@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/repositories/accessibility_preferences_repository.dart';
 import '../services/app_notification_service.dart';
+import '../services/notification_settings.dart';
 
 /// Accessibility preferences in two sections: Alert Preferences (important
 /// sound alerts) and General Notification Preference (announcements, queue
@@ -41,6 +42,28 @@ class AccessibilityPreferencesViewModel extends ChangeNotifier {
             data['general_notification_enabled'] as bool? ?? true;
         generalVibration = data['general_vibration_enabled'] as bool? ?? true;
         generalFlash = data['general_flash_enabled'] as bool? ?? true;
+
+        // Vibration and flash cannot remain active without their parent
+        // notification category.
+        if (!alertNotification) {
+          alertVibration = false;
+          alertFlash = false;
+        }
+        if (!generalNotification) {
+          generalVibration = false;
+          generalFlash = false;
+        }
+
+        // Background services read the lightweight local mirror rather than
+        // Supabase. Refresh it whenever the current profile is loaded.
+        await NotificationSettings.store(
+          alertPush: alertNotification,
+          alertVibration: alertVibration,
+          alertFlash: alertFlash,
+          generalPush: generalNotification,
+          generalVibration: generalVibration,
+          generalFlash: generalFlash,
+        );
       }
     } catch (_) {
       errorMessage = 'Unable to load accessibility preferences.';
@@ -56,16 +79,28 @@ class AccessibilityPreferencesViewModel extends ChangeNotifier {
   }
 
   /// Toggles persist immediately — leaving the page must not discard them.
-  Future<void> setAlertNotification(bool value) =>
-      _set(() => alertNotification = value);
+  Future<void> setAlertNotification(bool value) => _set(() {
+    alertNotification = value;
+    if (!value) {
+      alertVibration = false;
+      alertFlash = false;
+    }
+  });
   Future<void> setAlertVibration(bool value) =>
-      _set(() => alertVibration = value);
-  Future<void> setAlertFlash(bool value) => _set(() => alertFlash = value);
-  Future<void> setGeneralNotification(bool value) =>
-      _set(() => generalNotification = value);
+      _set(() => alertVibration = alertNotification && value);
+  Future<void> setAlertFlash(bool value) =>
+      _set(() => alertFlash = alertNotification && value);
+  Future<void> setGeneralNotification(bool value) => _set(() {
+    generalNotification = value;
+    if (!value) {
+      generalVibration = false;
+      generalFlash = false;
+    }
+  });
   Future<void> setGeneralVibration(bool value) =>
-      _set(() => generalVibration = value);
-  Future<void> setGeneralFlash(bool value) => _set(() => generalFlash = value);
+      _set(() => generalVibration = generalNotification && value);
+  Future<void> setGeneralFlash(bool value) =>
+      _set(() => generalFlash = generalNotification && value);
 
   Future<void> _set(VoidCallback change) async {
     update(change);

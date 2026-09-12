@@ -1,17 +1,23 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../services/venue_session_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'supabase_client.dart';
 import '../views/auth/authentication_view.dart';
 import '../views/auth/check_email_view.dart';
 import '../views/auth/reset_password_view.dart';
 import '../views/profile/profile_management_view.dart';
 import '../views/profile/edit_profile_view.dart';
-import '../views/profile/profile_setup_view.dart';
 import '../views/profile/preferences_view.dart';
 import '../views/profile/help_center_view.dart';
 import '../views/profile/about_travelease_view.dart';
 import '../views/emergency/emergency_contact_settings_view.dart';
 import '../views/emergency/emergency_communication_card_view.dart';
 import '../views/emergency/environment_sound_alert_view.dart';
+import '../views/emergency/sos_countdown_view.dart';
+import '../views/emergency/sos_active_view.dart';
 import '../views/location/venue_identification_view.dart';
 import '../views/location/announcement_view.dart';
 import '../views/location/announcement_details_view.dart';
@@ -33,8 +39,22 @@ import '../views/assistance/accessibility_issue_view.dart';
 import '../views/assistance/location_picker_view.dart';
 import '../views/home/home_view.dart';
 
+final AuthRouterNotifier _authRouterNotifier = AuthRouterNotifier();
+
 final GoRouter appRouter = GoRouter(
-  initialLocation: '/auth',
+  initialLocation: _authRouterNotifier.isAuthenticated ? '/home' : '/auth',
+  refreshListenable: Listenable.merge([
+    VenueSessionService.instance,
+    _authRouterNotifier,
+  ]),
+  redirect: (context, state) {
+    final path = state.uri.path;
+    final isAuthenticated = _authRouterNotifier.isAuthenticated;
+    if (path == '/check-email' || path == '/reset-password') return null;
+    if (!isAuthenticated && path != '/auth') return '/auth';
+    if (isAuthenticated && path == '/auth') return '/home';
+    return null;
+  },
   routes: [
     GoRoute(
       path: '/auth',
@@ -48,10 +68,6 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/reset-password',
       builder: (context, state) => const ResetPasswordView(),
-    ),
-    GoRoute(
-      path: '/profile-setup',
-      builder: (context, state) => const ProfileSetupView(),
     ),
     // Main app with bottom nav
     ShellRoute(
@@ -102,6 +118,14 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => const EnvironmentSoundAlertView(),
     ),
     GoRoute(
+      path: '/sos-countdown',
+      builder: (context, state) => const SosCountdownView(),
+    ),
+    GoRoute(
+      path: '/sos-active',
+      builder: (context, state) => const SosActiveView(),
+    ),
+    GoRoute(
       path: '/venue',
       builder: (context, state) => const VenueIdentificationView(),
     ),
@@ -120,6 +144,8 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/queue',
+      redirect: (context, state) =>
+          VenueSessionService.instance.hasActiveSession ? null : '/home',
       builder: (context, state) => const QueueTrackingView(),
     ),
     GoRoute(
@@ -175,6 +201,25 @@ final GoRouter appRouter = GoRouter(
     ),
   ],
 );
+
+class AuthRouterNotifier extends ChangeNotifier {
+  AuthRouterNotifier() {
+    _subscription = SupabaseClientHelper.client.auth.onAuthStateChange.listen(
+      (_) => notifyListeners(),
+    );
+  }
+
+  late final StreamSubscription<AuthState> _subscription;
+
+  bool get isAuthenticated =>
+      SupabaseClientHelper.client.auth.currentSession != null;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
 
 // Tab placeholder widgets that build the actual tab content
 class _HomeTab extends StatelessWidget {

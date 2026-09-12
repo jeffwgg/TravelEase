@@ -195,7 +195,6 @@ revoke update on public.institutions from authenticated;
 grant select on public.institutions to authenticated;
 grant update (
   name,
-  branch,
   institution_type,
   official_contact,
   service_address

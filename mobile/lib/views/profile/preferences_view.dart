@@ -67,6 +67,7 @@ class _PreferencesViewState extends State<PreferencesView> {
                       Icons.vibration,
                       _viewModel.alertVibration,
                       _viewModel.setAlertVibration,
+                      enabled: _viewModel.alertNotification,
                     ),
                     const Divider(height: 1, indent: 56),
                     _buildSwitch(
@@ -75,6 +76,7 @@ class _PreferencesViewState extends State<PreferencesView> {
                       Icons.flash_on,
                       _viewModel.alertFlash,
                       _viewModel.setAlertFlash,
+                      enabled: _viewModel.alertNotification,
                     ),
                   ],
                 ),
@@ -99,6 +101,7 @@ class _PreferencesViewState extends State<PreferencesView> {
                       Icons.vibration,
                       _viewModel.generalVibration,
                       _viewModel.setGeneralVibration,
+                      enabled: _viewModel.generalNotification,
                     ),
                     const Divider(height: 1, indent: 56),
                     _buildSwitch(
@@ -108,6 +111,7 @@ class _PreferencesViewState extends State<PreferencesView> {
                       Icons.flash_on,
                       _viewModel.generalFlash,
                       _viewModel.setGeneralFlash,
+                      enabled: _viewModel.generalNotification,
                     ),
                   ],
                 ),
@@ -145,18 +149,23 @@ class _PreferencesViewState extends State<PreferencesView> {
     String subtitle,
     IconData icon,
     bool value,
-    ValueChanged<bool> onChanged,
-  ) {
+    ValueChanged<bool> onChanged, {
+    bool enabled = true,
+  }) {
     return SwitchListTile(
       title: Text(
         title,
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
       ),
       subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-      secondary: Icon(icon, color: AppColors.primary, size: 22),
+      secondary: Icon(
+        icon,
+        color: enabled ? AppColors.primary : AppColors.textMuted,
+        size: 22,
+      ),
       value: value,
       activeThumbColor: AppColors.primary,
-      onChanged: onChanged,
+      onChanged: enabled ? onChanged : null,
     );
   }
 }
