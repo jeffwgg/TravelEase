@@ -263,11 +263,6 @@ class _ProfileManagementViewState extends State<ProfileManagementView> {
                         'Environment Sound Alert',
                         () => context.push('/environment-sound-alert'),
                       ),
-                      _MenuItem(
-                        Icons.privacy_tip_outlined,
-                        'Privacy & Data',
-                        () {},
-                      ),
                     ]),
                     const SizedBox(height: 16),
                     _buildMenuSection(context, 'Support', [
@@ -275,11 +270,6 @@ class _ProfileManagementViewState extends State<ProfileManagementView> {
                         Icons.help_outline,
                         'Help Center',
                         () => context.push('/help-center'),
-                      ),
-                      _MenuItem(
-                        Icons.feedback_outlined,
-                        'Send Feedback',
-                        () {},
                       ),
                       _MenuItem(
                         Icons.info_outline,
