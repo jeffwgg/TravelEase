@@ -4,14 +4,12 @@ class Announcement {
   final String? zoneId;
   final String title;
   final String messageEn;
-  final String? messageMs;
   final String type;
   final String priority;
   final String status;
   final String? zoneName;
   final String? institutionName;
   final DateTime publishedAt;
-  final DateTime? expiresAt;
   final Map<String, AnnouncementTranslation> translations;
 
   /// 'official' for institution-published rows, 'captured' for
@@ -31,10 +29,8 @@ class Announcement {
     required this.status,
     required this.publishedAt,
     this.zoneId,
-    this.messageMs,
     this.zoneName,
     this.institutionName,
-    this.expiresAt,
     this.translations = const {},
     this.source = 'official',
     this.confidence,
@@ -61,7 +57,6 @@ class Announcement {
       zoneId: json['zone_id'] as String?,
       title: json['title'] as String,
       messageEn: json['message_en'] as String,
-      messageMs: json['message_ms'] as String?,
       type: json['announcement_type'] as String,
       priority: json['priority'] as String,
       status: json['status'] as String,
@@ -70,7 +65,6 @@ class Announcement {
           ? institution['name'] as String?
           : null,
       publishedAt: DateTime.parse((json['published_at'] ?? json['created_at']) as String).toLocal(),
-      expiresAt: json['expires_at'] == null ? null : DateTime.parse(json['expires_at'] as String).toLocal(),
       translations: translations,
     );
   }

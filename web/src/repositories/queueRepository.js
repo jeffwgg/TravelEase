@@ -81,7 +81,7 @@ export const queueRepository = {
       body: { queueLine: payload },
     })
     if (error) throw await functionError(error, 'Unable to create the queue line.')
-    await ensureTraceableNumbers(data.queueLine)
+    // await ensureTraceableNumbers(data.queueLine)
     return data.queueLine
   },
 
@@ -103,8 +103,80 @@ export const queueRepository = {
       details: { status: line.status, service_area: line.service_area },
     })
     if (eventError) throw eventError
-    await ensureTraceableNumbers(line)
+    // await ensureTraceableNumbers(line)
     return line
+  },
+
+  /**
+   * Resets a queue line back to its first number (prefix-001). Every number
+   * still waiting/called/serving is cancelled, the serving window restarts
+   * as waiting, and the first number becomes the current one. Closed lines
+   * are read-only (migration 006 enforces this in the database too).
+   */
+  async resetQueueLineNumbers(queueLineId, userId = null) {
+    const { data: line, error: lineError } = await supabase
+      .from('queue_lines')
+      .select('institution_id, name, prefix, current_number, upcoming_number, max_tracking_number, status')
+      .eq('id', queueLineId)
+      .single()
+    if (lineError) throw lineError
+    if (line.status === 'closed') {
+      throw new Error('This queue line is closed. Reopen it before resetting its numbers.')
+    }
+    const parsed = parseQueueNumber(line.current_number)
+    if (!parsed) throw new Error('Unable to parse the current queue number for this line.')
+    const cap = Number(line.max_tracking_number) > 0
+      ? Number(line.max_tracking_number)
+      : DEFAULT_MAX_TRACKING_NUMBER
+    const first = formatQueueNumber({ prefix: parsed.prefix, value: 1, width: parsed.width })
+    const second = formatQueueNumber({ prefix: parsed.prefix, value: 2, width: parsed.width })
+
+    // Cancel every outstanding number — waiting travellers must re-queue.
+    const { error: cancelError } = await supabase
+      .from('queue_numbers')
+      .update({ status: 'cancelled' })
+      .eq('queue_line_id', queueLineId)
+      .in('status', ['waiting', 'called', 'serving'])
+    if (cancelError) throw cancelError
+
+    const now = new Date().toISOString()
+    const { error: firstError } = await supabase
+      .from('queue_numbers')
+      .update({ status: 'called', called_at: now, completed_at: null })
+      .eq('queue_line_id', queueLineId)
+      .eq('number', first)
+    if (firstError) throw firstError
+
+    const windowNumbers = []
+    for (let value = 2; value <= Math.min(cap, MAX_GENERATED_PER_RUN); value += 1) {
+      windowNumbers.push(formatQueueNumber({ prefix: parsed.prefix, value, width: parsed.width }))
+    }
+    const { error: windowError } = await supabase
+      .from('queue_numbers')
+      .update({ status: 'waiting', called_at: null, completed_at: null })
+      .eq('queue_line_id', queueLineId)
+      .in('number', windowNumbers)
+    if (windowError) throw windowError
+
+    const { data: updated, error: updateError } = await supabase
+      .from('queue_lines')
+      .update({ current_number: first, upcoming_number: second })
+      .eq('id', queueLineId)
+      .select()
+      .single()
+    if (updateError) throw updateError
+
+    await supabase.from('queue_events').insert({
+      institution_id: line.institution_id,
+      queue_line_id: queueLineId,
+      event_type: 'updated',
+      event_number: first,
+      created_by: userId,
+      details: { reset: true, previous_current_number: line.current_number },
+    })
+
+    // await ensureTraceableNumbers(updated)
+    return updated
   },
 
   async deleteQueueLine(id, institutionId) {
@@ -131,7 +203,7 @@ export const queueRepository = {
     await enforceMaximumQueueNumber(queueLineId)
     const { data, error } = await supabase.rpc('queue_call_next', { p_queue_line_id: queueLineId })
     if (error) throw error
-    await ensureTraceableNumbers(data)
+    // await ensureTraceableNumbers(data)
     return data
   },
 
@@ -142,7 +214,7 @@ export const queueRepository = {
       p_number: number.trim(),
     })
     if (error) throw error
-    await ensureTraceableNumbers(data)
+    // await ensureTraceableNumbers(data)
     return data
   },
 
@@ -177,7 +249,7 @@ export const queueRepository = {
       p_status: status,
     })
     if (error) throw error
-    if (data?.line) await ensureTraceableNumbers(data.line)
+    // if (data?.line) await ensureTraceableNumbers(data.line)
     return data
   },
 
@@ -263,46 +335,46 @@ async function enforceMaximumQueueNumber(queueLineId, requestedNumber = null) {
  * numbers that exist as rows, so this keeps every number inside the window
  * traceable. Best-effort: the triggering action must never fail because of it.
  */
-async function ensureTraceableNumbers(line) {
-  try {
-    if (!line?.id || !line.institution_id) return 0
-    const current = parseQueueNumber(line.current_number)
-    if (!current) return 0
-    const max = Number(line.max_tracking_number) > 0
-      ? Number(line.max_tracking_number)
-      : DEFAULT_MAX_TRACKING_NUMBER
-    // When a maximum queue number is configured it is a hard cap on issued
-    // numbers; otherwise the window slides ahead of the current number.
-    const hardCap = Number(line.max_tracking_number) > 0 ? max : null
-    const end = hardCap != null
-      ? hardCap
-      : current.value + Math.min(max, MAX_GENERATED_PER_RUN)
-    if (end <= current.value) return 0
+// async function ensureTraceableNumbers(line) {
+//   try {
+//     if (!line?.id || !line.institution_id) return 0
+//     const current = parseQueueNumber(line.current_number)
+//     if (!current) return 0
+//     const max = Number(line.max_tracking_number) > 0
+//       ? Number(line.max_tracking_number)
+//       : DEFAULT_MAX_TRACKING_NUMBER
+//     // When a maximum queue number is configured it is a hard cap on issued
+//     // numbers; otherwise the window slides ahead of the current number.
+//     const hardCap = Number(line.max_tracking_number) > 0 ? max : null
+//     const end = hardCap != null
+//       ? hardCap
+//       : current.value + Math.min(max, MAX_GENERATED_PER_RUN)
+//     if (end <= current.value) return 0
 
-    const { data: existing, error } = await supabase
-      .from('queue_numbers')
-      .select('number')
-      .eq('queue_line_id', line.id)
-    if (error) throw error
-    const have = new Set((existing ?? []).map((row) => String(row.number).trim().toUpperCase()))
+//     const { data: existing, error } = await supabase
+//       .from('queue_numbers')
+//       .select('number')
+//       .eq('queue_line_id', line.id)
+//     if (error) throw error
+//     const have = new Set((existing ?? []).map((row) => String(row.number).trim().toUpperCase()))
 
-    const rows = []
-    for (let value = current.value + 1; value <= end; value += 1) {
-      const formatted = formatQueueNumber({ ...current, value })
-      if (have.has(formatted)) continue
-      rows.push({
-        queue_line_id: line.id,
-        institution_id: line.institution_id,
-        number: formatted,
-        status: 'waiting',
-      })
-    }
-    if (!rows.length) return 0
-    const { error: insertError } = await supabase.from('queue_numbers').insert(rows)
-    if (insertError) throw insertError
-    return rows.length
-  } catch (error) {
-    console.error('ensureTraceableNumbers failed', error)
-    return 0
-  }
-}
+//     const rows = []
+//     for (let value = current.value + 1; value <= end; value += 1) {
+//       const formatted = formatQueueNumber({ ...current, value })
+//       if (have.has(formatted)) continue
+//       rows.push({
+//         queue_line_id: line.id,
+//         institution_id: line.institution_id,
+//         number: formatted,
+//         status: 'waiting',
+//       })
+//     }
+//     if (!rows.length) return 0
+//     const { error: insertError } = await supabase.from('queue_numbers').insert(rows)
+//     if (insertError) throw insertError
+//     return rows.length
+//   } catch (error) {
+//     console.error('ensureTraceableNumbers failed', error)
+//     return 0
+//   }
+// }

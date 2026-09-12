@@ -12,6 +12,7 @@ import '../../models/repositories/captured_announcement_store.dart';
 import '../../models/repositories/venue_repository.dart';
 import '../../services/venue_session_service.dart';
 import '../../widgets/app_message_banner.dart';
+import '../widgets/notification_bell_button.dart';
 
 class VenueIdentificationView extends StatefulWidget {
   const VenueIdentificationView({super.key});
@@ -206,7 +207,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         ),
       );
       if (!mounted) return;
-      setState(() => _locationStatus = 'Matching against participating institutions…');
+      setState(
+        () => _locationStatus = 'Matching against participating institutions…',
+      );
       await _handleDetectedPosition(position.latitude, position.longitude);
     } catch (_) {
       if (!mounted) return;
@@ -238,7 +241,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   /// Compares the chosen position against the institution list: a direct
   /// match starts a venue session, otherwise nearby institutions are offered
   /// as a list to choose from (FR-M2-03).
-  Future<void> _handleDetectedPosition(double latitude, double longitude) async {
+  Future<void> _handleDetectedPosition(
+    double latitude,
+    double longitude,
+  ) async {
     setState(() {
       _locating = false;
       _matching = true;
@@ -270,7 +276,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         _detectedVenues = nearby;
         _locationError = nearby.isEmpty
             ? 'No participating institution was found near this location. '
-                'Search for your institution manually instead.'
+                  'Search for your institution manually instead.'
             : null;
       });
     } catch (_) {
@@ -297,9 +303,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         content: Text(
           autoSuggested
               ? 'You appear to be at ${venue.name}. Start a venue session to '
-                  'receive its official announcements and location services?'
+                    'receive its official announcements and location services?'
               : 'Connect to ${venue.name} to receive its official '
-                  'announcements and location services?',
+                    'announcements and location services?',
         ),
         actions: [
           TextButton(
@@ -398,36 +404,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                             ),
                           ],
                         ),
-                        GestureDetector(
-                          onTap: () => context.push('/notifications'),
-                          child: Stack(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: AppColors.surfaceVariant,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Icon(
-                                  Icons.notifications_outlined,
-                                  size: 22,
-                                ),
-                              ),
-                              Positioned(
-                                right: 6,
-                                top: 6,
-                                child: Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.emergency,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        const NotificationBellButton(),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -477,13 +454,14 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                             AppColors.emergency,
                             () => context.push('/assistance-request'),
                           ),
-                          _buildQuickAction(
-                            context,
-                            Icons.confirmation_number_outlined,
-                            'Queue\nTracking',
-                            AppColors.accent,
-                            () => context.push('/queue'),
-                          ),
+                          if (_session != null)
+                            _buildQuickAction(
+                              context,
+                              Icons.confirmation_number_outlined,
+                              'Queue\nTracking',
+                              AppColors.accent,
+                              () => context.push('/queue'),
+                            ),
                         ],
                       ),
                     ),
@@ -538,7 +516,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                 )
               else
                 ..._recentAnnouncements.map(
-                  (announcement) => _buildAnnouncementCard(context, announcement),
+                  (announcement) =>
+                      _buildAnnouncementCard(context, announcement),
                 ),
               const SizedBox(height: 100),
             ],
@@ -582,7 +561,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                     style: _venueActionStyle(),
                     onPressed: _detectCurrentLocation,
                     child: _venueActionContent(
-                      _locating ? Icons.location_searching : Icons.near_me_outlined,
+                      _locating
+                          ? Icons.location_searching
+                          : Icons.near_me_outlined,
                       _locating ? 'Detecting…' : 'Use Current Location',
                     ),
                   ),
@@ -684,7 +665,11 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.location_on, color: Colors.white, size: 24),
+                child: const Icon(
+                  Icons.location_on,
+                  color: Colors.white,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -718,7 +703,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                     ),
                     Text(
                       '${session.branch ?? 'Participating venue'} • since $startedLabel',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -807,7 +795,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    distance.isEmpty ? venue.branch : '${venue.branch} • $distance',
+                    distance.isEmpty
+                        ? venue.branch
+                        : '${venue.branch} • $distance',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
@@ -815,7 +805,11 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 19),
+            const Icon(
+              Icons.chevron_right,
+              color: AppColors.textMuted,
+              size: 19,
+            ),
           ],
         ),
       ),
@@ -902,7 +896,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => context.push('/announcement-details?id=${announcement.id}'),
+          onTap: () =>
+              context.push('/announcement-details?id=${announcement.id}'),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(

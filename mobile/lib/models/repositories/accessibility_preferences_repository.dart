@@ -28,7 +28,10 @@ class AccessibilityPreferencesRepository {
           .eq('user_id', user.id)
           .maybeSingle();
       if (response == null) return local.isEmpty ? null : local;
-      return {...local, ...Map<String, dynamic>.from(response)};
+      // The local copy is authoritative: a failed or lagging cloud upsert
+      // (offline, missing columns, RLS) must never revert values the user
+      // just saved on this device.
+      return {...Map<String, dynamic>.from(response), ...local};
     } catch (_) {
       if (local.isNotEmpty) return local;
       rethrow;

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../services/venue_session_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'supabase_client.dart';
 import '../views/auth/authentication_view.dart';
@@ -43,7 +44,10 @@ final AuthRouterNotifier _authRouterNotifier = AuthRouterNotifier();
 
 final GoRouter appRouter = GoRouter(
   initialLocation: _authRouterNotifier.isAuthenticated ? '/home' : '/auth',
-  refreshListenable: _authRouterNotifier,
+  refreshListenable: Listenable.merge([
+    VenueSessionService.instance,
+    _authRouterNotifier,
+  ]),
   redirect: (context, state) {
     final path = state.uri.path;
     final isAuthenticated = _authRouterNotifier.isAuthenticated;
@@ -141,6 +145,8 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/queue',
+      redirect: (context, state) =>
+          VenueSessionService.instance.hasActiveSession ? null : '/home',
       builder: (context, state) => const QueueTrackingView(),
     ),
     GoRoute(

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
 import '../../models/repositories/notification_history_store.dart';
+import '../../services/app_notification_service.dart';
 
 /// Device-local history of raised notifications. Tapping an announcement or
 /// queue entry deep-links into its screen; entries survive quitting the
@@ -17,7 +18,8 @@ class NotificationHistoryView extends StatefulWidget {
       _NotificationHistoryViewState();
 }
 
-class _NotificationHistoryViewState extends State<NotificationHistoryView> {
+class _NotificationHistoryViewState extends State<NotificationHistoryView>
+    with WidgetsBindingObserver {
   final NotificationHistoryStore _store = NotificationHistoryStore.instance;
   StreamSubscription<void>? _changes;
   List<NotificationHistoryEntry> _entries = [];
@@ -26,14 +28,24 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
     _changes = _store.changes.listen((_) => _load());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _changes?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Notifications raised while the app was inactive are recorded by the
+    // background isolate, whose store events cannot cross isolates — reload
+    // when the traveller returns so the list is always current.
+    if (state == AppLifecycleState.resumed) _load();
   }
 
   Future<void> _load() async {
@@ -52,9 +64,7 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
     final difference = today.difference(day).inDays;
     if (difference == 0) return 'Today';
     if (difference == 1) return 'Yesterday';
-    return MaterialLocalizations.of(
-      context,
-    ).formatFullDate(day);
+    return MaterialLocalizations.of(context).formatMediumDate(day);
   }
 
   String _timeLabel(DateTime time) {
@@ -62,8 +72,11 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
     final difference = now.difference(time);
     if (difference.inMinutes < 1) return 'Just now';
     if (difference.inMinutes < 60) return '${difference.inMinutes} min ago';
-    if (difference.inDays < 1) return TimeOfDay.fromDateTime(time).format(context);
-    return '${TimeOfDay.fromDateTime(time).format(context)} · ${_dayLabel(time)}';
+    if (difference.inDays < 1) {
+      return TimeOfDay.fromDateTime(time).format(context);
+    }
+    return '${MaterialLocalizations.of(context).formatCompactDate(time)} · '
+        '${TimeOfDay.fromDateTime(time).format(context)}';
   }
 
   IconData _iconFor(String kind) => switch (kind) {
@@ -87,7 +100,9 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
         title: const Text('Notifications'),
         actions: [
           TextButton(
-            onPressed: _entries.isEmpty ? null : () => _store.markAllRead(),
+            onPressed: _entries.isEmpty
+                ? null
+                : () => AppNotificationService.instance.markAllAsRead(),
             child: const Text('Mark All Read'),
           ),
         ],
@@ -170,7 +185,14 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: tappable ? () => context.push(entry.route!) : null,
+          onTap: tappable
+              ? () async {
+                  // Opening the notification counts as reading it.
+                  await AppNotificationService.instance.markAsRead(entry);
+                  if (!mounted) return;
+                  context.push(entry.route!);
+                }
+              : () => AppNotificationService.instance.markAsRead(entry),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(
@@ -195,6 +217,8 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
                           Expanded(
                             child: Text(
                               entry.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontWeight: entry.read
                                     ? FontWeight.w500
@@ -215,16 +239,23 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text(entry.body, style: Theme.of(context).textTheme.bodyMedium),
+                      Text(
+                        entry.body,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Text(
-                            _timeLabel(entry.createdAt),
-                            style: Theme.of(context).textTheme.bodySmall,
+                          Expanded(
+                            child: Text(
+                              _timeLabel(entry.createdAt),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                           ),
                           if (tappable) ...[
-                            const Spacer(),
+                            const SizedBox(width: 8),
                             Icon(
                               Icons.chevron_right,
                               size: 16,

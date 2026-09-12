@@ -241,12 +241,7 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
                   _buildMetaRow(
                     Icons.schedule_outlined,
                     'Published ${_formatDateTime(announcement.publishedAt)}',
-                  ),
-                  if (announcement.expiresAt != null)
-                    _buildMetaRow(
-                      Icons.event_busy_outlined,
-                      'Expires ${_formatDateTime(announcement.expiresAt!)}',
-                    ),
+                  )
                 ],
                 const Divider(height: 24),
                 Text(message, style: Theme.of(context).textTheme.bodyLarge),

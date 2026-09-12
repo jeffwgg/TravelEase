@@ -20,9 +20,11 @@ import 'venue_session_service.dart';
 /// Pipeline: the YAMNet sound detector flags speech on a public-address
 /// system, the microphone is handed over to the speech recogniser (English,
 /// falling back to Bahasa Melayu), the transcript is scored for announcement
-/// phrasing, and valid captures join the announcement list labelled
+/// phrasing, and recognised captures join the announcement list labelled
 /// "Captured" with a confidence score (FR-M2-09). Repetition counts as a
-/// signal because PA announcements are typically played twice.
+/// signal because PA announcements are typically played twice. The score is
+/// advisory: once the sound model has identified PA-style speech, a usable
+/// transcript is shown even when it contains no predefined travel keyword.
 ///
 /// Paging-tone condition: PA systems play a chime, bell or alarm tone around
 /// the spoken message. A tone heard shortly before the speech relaxes the
@@ -38,6 +40,7 @@ class PublicAnnouncementCaptureService {
   static final instance = PublicAnnouncementCaptureService._();
 
   static const _listenDuration = Duration(seconds: 20);
+  static const _microphoneHandoffDelay = Duration(milliseconds: 100);
   static const _repetitionWindow = Duration(minutes: 5);
   static const _minTranscriptLength = 12;
 
@@ -90,7 +93,10 @@ class PublicAnnouncementCaptureService {
     try {
       // Hand the microphone over from the YAMNet classifier to the recogniser.
       if (wasMonitoring) await _detector.stop();
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      // The classifier has already identified speech. Keep the handoff short
+      // so short real-world PA clips still have enough spoken content left
+      // for the platform recogniser to transcribe.
+      await Future<void>.delayed(_microphoneHandoffDelay);
       await _capture(detection, pagingTone: pagedRecently);
     } catch (error) {
       debugPrint('[PublicAnnouncementCapture] failed: $error');
@@ -110,9 +116,7 @@ class PublicAnnouncementCaptureService {
 
   bool _hasRecentTone() {
     final now = DateTime.now();
-    _recentToneTimes.removeWhere(
-      (time) => now.difference(time) > _toneWindow,
-    );
+    _recentToneTimes.removeWhere((time) => now.difference(time) > _toneWindow);
     return _recentToneTimes.isNotEmpty;
   }
 
@@ -144,9 +148,11 @@ class PublicAnnouncementCaptureService {
       'rep=$repetition tone=$pagingTone valid=${result.isAnnouncement}',
     );
 
+    // Keep below-threshold text as a repetition/tone candidate, but do not
+    // hide the transcript. A real announcement can contain names, local
+    // wording or instructions that are absent from the keyword dictionary.
     if (!result.isAnnouncement) {
       _rememberCandidate(trimmed, detection.score, institutionId);
-      return;
     }
 
     final capture = await _mergeOrCapture(
@@ -161,7 +167,7 @@ class PublicAnnouncementCaptureService {
     await FlashAlertService.instance.blinkTwice();
     await AppNotificationService.instance.showCapturedAnnouncement(
       id: capture.id,
-      title: capture.toAnnouncement().title,
+      title: 'Public announcement captured',
       message: capture.transcript,
       confidencePercent: (capture.confidence * 100).round(),
     );
@@ -244,7 +250,11 @@ class PublicAnnouncementCaptureService {
     return count + 1;
   }
 
-  void _rememberCandidate(String transcript, double detectionScore, String institutionId) {
+  void _rememberCandidate(
+    String transcript,
+    double detectionScore,
+    String institutionId,
+  ) {
     final now = DateTime.now();
     _recentCandidates.removeWhere(
       (candidate) => now.difference(candidate.heardAt) > _repetitionWindow,
@@ -315,7 +325,7 @@ class PublicAnnouncementCaptureService {
       await FlashAlertService.instance.blinkTwice();
       await AppNotificationService.instance.showCapturedAnnouncement(
         id: capture.id,
-        title: capture.toAnnouncement().title,
+        title: 'Public announcement captured',
         message: capture.transcript,
         confidencePercent: (capture.confidence * 100).round(),
       );

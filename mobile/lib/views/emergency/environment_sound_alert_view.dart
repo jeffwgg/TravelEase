@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/theme.dart';
 import '../../models/entities/environment_sound.dart';
+import '../../models/repositories/captured_announcement_store.dart';
 import '../../models/repositories/environment_sound_repository.dart';
 import '../../services/environment_sound_detector.dart';
+import '../../services/venue_session_service.dart';
 import '../../services/app_notification_service.dart';
 import '../../widgets/app_message_banner.dart';
 
@@ -49,7 +51,23 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
         _messageType = AppMessageType.error;
       });
     });
+    CapturedAnnouncementStore.instance.version.addListener(
+      _showLatestCapturedAnnouncement,
+    );
     _loadPreferences();
+  }
+
+  Future<void> _showLatestCapturedAnnouncement() async {
+    final institutionId = VenueSessionService.instance.session?.institutionId;
+    if (institutionId == null) return;
+    final captures = await CapturedAnnouncementStore.instance.forVenue(
+      institutionId,
+    );
+    if (!mounted || captures.isEmpty) return;
+    setState(() {
+      _message = 'Announcement: ${captures.first.transcript}';
+      _messageType = AppMessageType.success;
+    });
   }
 
   Future<void> _loadPreferences() async {
@@ -162,6 +180,16 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     if (!mounted) return;
     setState(() => _history.insert(0, detection));
     await _preferences.saveHistory(_history);
+    if (detection.type == EnvironmentSoundType.speechAnnouncement) {
+      if (!mounted) return;
+      setState(() {
+        _message = VenueSessionService.instance.hasActiveSession
+            ? 'Public announcement detected. Listening for the spoken message…'
+            : 'Spoken announcement detected. Start a venue session to save its transcript.';
+        _messageType = AppMessageType.information;
+      });
+      return;
+    }
     for (var pulse = 0; pulse < 3; pulse++) {
       await HapticFeedback.heavyImpact();
       await Future<void>.delayed(const Duration(milliseconds: 180));
@@ -208,6 +236,9 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
 
   @override
   void dispose() {
+    CapturedAnnouncementStore.instance.version.removeListener(
+      _showLatestCapturedAnnouncement,
+    );
     unawaited(_snapshotSubscription?.cancel());
     unawaited(_alertSubscription?.cancel());
     unawaited(_errorSubscription?.cancel());
@@ -234,6 +265,12 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
                 ],
                 const SizedBox(height: 16),
                 _buildMonitoringCard(),
+                if (_enabledTypes.contains(
+                  EnvironmentSoundType.speechAnnouncement,
+                )) ...[
+                  const SizedBox(height: 12),
+                  _buildAnnouncementCaptureGuide(),
+                ],
                 const SizedBox(height: 20),
                 _sectionTitle('Sounds to Detect'),
                 const SizedBox(height: 10),
@@ -348,6 +385,30 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementCaptureGuide() {
+    final ready = VenueSessionService.instance.hasActiveSession;
+    return Card(
+      color: AppColors.accent.withValues(alpha: 0.06),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.campaign_outlined, color: AppColors.accent),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                ready
+                    ? 'Announcement capture is ready. Play or speak the announcement from a second device; when the banner says “Listening”, keep it playing. Captures appear in Announcements and Notifications.'
+                    : 'Start a venue session before testing. Captured public announcements are saved to the active venue and then appear in Announcements and Notifications.',
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

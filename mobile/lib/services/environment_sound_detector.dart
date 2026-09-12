@@ -227,7 +227,13 @@ class EnvironmentSoundDetector {
       _candidate = bestType;
       _candidateHits = 1;
     }
-    if (_candidateHits < 2 && bestTargetScore < 0.65) return;
+    // Spoken announcements need an immediate handoff to speech recognition.
+    // Waiting for a second YAMNet window loses too much of short PA clips.
+    final isSpokenAnnouncement =
+        bestType == EnvironmentSoundType.speechAnnouncement;
+    if (!isSpokenAnnouncement && _candidateHits < 2 && bestTargetScore < 0.65) {
+      return;
+    }
 
     final now = DateTime.now();
     final lastAlert = _lastAlerts[bestType];
@@ -246,7 +252,8 @@ class EnvironmentSoundDetector {
 
   EnvironmentSoundType? _mapLabel(String label) {
     final value = label.toLowerCase();
-    if (value.contains('public speaking') ||
+    if (value == 'speech' ||
+        value.contains('public speaking') ||
         value.contains('narration, monologue') ||
         value.contains('speech synthesizer')) {
       return EnvironmentSoundType.speechAnnouncement;
