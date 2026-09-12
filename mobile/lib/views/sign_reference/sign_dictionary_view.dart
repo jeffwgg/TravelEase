@@ -228,8 +228,8 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          Navigator.push(
+        onTap: () async {
+          await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (ctx) => SignMediaViewerView(
@@ -238,6 +238,9 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
               ),
             ),
           );
+          // The viewer's star button edits the same favorites list — refresh
+          // it so the dictionary reflects the change without a re-enter.
+          _viewModel.refreshFavorites();
         },
         child: Padding(
           padding: const EdgeInsets.all(14),

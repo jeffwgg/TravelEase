@@ -61,86 +61,6 @@ class _SignMediaViewerViewState extends State<SignMediaViewerView> {
     return '$m:$s';
   }
 
-  void _openFeedbackDialog() {
-    String issueType = 'unclear_gesture';
-    final descController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.report_problem_outlined, color: AppColors.secondary),
-                  SizedBox(width: 8),
-                  Text('Report Sign Asset Issue'),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Help us improve sign accuracy and animation clarity for travelers:'),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: issueType,
-                    decoration: const InputDecoration(labelText: 'Issue Type', border: OutlineInputBorder()),
-                    items: const [
-                      DropdownMenuItem(value: 'unclear_gesture', child: Text('Unclear Hand / Body Movement')),
-                      DropdownMenuItem(value: 'missing_asset', child: Text('Missing Sign Video Asset')),
-                      DropdownMenuItem(value: 'broken_video', child: Text('Broken Video / Animation Playback')),
-                      DropdownMenuItem(value: 'incorrect_gloss', child: Text('Incorrect Gloss Notation')),
-                      DropdownMenuItem(value: 'incorrect_translation', child: Text('Inaccurate Spoken Translation')),
-                      DropdownMenuItem(value: 'other', child: Text('Other Feedback')),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) setModalState(() => issueType = val);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: descController,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      hintText: 'Describe what needs correction...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    await _viewModel.submitFeedback(
-                      issueType: issueType,
-                      description: descController.text.trim(),
-                    );
-                    if (context.mounted) {
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Thank you! Your feedback has been submitted for moderation.'),
-                          backgroundColor: AppColors.success,
-                        ),
-                      );
-                    }
-                  },
-                  child: const Text('Submit Report'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -176,14 +96,34 @@ class _SignMediaViewerViewState extends State<SignMediaViewerView> {
               onPressed: () => Navigator.pop(context),
             ),
             actions: [
+              // Star this phrase into the account's favorites (same data the
+              // Favorites page and the dictionary star use). Replaces the old
+              // report-feedback dialog and share button.
               IconButton(
-                icon: const Icon(Icons.feedback_outlined),
-                tooltip: 'Report Animation Issue',
-                onPressed: _openFeedbackDialog,
-              ),
-              IconButton(
-                icon: const Icon(Icons.share_rounded),
-                onPressed: () {},
+                icon: Icon(
+                  _viewModel.isFavorite
+                      ? Icons.star_rounded
+                      : Icons.star_border_rounded,
+                  color: _viewModel.isFavorite
+                      ? AppColors.secondary
+                      : AppColors.textMuted,
+                  size: 26,
+                ),
+                tooltip: _viewModel.isFavorite
+                    ? 'Remove from Favorites'
+                    : 'Add to Favorites',
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final added = await _viewModel.toggleFavorite();
+                  messenger.showSnackBar(
+                    SnackBar(
+                      duration: const Duration(seconds: 2),
+                      content: Text(added
+                          ? 'Added to favorites'
+                          : 'Removed from favorites'),
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -200,7 +140,12 @@ class _SignMediaViewerViewState extends State<SignMediaViewerView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                      // Wrap, not Row: the long language names ("Bahasa
+                      // Isyarat Malaysia (bim)") overflowed a single Row on
+                      // narrow screens. Wrap flows to a second line instead.
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
                           // FR-M4-01: BIM / ASL visual asset toggle
                           ...const [SignLanguageType.bim, SignLanguageType.asl].map((lang) {

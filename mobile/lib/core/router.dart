@@ -31,7 +31,6 @@ import '../views/assistance/request_tracking_view.dart';
 import '../views/assistance/chat_view.dart';
 import '../views/assistance/accessibility_issue_view.dart';
 import '../views/assistance/location_picker_view.dart';
-import '../views/debug/speech_diagnostics_view.dart';
 import '../views/home/home_view.dart';
 
 final GoRouter appRouter = GoRouter(
@@ -173,12 +172,6 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/location-picker',
       builder: (context, state) => const LocationPickerView(),
-    ),
-    // TEMPORARY: device speech capability diagnostics (remove once Mandarin
-    // TTS/ASR strategy is confirmed).
-    GoRoute(
-      path: '/speech-diagnostics',
-      builder: (context, state) => const SpeechDiagnosticsView(),
     ),
   ],
 );

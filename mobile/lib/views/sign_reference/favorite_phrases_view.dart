@@ -46,7 +46,22 @@ class _FavoritePhrasesViewState extends State<FavoritePhrasesView> {
       builder: (context, _) {
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Bookmarked Favorites'),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Bookmarked Favorites'),
+                // Whose list this is: the signed-in account, or the local
+                // demo bucket while signed out.
+                Text(
+                  _viewModel.accountLabel,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
             leading: IconButton(
               icon: const Icon(Icons.arrow_back),
               onPressed: () => Navigator.pop(context),
@@ -123,15 +138,16 @@ class _FavoritePhrasesViewState extends State<FavoritePhrasesView> {
                                       IconButton(
                                         icon: const Icon(Icons.play_circle_fill, color: AppColors.primary, size: 28),
                                         tooltip: 'Watch Sign Video',
-                                        onPressed: () {
-                                          if (phrase != null) {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (ctx) => SignMediaViewerView(phrase: phrase),
-                                              ),
-                                            );
-                                          }
+                                        onPressed: () async {
+                                          if (phrase == null) return;
+                                          await Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (ctx) => SignMediaViewerView(phrase: phrase),
+                                            ),
+                                          );
+                                          // The viewer can un-star this phrase.
+                                          _viewModel.loadFavorites();
                                         },
                                       ),
                                       IconButton(

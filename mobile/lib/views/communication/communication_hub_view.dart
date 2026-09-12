@@ -16,19 +16,8 @@ class CommunicationHubView extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Accessible Communication Tools'),
         automaticallyImplyLeading: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.emergency_outlined, color: AppColors.emergency),
-            tooltip: 'Emergency SOS Card',
-            onPressed: () => context.push('/emergency-card'),
-          ),
-          // TEMPORARY diagnostics entry (remove with the diagnostics screen).
-          IconButton(
-            icon: const Icon(Icons.bug_report_outlined),
-            tooltip: 'Speech Diagnostics',
-            onPressed: () => context.push('/speech-diagnostics'),
-          ),
-        ],
+        // The Emergency SOS entry lives in Profile, and the temporary speech
+        // diagnostics screen has been removed — no header actions here.
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -188,6 +177,9 @@ class CommunicationHubView extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
       child: Container(
+        // Fixed height so every card in the grid is the same size even when
+        // one title/subtitle wraps to extra lines.
+        height: 152,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: AppColors.surface,
@@ -215,11 +207,15 @@ class CommunicationHubView extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
             ),
             const SizedBox(height: 2),
             Text(
               subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
             ),
           ],

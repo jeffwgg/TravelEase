@@ -47,7 +47,8 @@ class SignDictionaryViewModel extends ChangeNotifier {
         signLanguage: _selectedDialect,
       );
 
-      final favorites = await _repository.getFavoritePhrases('demo_user');
+      final favorites =
+          await _repository.getFavoritePhrases(_repository.currentUserId);
 
       _phrases = results;
       _favoritePhraseIds = favorites.map((f) => f.phraseId).toSet();
@@ -65,6 +66,20 @@ class SignDictionaryViewModel extends ChangeNotifier {
     loadDictionary();
   }
 
+  /// Re-read the account's favorites without refetching the phrase list.
+  /// Called when returning from the media viewer, where the star can be
+  /// toggled without the dictionary knowing.
+  Future<void> refreshFavorites() async {
+    try {
+      final favorites =
+          await _repository.getFavoritePhrases(_repository.currentUserId);
+      _favoritePhraseIds = favorites.map((f) => f.phraseId).toSet();
+      notifyListeners();
+    } catch (_) {
+      // keep the last known star state
+    }
+  }
+
   void selectCategory(String categoryId) {
     _selectedCategory = categoryId;
     loadDictionary();
@@ -76,14 +91,15 @@ class SignDictionaryViewModel extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(String phraseId) async {
+    final userId = _repository.currentUserId;
     if (_favoritePhraseIds.contains(phraseId)) {
       _favoritePhraseIds.remove(phraseId);
       notifyListeners();
-      await _repository.removeFavoritePhrase('demo_user', phraseId);
+      await _repository.removeFavoritePhrase(userId, phraseId);
     } else {
       _favoritePhraseIds.add(phraseId);
       notifyListeners();
-      await _repository.addFavoritePhrase('demo_user', phraseId);
+      await _repository.addFavoritePhrase(userId, phraseId);
     }
   }
 }
