@@ -9,14 +9,13 @@ import {
   Zap,
   Activity,
   FileText,
-  Hand,
-  MessageCircle,
   Building2,
   Bell,
   Siren,
   Users
 } from 'lucide-react'
 import './index.css'
+import LandingPage from './pages/LandingPage'
 import AuthPage from './pages/AuthPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
@@ -32,8 +31,6 @@ import AnalyticsPage from './pages/AnalyticsPage'
 import UsageInsightsPage from './pages/UsageInsightsPage'
 import ServicePerformancePage from './pages/ServicePerformancePage'
 import ReportGenerationPage from './pages/ReportGenerationPage'
-import SignDictionaryMgmtPage from './pages/SignDictionaryMgmtPage'
-import SignFeedbackPage from './pages/SignFeedbackPage'
 import SosRequestsPage from './pages/SosRequestsPage'
 import StaffManagementPage from './pages/StaffManagementPage'
 import StaffSetupPage from './pages/StaffSetupPage'
@@ -52,7 +49,7 @@ function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <img src="/logo.png" alt="TravelEase Logo" style={{ width: 38, height: 38, borderRadius: 10, objectFit: 'cover' }} />
+        <img src="/logo.png" alt="TravelEase Logo" style={{ width: 38, height: 38, objectFit: 'contain' }} />
         <div>
           <h1>TravelEase</h1>
           <span>Staff Dashboard</span>
@@ -171,16 +168,19 @@ function DashboardLayout({ children }) {
 function AppRoutes() {
   const location = useLocation()
   const { session, staffContext, loading } = useAuth()
-  const publicAuthRoutes = new Set(['/auth', '/verify-email', '/auth/callback', '/reset-password', '/staff/setup'])
+  const publicAuthRoutes = new Set(['/', '/auth', '/verify-email', '/auth/callback', '/reset-password', '/staff/setup'])
   const isPublicAuthRoute = publicAuthRoutes.has(location.pathname)
 
   if (loading) return <div className="app-loading">Connecting to TravelEase…</div>
 
   if (isPublicAuthRoute) {
-    if (location.pathname === '/auth' && session && staffContext) return <Navigate to="/dashboard" replace />
+    if ((location.pathname === '/' || location.pathname === '/auth') && session && staffContext) {
+      return <Navigate to="/dashboard" replace />
+    }
     return (
       <Routes>
-        <Route path="/auth" element={<AuthPage />} />
+        <Route path="/" element={<LandingPage defaultModalOpen={false} />} />
+        <Route path="/auth" element={<LandingPage defaultModalOpen={true} />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -211,8 +211,6 @@ function AppRoutes() {
         <Route path="/usage" element={<UsageInsightsPage />} />
         <Route path="/performance" element={<ServicePerformancePage />} />
         <Route path="/reports" element={<ReportGenerationPage />} />
-        <Route path="/sign-dictionary" element={<SignDictionaryMgmtPage />} />
-        <Route path="/sign-feedback" element={<SignFeedbackPage />} />
       </Routes>
     </DashboardLayout>
   )
