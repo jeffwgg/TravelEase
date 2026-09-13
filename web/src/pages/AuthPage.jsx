@@ -25,7 +25,8 @@ export default function AuthPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(
-    location.state?.passwordReset ? 'Password updated successfully. Sign in with your new password.' : '',
+    location.state?.passwordReset ? 'Password updated successfully. Sign in with your new password.'
+      : location.state?.staffSetup ? 'Staff account ready. Sign in with your email and new password.' : '',
   )
 
   const switchMode = (nextMode) => {
@@ -145,7 +146,7 @@ export default function AuthPage() {
         ) : (
           <form onSubmit={mode === 'forgot' ? handleForgotPassword : handleLogin} noValidate>
             {mode === 'forgot' && <p className="auth-instructions">Enter the institution email address and we will send a secure password reset link.</p>}
-            <Field label="Institution Email">
+            <Field label="Account Email">
               <input type="email" className="input" placeholder="institution@example.com" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
             </Field>
             {mode === 'login' && (
@@ -169,7 +170,7 @@ export default function AuthPage() {
           </form>
         )}
 
-        <div className="auth-security-note"><ShieldCheck size={16} color="var(--primary)" /> Authorized institution account access only.</div>
+        <div className="auth-security-note"><ShieldCheck size={16} color="var(--primary)" /> Authorized institution and staff account access only.</div>
       </div>
     </div>
   )

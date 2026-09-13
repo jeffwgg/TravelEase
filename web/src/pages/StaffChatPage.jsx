@@ -20,7 +20,10 @@ import {
   Star,
   AlertCircle,
   MessageSquare,
-  ShieldCheck
+  ShieldCheck,
+  Paperclip,
+  ImageIcon,
+  Loader2
 } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import { useWebRTC } from '../hooks/useWebRTC'
@@ -38,10 +41,13 @@ export default function StaffChatPage() {
   const [loadingMsg, setLoadingMsg] = useState(false)
   const [showMapModal, setShowMapModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [isUploading, setIsUploading] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState(null)
 
   const [chatFilter, setChatFilter] = useState('unsolved') // 'unsolved' | 'solved' | 'all'
 
   const messagesEndRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   const scrollToBottom = (smooth = true) => {
     if (messagesEndRef.current) {
@@ -260,6 +266,46 @@ export default function StaffChatPage() {
 
   function insertTemplate(templateText) {
     setInputText((prev) => (prev ? prev + ' ' + templateText : templateText))
+  }
+
+  async function handleMediaSelect(e) {
+    const file = e.target.files?.[0]
+    if (!file || !selectedReq) return
+    // Reset input so same file can be re-selected
+    e.target.value = ''
+
+    const isImage = file.type.startsWith('image/')
+    const isVideo = file.type.startsWith('video/')
+    if (!isImage && !isVideo) return
+
+    setIsUploading(true)
+    try {
+      const url = await assistanceRepository.uploadChatMedia(file, selectedReq.id)
+      const staffDisplayName =
+        selectedReq.assigned_staff_name && selectedReq.assigned_staff_name !== 'Unassigned'
+          ? `${selectedReq.assigned_staff_name} (Staff)`
+          : 'Staff'
+      const payload = {
+        request_id: selectedReq.id,
+        sender_type: 'staff',
+        sender_name: staffDisplayName,
+        content: url,
+        message_type: isImage ? 'image' : 'video',
+        is_read: true,
+        created_at: new Date().toISOString()
+      }
+      const inserted = await assistanceRepository.sendChatMessage(payload)
+      if (inserted) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === inserted.id)) return prev
+          return [...prev, inserted]
+        })
+      }
+    } catch (err) {
+      console.error('Failed to upload media:', err)
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const isInCall = callState === 'connected' || callState === 'calling'
@@ -778,6 +824,8 @@ export default function StaffChatPage() {
                 ) : (
                   messages.map((msg) => {
                     const isStaff = msg.sender_type === 'staff'
+                    const msgType = msg.message_type || 'text'
+                    const timeStr = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     return (
                       <div
                         key={msg.id}
@@ -786,22 +834,65 @@ export default function StaffChatPage() {
                           maxWidth: '85%',
                           background: isStaff ? 'var(--success)' : 'var(--surface)',
                           color: isStaff ? '#fff' : 'var(--text)',
-                          padding: '14px',
+                          padding: msgType === 'text' ? '14px' : '8px',
                           borderRadius: '16px',
-                          border: isStaff ? 'none' : '1px solid var(--card-border)'
+                          border: isStaff ? 'none' : '1px solid var(--card-border)',
+                          overflow: 'hidden',
                         }}
                       >
-                        <div style={{ fontSize: '14px' }}>{msg.content}</div>
-                        <div
-                          style={{
-                            fontSize: '10px',
-                            color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)',
-                            textAlign: 'right',
-                            marginTop: '4px'
-                          }}
-                        >
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
+                        {msgType === 'image' ? (
+                          <div>
+                            <img
+                              src={msg.content}
+                              alt="Shared image"
+                              onClick={() => setLightboxUrl(msg.content)}
+                              style={{
+                                maxWidth: '260px',
+                                maxHeight: '200px',
+                                width: '100%',
+                                borderRadius: '10px',
+                                display: 'block',
+                                cursor: 'zoom-in',
+                                objectFit: 'cover',
+                              }}
+                            />
+                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)', textAlign: 'right', marginTop: '4px', padding: '0 4px' }}>
+                              {timeStr}
+                            </div>
+                          </div>
+                        ) : msgType === 'video' ? (
+                          <div>
+                            <video
+                              controls
+                              src={msg.content}
+                              style={{
+                                maxWidth: '300px',
+                                maxHeight: '220px',
+                                width: '100%',
+                                borderRadius: '10px',
+                                display: 'block',
+                                background: '#000',
+                              }}
+                            />
+                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)', textAlign: 'right', marginTop: '4px', padding: '0 4px' }}>
+                              {timeStr}
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: '14px' }}>{msg.content}</div>
+                            <div
+                              style={{
+                                fontSize: '10px',
+                                color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)',
+                                textAlign: 'right',
+                                marginTop: '4px'
+                              }}
+                            >
+                              {timeStr}
+                            </div>
+                          </>
+                        )}
                       </div>
                     )
                   })
@@ -837,10 +928,31 @@ export default function StaffChatPage() {
               {/* Input box */}
               <form
                 onSubmit={handleSend}
-                style={{ padding: '16px 24px', background: 'var(--surface)', borderTop: '1px solid var(--divider)', display: 'flex', gap: '12px' }}
+                style={{ padding: '16px 24px', background: 'var(--surface)', borderTop: '1px solid var(--divider)', display: 'flex', gap: '12px', alignItems: 'center' }}
               >
+                {/* Hidden file input for media */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  style={{ display: 'none' }}
+                  onChange={handleMediaSelect}
+                />
                 <button type="button" className="btn btn-outline" style={{ padding: '10px' }} title="Microphone Speech-to-Text">
                   <Mic size={18} />
+                </button>
+                {/* Attach media button */}
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  style={{ padding: '10px', position: 'relative' }}
+                  title="Attach Image or Video"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                >
+                  {isUploading
+                    ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+                    : <Paperclip size={18} />}
                 </button>
                 <input
                   type="text"
@@ -849,8 +961,9 @@ export default function StaffChatPage() {
                   style={{ flex: 1 }}
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
+                  disabled={isUploading}
                 />
-                <button type="submit" className="btn btn-primary">
+                <button type="submit" className="btn btn-primary" disabled={isUploading}>
                   <Send size={16} /> Send Response
                 </button>
               </form>
@@ -862,6 +975,42 @@ export default function StaffChatPage() {
           )}
         </div>
       </div>
+      {/* ── Image Lightbox Modal ──────────────────────────────────────────────── */}
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.9)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'zoom-out',
+            padding: '24px',
+          }}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{
+              position: 'absolute', top: '20px', right: '20px',
+              background: 'rgba(255,255,255,0.1)', border: 'none',
+              borderRadius: '50%', width: '40px', height: '40px',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <X size={20} color="white" />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Full size"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: '12px', objectFit: 'contain' }}
+          />
+        </div>
+      )}
+
       {/* ── View on Map Modal ────────────────────────────────────────────────── */}
       {showMapModal && selectedReq && (
         <div style={{

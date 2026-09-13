@@ -63,7 +63,12 @@ export const assistanceRepository = {
       console.error('Error fetching institution staff:', error)
       return []
     }
-    return data
+    // Keep the existing request page compatible while the staff table now
+    // stores its availability source of truth as free/assigned.
+    return data.map((staff) => ({
+      ...staff,
+      status: staff.status === 'free' ? 'available' : staff.status === 'assigned' ? 'busy' : staff.status,
+    }))
   },
 
   // FR-M7-08: first staff action (assignment or first staff chat message)
@@ -180,6 +185,32 @@ export const assistanceRepository = {
       return []
     }
     return data
+  },
+
+  // Module 5: Upload chat media (image or video) to Supabase Storage
+  async uploadChatMedia(file, requestId) {
+    const ext = file.name.split('.').pop()
+    const timestamp = Date.now()
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const path = `${requestId}/${timestamp}_${safeName}`
+
+    const { data, error } = await supabase.storage
+      .from('chat-media')
+      .upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      })
+
+    if (error) {
+      console.error('Error uploading chat media:', error)
+      throw error
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('chat-media')
+      .getPublicUrl(data.path)
+
+    return urlData.publicUrl
   },
 
   // Realtime Subscriptions

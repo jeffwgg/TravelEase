@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_client.dart';
 
@@ -133,6 +134,57 @@ class AssistanceRepository {
       print('Error sending message: $e');
       return null;
     }
+  }
+
+  // Module 5: Upload chat media (image or video) to Supabase Storage
+  Future<String?> uploadChatMedia({
+    required String requestId,
+    required String filePath,
+    required String mimeType,
+  }) async {
+    try {
+      final file = File(filePath);
+      final bytes = await file.readAsBytes();
+      final fileName = filePath.split('/').last;
+      final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final storagePath = '$requestId/${timestamp}_$safeName';
+
+      await _client.storage.from('chat-media').uploadBinary(
+        storagePath,
+        bytes,
+        fileOptions: FileOptions(contentType: mimeType, upsert: false),
+      );
+
+      final publicUrl = _client.storage
+          .from('chat-media')
+          .getPublicUrl(storagePath);
+      return publicUrl;
+    } catch (e) {
+      print('Error uploading chat media: $e');
+      return null;
+    }
+  }
+
+  // Module 5: Send Chat Media Message from Traveler (image or video)
+  Future<Map<String, dynamic>?> sendMediaMessage({
+    required String requestId,
+    required String filePath,
+    required String mimeType,
+  }) async {
+    final url = await uploadChatMedia(
+      requestId: requestId,
+      filePath: filePath,
+      mimeType: mimeType,
+    );
+    if (url == null) return null;
+
+    final msgType = mimeType.startsWith('image/') ? 'image' : 'video';
+    return sendChatMessage(
+      requestId: requestId,
+      content: url,
+      messageType: msgType,
+    );
   }
 
   // Module 5 & 7: Report Accessibility Issue

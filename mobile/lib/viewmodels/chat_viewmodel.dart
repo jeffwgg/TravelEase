@@ -12,6 +12,7 @@ class ChatViewModel extends ChangeNotifier {
 
   List<Map<String, dynamic>> messages = [];
   bool isLoading = false;
+  bool isUploading = false;
   String? errorMessage;
   final TextEditingController messageController = TextEditingController();
   final ScrollController scrollController = ScrollController();
@@ -99,6 +100,36 @@ class ChatViewModel extends ChangeNotifier {
       }
     } catch (e) {
       errorMessage = 'Failed to send message';
+      notifyListeners();
+    }
+  }
+
+  Future<void> sendMediaMessage({
+    required String filePath,
+    required String mimeType,
+  }) async {
+    isUploading = true;
+    notifyListeners();
+
+    try {
+      final result = await _repository.sendMediaMessage(
+        requestId: requestId,
+        filePath: filePath,
+        mimeType: mimeType,
+      );
+
+      if (result != null) {
+        if (!messages.any((m) => m['id'] == result['id'])) {
+          messages.add(result);
+          _scrollToBottom();
+        }
+      } else {
+        errorMessage = 'Failed to upload media';
+      }
+    } catch (e) {
+      errorMessage = 'Failed to upload media: $e';
+    } finally {
+      isUploading = false;
       notifyListeners();
     }
   }
