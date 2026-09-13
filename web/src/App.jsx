@@ -13,7 +13,8 @@ import {
   MessageCircle,
   Building2,
   Bell,
-  Siren
+  Siren,
+  Users
 } from 'lucide-react'
 import './index.css'
 import AuthPage from './pages/AuthPage'
@@ -34,6 +35,8 @@ import ReportGenerationPage from './pages/ReportGenerationPage'
 import SignDictionaryMgmtPage from './pages/SignDictionaryMgmtPage'
 import SignFeedbackPage from './pages/SignFeedbackPage'
 import SosRequestsPage from './pages/SosRequestsPage'
+import StaffManagementPage from './pages/StaffManagementPage'
+import StaffSetupPage from './pages/StaffSetupPage'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { NotificationProvider, useNotifications } from './context/NotificationContext'
 
@@ -44,6 +47,7 @@ function Sidebar() {
   const institutionRole = staffContext?.role || 'Institution Admin'
   const initialsSource = staffContext?.institutions?.name || session?.user?.email || 'Institution'
   const initials = initialsSource.split(/\s|@/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('')
+  const isManager = staffContext?.role === 'manager' && Boolean(staffContext?.institutions?.account_user_id)
 
   return (
     <aside className="sidebar">
@@ -81,6 +85,9 @@ function Sidebar() {
           <NavLink to="/chat" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><MessageSquare size={18} /></span> Staff Chat
           </NavLink>
+          {isManager && <NavLink to="/staff" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="link-icon"><Users size={18} /></span> Staff Management
+          </NavLink>}
         </div>
         <div className="sidebar-section">
           <div className="sidebar-section-title">Analytics</div>
@@ -106,12 +113,12 @@ function Sidebar() {
             <span className="link-icon"><MessageCircle size={18} /></span> Sign Feedback
           </NavLink>
         </div>
-        <div className="sidebar-section">
+        {isManager && <div className="sidebar-section">
           <div className="sidebar-section-title">Settings</div>
           <NavLink to="/profile" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><Building2 size={18} /></span> Organization
           </NavLink>
-        </div>
+        </div>}
 
         {permission === 'default' && (
           <div style={{ padding: '8px 12px', marginTop: '12px' }}>
@@ -164,7 +171,7 @@ function DashboardLayout({ children }) {
 function AppRoutes() {
   const location = useLocation()
   const { session, staffContext, loading } = useAuth()
-  const publicAuthRoutes = new Set(['/auth', '/verify-email', '/auth/callback', '/reset-password'])
+  const publicAuthRoutes = new Set(['/auth', '/verify-email', '/auth/callback', '/reset-password', '/staff/setup'])
   const isPublicAuthRoute = publicAuthRoutes.has(location.pathname)
 
   if (loading) return <div className="app-loading">Connecting to TravelEase…</div>
@@ -177,18 +184,20 @@ function AppRoutes() {
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/staff/setup" element={<StaffSetupPage />} />
       </Routes>
     )
   }
 
   if (!session || !staffContext) return <Navigate to="/auth" replace state={{ from: location.pathname }} />
+  const isManager = staffContext?.role === 'manager' && Boolean(staffContext?.institutions?.account_user_id)
 
   return (
     <DashboardLayout>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<AnalyticsPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/profile" element={isManager ? <ProfilePage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/announcements" element={<AnnouncementPage />} />
         <Route path="/announcements/create" element={<CreateAnnouncementPage />} />
         <Route path="/announcements/:id/edit" element={<CreateAnnouncementPage />} />
@@ -197,6 +206,7 @@ function AppRoutes() {
         <Route path="/requests" element={<AssistanceRequestPage />} />
         <Route path="/sos" element={<SosRequestsPage />} />
         <Route path="/chat" element={<StaffChatPage />} />
+        <Route path="/staff" element={isManager ? <StaffManagementPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/usage" element={<UsageInsightsPage />} />
         <Route path="/performance" element={<ServicePerformancePage />} />

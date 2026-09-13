@@ -70,11 +70,11 @@ export function AuthProvider({ children }) {
       await authRepository.signOut()
       throw new Error('This account is not an institution account.')
     }
-    if (context.institutions.verification_status !== 'email_verified') {
+    if (context.role === 'manager' && context.institutions.verification_status !== 'email_verified') {
       await authRepository.signOut()
       throw new Error('Verify your institution email before signing in.')
     }
-    if (!context.institutions.active) {
+    if (!context.institutions.active || (context.role === 'staff' && !context.staff?.active)) {
       await authRepository.signOut()
       throw new Error('This institution account is not active yet.')
     }
@@ -106,6 +106,14 @@ export function AuthProvider({ children }) {
     return result
   }
 
+  const completeStaffSetup = async (password) => {
+    const result = await authRepository.completeStaffSetup(password)
+    await authRepository.signOut()
+    setSession(null)
+    setStaffContext(null)
+    return result
+  }
+
   const refreshStaffContext = () => loadStaffContext(session)
 
   const signOut = async () => {
@@ -124,6 +132,7 @@ export function AuthProvider({ children }) {
       registerInstitution,
       sendPasswordReset,
       updatePassword,
+      completeStaffSetup,
       refreshStaffContext,
     }}>
       {children}

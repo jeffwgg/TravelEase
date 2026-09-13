@@ -924,6 +924,19 @@ a.btn:focus { text-decoration: none; }
 .sos-empty.compact { min-height: 82px; }
 .sos-map-backdrop { position: fixed; z-index: 2100; inset: 0; display: grid; padding: 24px; place-items: center; background: rgba(15,23,42,.65); backdrop-filter: blur(3px); }
 .sos-map-dialog { width: min(680px, 100%); overflow: hidden; border: 1px solid var(--card-border); border-radius: var(--radius-xl); background: var(--surface); box-shadow: 0 22px 60px rgba(15,23,42,.35); }
+
+/* Institution staff CRUD follows the existing card/dialog visual language. */
+.staff-card-subtitle { margin-top: 4px; color: var(--text-muted); font-size: 13px; }
+.staff-table-wrap { overflow-x: auto; }
+.staff-table td:first-child { min-width: 210px; }
+.staff-table td:last-child { min-width: 250px; }
+.staff-table td small { display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px; }
+.staff-row-inactive { opacity: .68; }
+.staff-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.staff-empty { padding: 28px 16px; color: var(--text-muted); text-align: center; border: 1px dashed var(--card-border); border-radius: var(--radius-lg); }
+.staff-dialog { width: min(660px, 100%); }
+.staff-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+@media (max-width: 640px) { .staff-form-grid { grid-template-columns: 1fr; } }
 .sos-map-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px; }
 .sos-map-header h2 { font-size: 18px; }
 .sos-map-header p { margin-top: 4px; color: var(--text-muted); font-size: 12px; }

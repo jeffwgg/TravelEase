@@ -63,7 +63,12 @@ export const assistanceRepository = {
       console.error('Error fetching institution staff:', error)
       return []
     }
-    return data
+    // Keep the existing request page compatible while the staff table now
+    // stores its availability source of truth as free/assigned.
+    return data.map((staff) => ({
+      ...staff,
+      status: staff.status === 'free' ? 'available' : staff.status === 'assigned' ? 'busy' : staff.status,
+    }))
   },
 
   // FR-M7-08: first staff action (assignment or first staff chat message)

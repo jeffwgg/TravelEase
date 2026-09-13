@@ -100,6 +100,19 @@ export const authRepository = {
     return data
   },
 
+  async completeStaffSetup(password) {
+    const { data: current, error: sessionError } = await supabase.auth.getSession()
+    throwIfError(sessionError)
+    if (!current.session?.user) throw new Error('The invitation session is invalid or has expired.')
+    const { data: staff, error: staffError } = await supabase.from('institution_staff')
+      .select('id, active, role').eq('auth_user_id', current.session.user.id).maybeSingle()
+    throwIfError(staffError)
+    if (!staff || staff.role !== 'staff' || !staff.active) throw new Error('This invitation is not linked to an active staff account.')
+    const { data, error } = await supabase.auth.updateUser({ password })
+    throwIfError(error)
+    return data
+  },
+
   async getStaffContext(userId) {
     const { data, error } = await supabase
       .from('institutions')
@@ -108,9 +121,19 @@ export const authRepository = {
       .maybeSingle()
 
     if (error) throw error
-    if (!data) return null
+    if (data) return { institution_id: data.id, role: 'manager', institutions: data }
 
-    return { institution_id: data.id, institutions: data }
+    const { data: staff, error: staffError } = await supabase.from('institution_staff')
+      .select('id, institution_id, auth_user_id, name, email, contact_number, role, status, active')
+      .eq('auth_user_id', userId).maybeSingle()
+    if (staffError) throw staffError
+    if (!staff || !staff.active || staff.role !== 'staff') return null
+
+    const { data: institution, error: institutionError } = await supabase.from('institutions')
+      .select(institutionSelect).eq('id', staff.institution_id).eq('active', true).maybeSingle()
+    if (institutionError) throw institutionError
+    if (!institution) return null
+    return { institution_id: institution.id, role: 'staff', staff, institutions: institution }
   },
 }
 
