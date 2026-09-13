@@ -18,15 +18,18 @@ import 'sign_frame_data.dart';
 /// exact pipeline (see the README ablation notes).
 ///
 /// STATE HYGIENE: the converter exports the LSTM with arena-backed state
-/// tensors that leak between invokes — each classification MUST start from
-/// zeroed state. tflite_flutter 0.12.1's `resetVariableTensors()` cannot be
-/// used: its deleted-flag guard is inverted upstream and it throws
+/// tensors that leak between invokes — every forward MUST start from zeroed
+/// state, exactly like the desktop demo (torch rebuilds the hidden state per
+/// call). tflite_flutter 0.12.1's `resetVariableTensors()` cannot be used: its
+/// deleted-flag guard is inverted upstream and it throws
 /// `Bad state: Should not acces delegate after it has been closed.` on every
-/// call against a healthy interpreter. This service instead builds a FRESH
-/// Interpreter per clip (the asset bytes are cached; creation is single-digit
-/// ms) and closes it afterwards — a new interpreter's state is zeroed by
-/// definition. (The Python parity harness uses ai_edge_litert's working
-/// `reset_all_variables()` instead.)
+/// call against a healthy interpreter. This service therefore builds a FRESH
+/// Interpreter PER VIEW (12 per clip; asset bytes are cached, creation is
+/// single-digit ms) and closes it after each forward — a new interpreter's
+/// state is zeroed by definition. (The Python parity harness uses
+/// ai_edge_litert's working `reset_all_variables()` instead.) Reusing one
+/// interpreter across a clip's views chains hidden state and measurably
+/// degrades the ensemble (3/8 vs 6/8 on the in-vocab reference clips).
 ///
 /// It recognises ONE word per clip. Phrase assembly stays in the shared
 /// word→phrase step (the viewmodel's gloss list), identical in spirit to how
@@ -115,9 +118,10 @@ class BimTfliteService {
   }
 
   /// Recognise one BIM word from a gesture window. Runs the 12 ensemble
-  /// views on a fresh Interpreter, yielding to the event loop between
-  /// forwards so the camera stream keeps feeding the skeleton overlay while
-  /// a word is being classified.
+  /// views, each on its OWN freshly built Interpreter (zeroed LSTM state per
+  /// view — the desktop pipeline resets before every forward), yielding to
+  /// the event loop between forwards so the camera stream keeps feeding the
+  /// skeleton overlay while a word is being classified.
   ///
   /// Returns the shared [BimSignRecognition] shape so the viewmodel path is
   /// identical to the HTTP API's: word, confidence, and the accumulated
@@ -130,22 +134,17 @@ class BimTfliteService {
     required List<String> previousGlosses,
   }) async {
     final p = _prepareViews(frames);
-    final it = await Interpreter.fromAsset(_modelAsset);
-    try {
-      final origProbs = <List<double>>[];
-      for (final s in p.seqsOrig) {
-        origProbs.add(_runForProbs(it, s));
-        await Future<void>.delayed(Duration.zero);
-      }
-      final flipProbs = <List<double>>[];
-      for (final s in p.seqsFlip) {
-        flipProbs.add(_runForProbs(it, s));
-        await Future<void>.delayed(Duration.zero);
-      }
-      return _aggregate(p, origProbs, flipProbs, previousGlosses);
-    } finally {
-      it.close();
+    final origProbs = <List<double>>[];
+    for (final s in p.seqsOrig) {
+      origProbs.add(await _runForProbs(s));
+      await Future<void>.delayed(Duration.zero);
     }
+    final flipProbs = <List<double>>[];
+    for (final s in p.seqsFlip) {
+      flipProbs.add(await _runForProbs(s));
+      await Future<void>.delayed(Duration.zero);
+    }
+    return _aggregate(p, origProbs, flipProbs, previousGlosses);
   }
 
   /// Guards + trimming + the 2-orientation × 2-candidate × 3-time-scale
@@ -269,16 +268,26 @@ class BimTfliteService {
 
   // ─── model forward ──────────────────────────────────────────────────────
 
-  List<double> _runForProbs(Interpreter it, List<List<double>> seq) {
-    final numClasses = it.getOutputTensor(0).shape.last;
-    final input = <List<List<double>>>[seq];
-    final output = <List<double>>[List<double>.filled(numClasses, 0.0)];
-    it.run(input, output);
-    final logits = output[0];
-    final maxLogit = logits.reduce(math.max);
-    final exps = logits.map((v) => math.exp(v - maxLogit)).toList();
-    final sum = exps.reduce((a, b) => a + b);
-    return exps.map((v) => v / sum).toList(growable: false);
+  /// One ensemble view through a FRESH interpreter. The exported LSTM keeps
+  /// its state in arena-backed variable tensors that survive `run()`, so a
+  /// shared interpreter would feed view 2 the leftover hidden state of view 1
+  /// — the desktop reference resets before every forward. Asset bytes are
+  /// cached by the platform, so rebuilding per view costs single-digit ms.
+  Future<List<double>> _runForProbs(List<List<double>> seq) async {
+    final it = await Interpreter.fromAsset(_modelAsset);
+    try {
+      final numClasses = it.getOutputTensor(0).shape.last;
+      final input = <List<List<double>>>[seq];
+      final output = <List<double>>[List<double>.filled(numClasses, 0.0)];
+      it.run(input, output);
+      final logits = output[0];
+      final maxLogit = logits.reduce(math.max);
+      final exps = logits.map((v) => math.exp(v - maxLogit)).toList();
+      final sum = exps.reduce((a, b) => a + b);
+      return exps.map((v) => v / sum).toList(growable: false);
+    } finally {
+      it.close();
+    }
   }
 
   // ─── preprocessing port of dataset.py / demo.py helpers ─────────────────
@@ -389,24 +398,27 @@ class BimTfliteService {
     return seq;
   }
 
-  /// Center pose x/y at the mid-shoulders, scale by shoulder width
-  /// (dataset.py normalize_keypoints: pose landmarks 11/12, x/y only).
+  /// dataset.py normalize_keypoints: the shoulder center/scale (landmarks
+  /// 11/12) is computed per frame but applied ONLY to channels 0-1 — the
+  /// landmark-0 x/y. That quirk is baked into the training data and into
+  /// bim_norm_stats.json, so every other coordinate must stay RAW
+  /// screen-normalized. (Normalizing all 33 pose landmarks looks more sensible
+  /// but destroys accuracy: 0/8 confident-garbage on in-vocab test clips vs
+  /// 6/8 with the dataset convention.)
   static List<List<double>> _normalizeInPlace(List<List<double>> seq) {
     for (final frame in seq) {
       final lx = frame[11 * 4], ly = frame[11 * 4 + 1];
       final rx = frame[12 * 4], ry = frame[12 * 4 + 1];
       final cx = (lx + rx) / 2, cy = (ly + ry) / 2;
       final scale = math.max(math.sqrt((lx - rx) * (lx - rx) + (ly - ry) * (ly - ry)), 1e-6);
-      for (int i = 0; i < 33; i++) {
-        frame[i * 4] = (frame[i * 4] - cx) / scale;
-        frame[i * 4 + 1] = (frame[i * 4 + 1] - cy) / scale;
-      }
+      frame[0] = (frame[0] - cx) / scale;
+      frame[1] = (frame[1] - cy) / scale;
     }
     return seq;
   }
 
   void dispose() {
-    // Interpreters are per-clip and closed by recognizeClip; nothing to
+    // Interpreters are per-view and closed by _runForProbs; nothing to
     // release here beyond resetting init state.
     _isInitialized = false;
     _initFuture = null;

@@ -476,6 +476,14 @@ class CameraLandmarkExtractorService {
     final posePts = <SGPoint?>[
       for (final t in PoseLandmarkType.values) _normPoseLandmark(pose, t, w, h, isFront),
     ];
+    // BIM's 258-channel tensor carries a visibility per pose landmark; the
+    // training data stored MediaPipe's CONTINUOUS visibility, so pass ML Kit's
+    // likelihood through instead of the binary present/absent the GISLR tensor
+    // (ASL) uses.
+    final poseLikelihood = <double>[
+      for (final t in PoseLandmarkType.values)
+        pose.landmarks[t]?.likelihood ?? 0.0,
+    ];
     _updateSmoothedPose(posePts);
     final anchors = _anchorsFromSmoothed();
 
@@ -543,6 +551,7 @@ class CameraLandmarkExtractorService {
       hand2: hand2,
       anchors: anchors,
       pose: posePts,
+      poseLikelihood: poseLikelihood,
       hasMediaPipeHand: fromMediaPipe,
       isFrontCamera: isFront,
       timestampMs: ts,
@@ -1063,6 +1072,7 @@ class CameraLandmarkExtractorService {
   void startClipRecording(String label) => clipRecorder.startClip(label);
   SignClip? stopClipRecording() => clipRecorder.endClip();
   Future<int> copyRecordingsToClipboard() => clipRecorder.copyToClipboard();
+  Future<String> exportRecordingsToFile() => clipRecorder.exportToFile();
 
   // =====================================================================
   //  UTILITIES

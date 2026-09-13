@@ -20,6 +20,12 @@ Two modes:
                 state chains across the 12 views (the app cannot reset state;
                 tflite_flutter's resetVariableTensors is broken upstream).
 
+  --mode app2   the CANDIDATE FIX for the app: same Tasks-API extraction and
+                anatomical hand slots as --mode app, but with training-time
+                conventions — continuous visibility values, channels 0-1
+                normalization, zeroed state per view. This scored 6/8 on the
+                in-vocabulary signbank clips vs 0/8 (app) and 4/8 (demo).
+
   --mode demo   faithful to the desktop reference the model was TRAINED and
                 tuned against (slr/scripts demo.py/dataset.py/infer.py, kept
                 in git history): MediaPipe Holistic landmarks with real
@@ -140,23 +146,41 @@ def _is_left_wrist(w, lw, rw) -> bool:
     return w[0] > 0.5
 
 
-def build_bim_frame(pose33, hands) -> np.ndarray:
-    """App-mode (258,) frame: buildBimTensor + _assignHandSides port.
+def build_bim_frame(pose33, hands, slot_mode: str = "anatomical",
+                    raw_vis: bool = False) -> np.ndarray:
+    """One (258,) frame per buildBimTensor, with selectable slot rule.
 
-    pose33: 33 (x, y, z, present) tuples — ML Kit reports landmarks as
-    present/absent, and the Dart writes vis=1.0 for each present one;
-    hands: up to two (21, 3) arrays in extractor order.
+    pose33: 33 tuples (x, y, z, vis_or_present). raw_vis: the 4th field is a
+    continuous MediaPipe/holistic-style visibility written straight into the
+    channel; otherwise presence gates and vis is the binary 1.0 ML Kit style.
+    slot_mode: 'anatomical' = nearest pose wrist (current Dart
+    _assignHandSides); 'screen' = screen-left hand into slot 132 (what
+    holistic's mirrored-view handedness labels produce on third-person
+    training footage).
     """
     t = np.zeros(258, np.float32)
-    for i, (x, y, z, present) in enumerate(pose33[:33]):
-        if present:
+    present = [False] * 33
+    for i, (x, y, z, v) in enumerate(pose33[:33]):
+        if raw_vis:
+            t[i * 4: i * 4 + 4] = (x, y, z, v)
+            present[i] = v > 0.5
+        elif v:
             t[i * 4: i * 4 + 4] = (x, y, z, 1.0)
+            present[i] = True
 
-    lw = (t[15 * 4], t[15 * 4 + 1]) if pose33[K_POS_LEFT_WRIST][3] else None
-    rw = (t[16 * 4], t[16 * 4 + 1]) if pose33[K_POS_RIGHT_WRIST][3] else None
+    lw = (t[15 * 4], t[15 * 4 + 1]) if present[K_POS_LEFT_WRIST] else None
+    rw = (t[16 * 4], t[16 * 4 + 1]) if present[K_POS_RIGHT_WRIST] else None
 
     if hands:
         hand_pts = list(hands)
+        if slot_mode == "screen":
+            # leftmost wrist -> slot 132, rightmost -> 195
+            if len(hand_pts) == 2 and hand_pts[1][0][0] < hand_pts[0][0][0]:
+                hand_pts = [hand_pts[1], hand_pts[0]]
+            for pts in hand_pts:
+                base = 132 if pts[0][0] < 0.5 else 195
+                t[base: base + 63] = pts[:21, :3].reshape(-1)
+            return t
         if len(hand_pts) == 2:  # primary = nearer a pose wrist (extractor order)
             if _wrist_anchor_dist(hand_pts[1], lw, rw) < _wrist_anchor_dist(hand_pts[0], lw, rw):
                 hand_pts = [hand_pts[1], hand_pts[0]]
@@ -174,6 +198,21 @@ def build_bim_frame(pose33, hands) -> np.ndarray:
 
 def extract_sequence_app(video_path: str, models_dir: Path) -> np.ndarray | None:
     """MediaPipe Tasks pose + hand, slots by wrist proximity — the app twin."""
+    return _extract_tasks(video_path, models_dir, slot_mode="anatomical")
+
+
+def extract_sequence_app2(video_path: str, models_dir: Path) -> np.ndarray | None:
+    """Candidate FIXED app extraction — what the Dart pipeline should become.
+    Tasks-API landmarks (ML Kit pose analog) with continuous visibility values
+    (port of ML Kit likelihood), ANATOMICAL wrist-proximity slots kept (the
+    ablation showed holistic's dataset slots match nearest-pose-wrist
+    assignment 1:1; screen-side slotting destroys accuracy), demo-style
+    normalization + per-view reset applied in recognize()."""
+    return _extract_tasks(video_path, models_dir, slot_mode="anatomical", raw_vis=True)
+
+
+def _extract_tasks(video_path: str, models_dir: Path, slot_mode: str,
+                   raw_vis: bool = False) -> np.ndarray | None:
     import mediapipe as mp
     from mediapipe.tasks import python as mp_python
     from mediapipe.tasks.python import vision
@@ -188,7 +227,7 @@ def extract_sequence_app(video_path: str, models_dir: Path) -> np.ndarray | None
     frames, fps = read_frames(video_path)
     if not frames:
         return None
-    if len(frames) > MAX_FRAMES_APP:
+    if slot_mode == "anatomical" and len(frames) > MAX_FRAMES_APP:
         idx = np.linspace(0, len(frames) - 1, MAX_FRAMES_APP).round().astype(int)
         frames = [frames[i] for i in idx]
 
@@ -198,11 +237,13 @@ def extract_sequence_app(video_path: str, models_dir: Path) -> np.ndarray | None
         img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         ts = i * 1000 // int(fps) + i  # strictly increasing ms
         p = pose_l.detect_for_video(img, ts).pose_landmarks
-        pose33 = [(lm.x, lm.y, lm.z, lm.visibility > 0.5) for lm in p[0][:33]] if p else []
-        pose33 += [(0.0, 0.0, 0.0, False)] * (33 - len(pose33))
+        if p:
+            pose33 = [(lm.x, lm.y, lm.z, lm.visibility) for lm in p[0][:33]]
+        else:
+            pose33 = [(0.0, 0.0, 0.0, 0.0)] * 33
         h = hand_l.detect_for_video(img, ts).hand_landmarks
         hands = [np.array([(lm.x, lm.y, lm.z) for lm in lms[:21]], np.float32) for lms in h]
-        out[i] = build_bim_frame(pose33, hands)
+        out[i] = build_bim_frame(pose33, hands, slot_mode=slot_mode, raw_vis=raw_vis)
     return out
 
 
@@ -336,8 +377,10 @@ def recognize(arr: np.ndarray, model_path: Path, mean, std, mode: str):
 
     from ai_edge_litert.interpreter import Interpreter
 
-    normalize = normalize_keypoints_app if mode == "app" else normalize_keypoints_demo
-    reset = mode == "demo"  # torch SignLSTM starts from zero state every forward
+    if mode == "app":
+        normalize, reset = normalize_keypoints_app, False
+    else:  # demo and app2 both use the training-time channel-0..1 convention
+        normalize, reset = normalize_keypoints_demo, True
 
     interp = Interpreter(model_path=str(model_path), num_threads=2)
     interp.allocate_tensors()  # app: fresh per clip; demo: fresh per view via reset
@@ -393,8 +436,8 @@ def main() -> int:
             mode = argv[i + 1].lower()
         except IndexError:
             mode = ""
-        if mode not in ("app", "demo"):
-            print("usage: --mode app|demo")
+        if mode not in ("app", "app2", "demo"):
+            print("usage: --mode app|app2|demo")
             return 1
         argv = argv[:i] + argv[i + 2:]
 
@@ -413,16 +456,22 @@ def main() -> int:
 
     args = argv or [str(BIM_VIDEOS_DIR)]
     mp_dir = (ensure_mediapipe_models(Path(tempfile.gettempdir()) / "mp_tasks_models")
-              if mode == "app" else None)
+              if mode in ("app", "app2") else None)
 
-    print(f"mode={mode}  ({'app: mirrors BimTfliteService' if mode == 'app' else 'demo: mirrors slr demo.py training parity'})\n")
+    print(f"mode={mode}  ({'app: mirrors BimTfliteService as shipped'
+          if mode == 'app' else 'app2: candidate fixed-app pipeline (anatomical slots + continuous vis)'
+          if mode == 'app2' else 'demo: mirrors slr demo.py training parity'})\n")
     hits = total = 0
     for arg in resolve_video_args(args):
         path = Path(arg)
         expected = path.stem.lower()  # BIM glosses keep underscores: terima_kasih
         with muted_native_stderr():
-            arr = (extract_sequence_app(str(path), mp_dir) if mode == "app"
-                   else extract_sequence_demo(str(path)))
+            if mode == "app":
+                arr = extract_sequence_app(str(path), mp_dir)
+            elif mode == "app2":
+                arr = extract_sequence_app2(str(path), mp_dir)
+            else:
+                arr = extract_sequence_demo(str(path))
             if arr is None:
                 print(f"{path.name:<22} could not decode any frames")
                 continue

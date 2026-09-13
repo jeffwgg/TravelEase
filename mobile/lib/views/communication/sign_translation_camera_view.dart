@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/theme.dart';
 import '../../models/entities/sign_language_entity.dart';
 import '../../services/camera_landmark_extractor_service.dart';
@@ -853,22 +854,35 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                               ),
                             ),
                             const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                _buildRecorderButton(
-                                  label: _isRecordingClip ? 'Stop & Save Clip' : 'Record Clip',
-                                  icon: _isRecordingClip ? Icons.stop_rounded : Icons.fiber_manual_record_rounded,
-                                  color: _isRecordingClip ? AppColors.emergency : AppColors.success,
-                                  onTap: _toggleClipRecording,
-                                ),
-                                const SizedBox(width: 6),
-                                _buildRecorderButton(
-                                  label: 'Copy Clips JSON',
-                                  icon: Icons.copy_rounded,
-                                  color: AppColors.primary,
-                                  onTap: _copyClipsJson,
-                                ),
-                              ],
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  _buildRecorderButton(
+                                    label: _isRecordingClip ? 'Stop & Save Clip' : 'Record Clip',
+                                    icon: _isRecordingClip ? Icons.stop_rounded : Icons.fiber_manual_record_rounded,
+                                    color: _isRecordingClip ? AppColors.emergency : AppColors.success,
+                                    onTap: _toggleClipRecording,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _buildRecorderButton(
+                                    label: 'Copy Clips JSON',
+                                    icon: Icons.copy_rounded,
+                                    color: AppColors.primary,
+                                    onTap: _copyClipsJson,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  // Clipboard drops large exports on Android —
+                                  // save the session to a file and open the
+                                  // system share sheet instead.
+                                  _buildRecorderButton(
+                                    label: 'Save & Share Clips',
+                                    icon: Icons.ios_share_rounded,
+                                    color: AppColors.accent,
+                                    onTap: _shareClipsJson,
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
@@ -1261,6 +1275,32 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
             ? '$count clip(s) copied as JSON — paste into test/fixtures/sign_clips.json'
             : 'No clips recorded yet.'),
         duration: const Duration(seconds: 3),
+      ));
+    }
+  }
+
+  /// Large JSON exports exceed the Android clipboard (silently dropped,
+  /// worst on Huawei), so this writes the session to a file and opens the
+  /// system share sheet — save to Files, send via email/Drive, or pull it
+  /// over adb using the path shown in the snackbar.
+  Future<void> _shareClipsJson() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final path = await _landmarkExtractor.exportRecordingsToFile();
+      await SharePlus.instance.share(
+        ShareParams(
+          subject: 'BIM landmark clips',
+          files: [XFile(path, mimeType: 'application/json')],
+        ),
+      );
+      messenger.showSnackBar(SnackBar(
+        content: Text('Saved:\n$path', style: const TextStyle(fontSize: 11)),
+        duration: const Duration(seconds: 6),
+      ));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text('Clip export failed: $e'),
+        duration: const Duration(seconds: 4),
       ));
     }
   }

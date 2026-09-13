@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'sign_frame_data.dart';
 
 /// A recorded clip of one sign performance.
@@ -65,10 +68,25 @@ class SignClipRecorder {
   }
 
   /// Copies the session JSON to the clipboard. Returns clip count.
+  ///
+  /// NOTE: the Android clipboard silently drops large text (especially on
+  /// Huawei OEM builds) — prefer [exportToFile] + the share sheet.
   Future<int> copyToClipboard() async {
     final n = _clips.length;
     await Clipboard.setData(ClipboardData(text: exportJson()));
     return n;
+  }
+
+  /// Writes the session JSON to the app's external files dir and returns the
+  /// path — shareable via the system sheet and reachable from a PC with
+  /// `adb pull`. The clipboard is too small for multi-minute recordings.
+  Future<String> exportToFile() async {
+    final name = 'bim_clips_${DateTime.now().millisecondsSinceEpoch}.json';
+    final dir = await getExternalStorageDirectory() ??
+        await getApplicationDocumentsDirectory();
+    final f = File('${dir.path}/$name');
+    await f.writeAsString(exportJson());
+    return f.path;
   }
 
   void clear() {
