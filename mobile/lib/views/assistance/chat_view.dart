@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 import '../../core/theme.dart';
 import '../../viewmodels/chat_viewmodel.dart';
 import '../../services/webrtc_service.dart';
@@ -16,6 +18,9 @@ class ChatView extends StatefulWidget {
 class _ChatViewState extends State<ChatView> {
   late final ChatViewModel _viewModel;
   late final WebRTCService _webrtc;
+  final ImagePicker _picker = ImagePicker();
+  // Track VideoPlayerControllers keyed by message id
+  final Map<String, VideoPlayerController> _videoControllers = {};
 
   @override
   void initState() {
@@ -41,6 +46,10 @@ class _ChatViewState extends State<ChatView> {
     _viewModel.removeListener(_onChanged);
     _viewModel.dispose();
     _webrtc.removeListener(_onChanged);
+    // Dispose all video controllers
+    for (final vc in _videoControllers.values) {
+      vc.dispose();
+    }
     super.dispose();
   }
 
@@ -190,10 +199,20 @@ class _ChatViewState extends State<ChatView> {
                 ),
                 child: Row(
                   children: [
-                    IconButton(icon: const Icon(Icons.add_circle_outline, color: AppColors.textMuted), onPressed: () {}),
+                    // Attach media / pick files button
+                    IconButton(
+                      icon: _viewModel.isUploading
+                          ? const SizedBox(
+                              width: 22, height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textMuted),
+                            )
+                          : const Icon(Icons.add_circle_outline, color: AppColors.textMuted),
+                      onPressed: _viewModel.isUploading ? null : () => _pickMedia(context),
+                    ),
                     Expanded(
                       child: TextField(
                         controller: _viewModel.messageController,
+                        enabled: !_viewModel.isUploading,
                         decoration: InputDecoration(
                           hintText: 'Type a message...',
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
@@ -472,10 +491,28 @@ class _ChatViewState extends State<ChatView> {
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
-          child: _buildMsg(content, isUser, time, senderName),
+          child: _buildMsgBubble(msg, isUser, time, senderName),
         );
       },
     );
+  }
+
+  // Dispatch to text or media bubble
+  Widget _buildMsgBubble(
+    Map<String, dynamic> msg,
+    bool isUser,
+    String time,
+    String senderName,
+  ) {
+    final msgType = msg['message_type'] ?? 'text';
+    final content = msg['content'] ?? '';
+    if (msgType == 'image') {
+      return _buildMediaMsg(isUser: isUser, time: time, child: _buildImageBubble(content, isUser));
+    } else if (msgType == 'video') {
+      final msgId = msg['id'] as String? ?? content;
+      return _buildMediaMsg(isUser: isUser, time: time, child: _buildVideoBubble(content, msgId));
+    }
+    return _buildMsg(content, isUser, time, senderName);
   }
 
   Widget _buildMsg(String text, bool isUser, String time, String senderName) {
@@ -512,6 +549,228 @@ class _ChatViewState extends State<ChatView> {
           ),
         ),
       ],
+    );
+  }
+
+  // Container for media bubbles (image / video)
+  Widget _buildMediaMsg({required bool isUser, required String time, required Widget child}) {
+    return Row(
+      mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+      children: [
+        Flexible(
+          child: Container(
+            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+            decoration: BoxDecoration(
+              color: isUser ? AppColors.primary : AppColors.surface,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(16),
+                topRight: const Radius.circular(16),
+                bottomLeft: Radius.circular(isUser ? 16 : 4),
+                bottomRight: Radius.circular(isUser ? 4 : 16),
+              ),
+              border: isUser ? null : Border.all(color: AppColors.cardBorder),
+            ),
+            clipBehavior: Clip.hardEdge,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                child,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+                  child: Text(
+                    time,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(fontSize: 10, color: isUser ? Colors.white60 : AppColors.textMuted),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImageBubble(String url, bool isUser) {
+    return GestureDetector(
+      onTap: () => _showFullscreenImage(url),
+      child: Stack(
+        children: [
+          Image.network(
+            url,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: 200,
+            errorBuilder: (_, e, __) => Container(
+              height: 100,
+              color: Colors.black12,
+              child: const Center(child: Icon(Icons.broken_image_outlined, color: Colors.grey)),
+            ),
+          ),
+          // Zoom hint overlay
+          Positioned(
+            bottom: 6, right: 6,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.black45,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Icon(Icons.zoom_in, color: Colors.white, size: 16),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVideoBubble(String url, String msgId) {
+    if (!_videoControllers.containsKey(msgId)) {
+      final vc = VideoPlayerController.networkUrl(Uri.parse(url))
+        ..initialize().then((_) {
+          if (mounted) setState(() {});
+        });
+      _videoControllers[msgId] = vc;
+    }
+    final vc = _videoControllers[msgId]!;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AspectRatio(
+          aspectRatio: vc.value.isInitialized ? vc.value.aspectRatio : 16 / 9,
+          child: vc.value.isInitialized
+              ? VideoPlayer(vc)
+              : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        ),
+        // Controls row
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              icon: Icon(
+                vc.value.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                color: AppColors.primary,
+                size: 36,
+              ),
+              onPressed: () => setState(() {
+                vc.value.isPlaying ? vc.pause() : vc.play();
+              }),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _showFullscreenImage(String url) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (ctx) => GestureDetector(
+        onTap: () => Navigator.pop(ctx),
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            foregroundColor: Colors.white,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              child: Image.network(url),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickMedia(BuildContext context) async {
+    await showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(top: 12, bottom: 16),
+              decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2)),
+            ),
+            const Text('Send Media', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.camera_alt_outlined, color: AppColors.primary),
+              ),
+              title: const Text('Take Photo'),
+              subtitle: const Text('Open camera to capture image'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+                if (picked != null && mounted) {
+                  await _viewModel.sendMediaMessage(filePath: picked.path, mimeType: 'image/jpeg');
+                }
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.secondary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.photo_library_outlined, color: AppColors.secondary),
+              ),
+              title: const Text('Photo from Gallery'),
+              subtitle: const Text('Choose an existing photo'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+                if (picked != null && mounted) {
+                  await _viewModel.sendMediaMessage(filePath: picked.path, mimeType: 'image/jpeg');
+                }
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.videocam_outlined, color: AppColors.success),
+              ),
+              title: const Text('Record or Pick Video'),
+              subtitle: const Text('Capture or choose a video clip'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final picked = await _picker.pickVideo(
+                  source: ImageSource.gallery,
+                  maxDuration: const Duration(minutes: 2),
+                );
+                if (picked != null && mounted) {
+                  await _viewModel.sendMediaMessage(filePath: picked.path, mimeType: 'video/mp4');
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
     );
   }
 

@@ -187,6 +187,32 @@ export const assistanceRepository = {
     return data
   },
 
+  // Module 5: Upload chat media (image or video) to Supabase Storage
+  async uploadChatMedia(file, requestId) {
+    const ext = file.name.split('.').pop()
+    const timestamp = Date.now()
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const path = `${requestId}/${timestamp}_${safeName}`
+
+    const { data, error } = await supabase.storage
+      .from('chat-media')
+      .upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      })
+
+    if (error) {
+      console.error('Error uploading chat media:', error)
+      throw error
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('chat-media')
+      .getPublicUrl(data.path)
+
+    return urlData.publicUrl
+  },
+
   // Realtime Subscriptions
   subscribeToRequests(callback) {
     const channel = supabase
