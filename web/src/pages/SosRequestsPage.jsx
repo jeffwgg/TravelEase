@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CircleMarker, MapContainer, TileLayer } from 'react-leaflet'
-import { AlertTriangle, CheckCircle2, Clock3, MapPin, RefreshCw, ShieldCheck, X } from 'lucide-react'
-import 'leaflet/dist/leaflet.css'
+import { AlertTriangle, CheckCircle2, Clock3, MapPin, RefreshCw, ShieldCheck, X, Radio } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { sosRequestRepository } from '../repositories/sosRequestRepository'
+import LiveLocationMap from '../components/LiveLocationMap'
 
-export default function SosRequestsPage() {
+export default function SosRequestsPage({ staffOnly = false }) {
   const { staffContext } = useAuth()
   const institutionId = staffContext?.institutions?.id
   const [requests, setRequests] = useState([])
@@ -74,7 +73,7 @@ export default function SosRequestsPage() {
     <div className="page-header sos-page-header">
       <div>
         <h1>SOS / Emergency</h1>
-        <p>Emergency alerts matched to your institution’s active Service Areas.</p>
+        <p>{staffOnly ? 'Institution emergency alerts — respond and acknowledge.' : "Emergency alerts matched to your institution's active Service Areas."}</p>
       </div>
       <button className="btn btn-outline" onClick={() => load({ quiet: true })} disabled={refreshing}>
         <RefreshCw size={16} className={refreshing ? 'spin' : ''} />
@@ -138,14 +137,21 @@ function SosRequestCard({ request, busy, onView, onAcknowledge, onResolve }) {
   return <article className={`card sos-request-card ${isResolved ? 'resolved' : 'active'}`}>
     <div className="sos-request-topline">
       <div><strong>{travellerName}</strong><span><Clock3 size={14} /> {formatTime(request.triggered_at)}</span></div>
-      <span className={`sos-status ${request.status}`}>{statusLabel(request.status)}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        {!isResolved && (
+          <span style={{ fontSize: '11px', color: '#dc2626', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+            <Radio size={11} color="#dc2626" /> Live
+          </span>
+        )}
+        <span className={`sos-status ${request.status}`}>{statusLabel(request.status)}</span>
+      </div>
     </div>
     <dl className="sos-request-details">
       <div><dt>Service Area</dt><dd>{serviceAreaName}</dd></div>
-      <div><dt>Latitude / Longitude</dt><dd>{formatCoordinate(request.latitude)}, {formatCoordinate(request.longitude)}</dd></div>
+      <div><dt>Trigger Coordinates</dt><dd>{formatCoordinate(request.latitude)}, {formatCoordinate(request.longitude)}</dd></div>
     </dl>
     <div className="sos-request-actions">
-      <button className="btn btn-outline btn-sm" onClick={onView}><MapPin size={15} /> View Location</button>
+      <button className="btn btn-outline btn-sm" onClick={onView}><MapPin size={15} /> {isResolved ? 'View Location' : 'Live Tracking Map'}</button>
       {request.status === 'sent' && <button className="btn btn-primary btn-sm" disabled={busy} onClick={onAcknowledge}>{busy ? 'Acknowledging…' : 'Acknowledge'}</button>}
       {request.status === 'acknowledged' && <button className="btn btn-primary btn-sm" disabled={busy} onClick={onResolve}>{busy ? 'Resolving…' : 'Resolve'}</button>}
     </div>
@@ -153,20 +159,28 @@ function SosRequestCard({ request, busy, onView, onAcknowledge, onResolve }) {
 }
 
 function LocationModal({ request, onClose }) {
-  const position = [Number(request.latitude), Number(request.longitude)]
   return <div className="sos-map-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <div className="sos-map-dialog" role="dialog" aria-modal="true" aria-labelledby="sos-location-title">
-      <div className="sos-map-header">
-        <div><h2 id="sos-location-title">Traveller SOS Location</h2><p>{formatCoordinate(request.latitude)}, {formatCoordinate(request.longitude)}</p></div>
+    <div className="sos-map-dialog" role="dialog" aria-modal="true" aria-labelledby="sos-location-title" style={{ maxWidth: '680px', width: '100%', borderRadius: '20px', overflow: 'hidden' }}>
+      <div className="sos-map-header" style={{ padding: '18px 24px' }}>
+        <div>
+          <h2 id="sos-location-title">Emergency Live Tracking — {request.traveller?.full_name || 'Traveller'}</h2>
+          <p>Initial: {formatCoordinate(request.latitude)}, {formatCoordinate(request.longitude)}</p>
+        </div>
         <button className="icon-button" onClick={onClose} aria-label="Close location map"><X size={20} /></button>
       </div>
-      <div className="sos-location-map">
-        <MapContainer center={position} zoom={16} scrollWheelZoom>
-          <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <CircleMarker center={position} radius={11} pathOptions={{ color: '#b91c1c', fillColor: '#ef4444', fillOpacity: 0.85, weight: 3 }} />
-        </MapContainer>
+      <div style={{ padding: '0 24px 20px' }}>
+        <LiveLocationMap
+          sessionId={request.id}
+          sessionType="sos"
+          initialLat={request.latitude}
+          initialLng={request.longitude}
+          travelerName={request.traveller?.full_name || 'Traveller'}
+          height="400px"
+        />
       </div>
-      <div className="sos-map-actions"><button className="btn btn-outline" onClick={onClose}>Close</button></div>
+      <div className="sos-map-actions" style={{ padding: '14px 24px', borderTop: '1px solid var(--divider)' }}>
+        <button className="btn btn-outline" onClick={onClose}>Close</button>
+      </div>
     </div>
   </div>
 }

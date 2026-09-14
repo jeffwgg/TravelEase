@@ -16,12 +16,19 @@ import {
   Phone,
   X,
   Check,
-  ShieldCheck
+  ShieldCheck,
+  Eye,
+  Radio
 } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
+import { useAuth } from '../context/AuthContext'
+import LiveLocationMap from '../components/LiveLocationMap'
 
-export default function AssistanceRequestPage() {
+export default function AssistanceRequestPage({ staffOnly = false, staffDashboard = false }) {
   const navigate = useNavigate()
+  const { staffContext } = useAuth()
+  const institutionId = staffContext?.institution_id
+  const myStaffId = staffContext?.staff?.id
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('All Statuses')
@@ -30,6 +37,8 @@ export default function AssistanceRequestPage() {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedReq, setSelectedReq] = useState(null)
+  const [showAssignMap, setShowAssignMap] = useState(false)
+  const [detailModalReq, setDetailModalReq] = useState(null)
   const [staffList, setStaffList] = useState([])
   const [loadingStaff, setLoadingStaff] = useState(false)
   const [staffSearch, setStaffSearch] = useState('')
@@ -49,6 +58,21 @@ export default function AssistanceRequestPage() {
     }
   }, [])
 
+  // Live-refresh staff availability while the assign modal is open
+  useEffect(() => {
+    if (!isModalOpen || !institutionId) return
+
+    const unsubscribeStaff = assistanceRepository.subscribeToStaff(institutionId, async () => {
+      const staffData = await assistanceRepository.getInstitutionStaff(institutionId)
+      setStaffList(staffData || [])
+    })
+
+    return () => {
+      if (unsubscribeStaff) unsubscribeStaff()
+    }
+  }, [isModalOpen, institutionId])
+
+
   async function loadRequests() {
     setLoading(true)
     const data = await assistanceRepository.getAssistanceRequests()
@@ -61,7 +85,7 @@ export default function AssistanceRequestPage() {
     setIsModalOpen(true)
     setStaffSearch('')
     setLoadingStaff(true)
-    const staffData = await assistanceRepository.getInstitutionStaff()
+    const staffData = await assistanceRepository.getInstitutionStaff(institutionId)
     setStaffList(staffData || [])
     setLoadingStaff(false)
   }
@@ -94,7 +118,11 @@ export default function AssistanceRequestPage() {
     }, 4000)
   }
 
-  const filteredRequests = requests.filter(req => {
+  const baseRequests = staffOnly
+    ? requests.filter(req => req.assigned_staff_id === myStaffId)
+    : requests
+
+  const filteredRequests = baseRequests.filter(req => {
     const isUnassigned = !req.assigned_staff_name || req.assigned_staff_name === 'Unassigned'
     const isEscalated = req.is_escalated === true
     const minutesWaiting = req.created_at
@@ -139,11 +167,11 @@ export default function AssistanceRequestPage() {
     return matchesAvailability && matchesSearch
   })
 
-  // Calculate dynamic stats
-  const pendingCount = requests.filter(r => r.status === 'pending').length
-  const inProgressCount = requests.filter(r => r.status === 'in_progress').length
-  const resolvedCount = requests.filter(r => r.status === 'resolved' || r.status === 'closed').length
-  const highPriorityCount = requests.filter(r => r.urgency === 'high' || r.urgency === 'urgent').length
+  // Calculate dynamic stats (scoped to staff's own requests when staffOnly)
+  const pendingCount = baseRequests.filter(r => r.status === 'pending').length
+  const inProgressCount = baseRequests.filter(r => r.status === 'in_progress').length
+  const resolvedCount = baseRequests.filter(r => r.status === 'resolved' || r.status === 'closed').length
+  const highPriorityCount = baseRequests.filter(r => r.urgency === 'high' || r.urgency === 'urgent').length
 
   const getCategoryIcon = (category) => {
     switch (category) {
@@ -279,10 +307,13 @@ export default function AssistanceRequestPage() {
 
       <div className="page-header">
         <div>
-          <h2>Assistance Request Dispatch</h2>
-          <div className="header-subtitle">Real-time incoming assistance requests from travelers requiring physical or communication support.</div>
+          <h2>{staffOnly ? 'My Assigned Requests' : 'Assistance Request Dispatch'}</h2>
+          <div className="header-subtitle">
+            {staffOnly
+              ? 'Assistance requests assigned to you.'
+              : 'Real-time incoming assistance requests from travelers requiring physical or communication support.'}
+          </div>
         </div>
-        <button className="btn btn-primary" onClick={loadRequests}>↻ Refresh Live Data</button>
       </div>
 
       <div className="page-body">
@@ -413,7 +444,34 @@ export default function AssistanceRequestPage() {
                           {getCategoryIcon(req.category)} {req.category}
                         </div>
                       </td>
-                      <td>{req.location_zone}</td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                          <span>{req.location_zone}</span>
+                          {req.share_location && (
+                            <button
+                              type="button"
+                              onClick={() => setDetailModalReq(req)}
+                              style={{
+                                background: 'rgba(22, 163, 74, 0.08)',
+                                border: '1px solid rgba(22, 163, 74, 0.25)',
+                                color: '#16a34a',
+                                borderRadius: '12px',
+                                padding: '2px 7px',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                width: 'fit-content'
+                              }}
+                              title="Click to view live FindMy map"
+                            >
+                              <Radio size={10} color="#16a34a" /> Live Tracking
+                            </button>
+                          )}
+                        </div>
+                      </td>
                       <td>{getUrgencyBadge(req.urgency)}</td>
                       <td>
                         {!isUnassigned ? (
@@ -446,38 +504,48 @@ export default function AssistanceRequestPage() {
                       </td>
                       <td>{getStatusBadge(req.status)}</td>
                       <td>
-                        {req.status === 'pending' ? (
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           <button
-                            className="btn btn-primary btn-sm"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                            onClick={() => openAssignModal(req)}
+                            className="btn btn-outline btn-sm"
+                            onClick={() => setDetailModalReq(req)}
+                            title="View Details & Live Map"
+                            style={{ padding: '6px 8px', display: 'inline-flex', alignItems: 'center' }}
                           >
-                            <UserCheck size={14} /> Assign Staff
+                            <Eye size={13} />
                           </button>
-                        ) : req.status === 'in_progress' ? (
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => openAssignModal(req)}
-                            >
-                              Reassign
-                            </button>
+                          {req.status === 'pending' ? (
                             <button
                               className="btn btn-primary btn-sm"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                              onClick={() => openAssignModal(req)}
+                            >
+                              <UserCheck size={14} /> Assign Staff
+                            </button>
+                          ) : req.status === 'in_progress' ? (
+                            <>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => openAssignModal(req)}
+                              >
+                                Reassign
+                              </button>
+                              <button
+                                className="btn btn-primary btn-sm"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                onClick={() => navigate('/chat', { state: { requestId: req.id } })}
+                              >
+                                <MessageSquare size={14} /> Open Chat
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              className="btn btn-secondary btn-sm"
                               onClick={() => navigate('/chat', { state: { requestId: req.id } })}
                             >
-                              <MessageSquare size={14} /> Open Chat
+                              View Chat
                             </button>
-                          </div>
-                        ) : (
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => navigate('/chat', { state: { requestId: req.id } })}
-                          >
-                            View Chat
-                          </button>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -576,6 +644,47 @@ export default function AssistanceRequestPage() {
                 {getReachBadge(selectedReq.preferred_communication)}
               </div>
             </div>
+
+            {/* Live Location Map Drawer in Assign Modal */}
+            {selectedReq.share_location && (
+              <div style={{ padding: '12px 24px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: '#16a34a' }}>
+                    <Radio size={13} color="#16a34a" /> Traveler Live Location Available
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAssignMap(!showAssignMap)}
+                    style={{
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '6px',
+                      padding: '3px 10px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--primary)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {showAssignMap ? 'Hide Live Map' : 'Preview Live Map'}
+                  </button>
+                </div>
+                {showAssignMap && (
+                  <div style={{ height: '220px', width: '100%', marginTop: '10px' }}>
+                    <LiveLocationMap
+                      sessionId={selectedReq.id}
+                      sessionType="assistance"
+                      initialLat={selectedReq.latitude}
+                      initialLng={selectedReq.longitude}
+                      travelerName={selectedReq.traveler_name}
+                      locationZone={selectedReq.location_zone}
+                      height="220px"
+                      compact
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Modal Body & Filters */}
             <div style={{ padding: '16px 24px', flex: 1, overflowY: 'auto' }}>
@@ -711,6 +820,170 @@ export default function AssistanceRequestPage() {
               <button className="btn btn-secondary" onClick={closeAssignModal}>
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Request Detail & Live Tracking Modal */}
+      {detailModalReq && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.7)',
+          backdropFilter: 'blur(6px)',
+          zIndex: 9000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px'
+        }}>
+          <div style={{
+            background: 'var(--card-bg, #ffffff)',
+            borderRadius: '20px',
+            width: '100%',
+            maxWidth: '680px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
+            overflow: 'hidden',
+            border: '1px solid rgba(226, 232, 240, 0.8)'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '18px 24px',
+              borderBottom: '1px solid var(--border-color, #e2e8f0)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#f8fafc'
+            }}>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                  Request #{detailModalReq.request_code}
+                </div>
+                <h3 style={{ margin: '2px 0 0', fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                  {detailModalReq.traveler_name}
+                </h3>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {getStatusBadge(detailModalReq.status)}
+                <button
+                  onClick={() => setDetailModalReq(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '6px',
+                    borderRadius: '50%',
+                    color: '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '20px 24px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Quick Info Badges */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {getReachBadge(detailModalReq.preferred_communication)}
+                {getUrgencyBadge(detailModalReq.urgency)}
+                <span className="badge secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', textTransform: 'capitalize' }}>
+                  {getCategoryIcon(detailModalReq.category)} {detailModalReq.category}
+                </span>
+                {detailModalReq.assigned_staff_name && detailModalReq.assigned_staff_name !== 'Unassigned' && (
+                  <span className="badge secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <ShieldCheck size={12} color="var(--primary)" /> Staff: {detailModalReq.assigned_staff_name}
+                  </span>
+                )}
+              </div>
+
+              {/* FindMy Live Location Map */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Traveler Location (FindMy Live View)
+                  </label>
+                  {detailModalReq.share_location && (
+                    <span style={{ fontSize: '11px', color: '#16a34a', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Radio size={11} color="#16a34a" /> Live Stream Active
+                    </span>
+                  )}
+                </div>
+                <LiveLocationMap
+                  sessionId={detailModalReq.id}
+                  sessionType="assistance"
+                  initialLat={detailModalReq.latitude}
+                  initialLng={detailModalReq.longitude}
+                  travelerName={detailModalReq.traveler_name}
+                  locationZone={detailModalReq.location_zone}
+                  height="340px"
+                />
+              </div>
+
+              {/* Description Box */}
+              {detailModalReq.description && (
+                <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
+                    Description
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }}>
+                    {detailModalReq.description}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                Zone: <strong>{detailModalReq.location_zone}</strong>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {detailModalReq.status === 'pending' && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      const target = detailModalReq
+                      setDetailModalReq(null)
+                      openAssignModal(target)
+                    }}
+                  >
+                    <UserCheck size={14} /> Assign Staff
+                  </button>
+                )}
+                {detailModalReq.status === 'in_progress' && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      const id = detailModalReq.id
+                      setDetailModalReq(null)
+                      navigate('/chat', { state: { requestId: id } })
+                    }}
+                  >
+                    <MessageSquare size={14} /> Open Chat
+                  </button>
+                )}
+                <button className="btn btn-secondary btn-sm" onClick={() => setDetailModalReq(null)}>
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>
