@@ -26,6 +26,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     EnvironmentSoundType.siren,
     EnvironmentSoundType.vehicleHorn,
     EnvironmentSoundType.doorbell,
+    EnvironmentSoundType.speechAnnouncement,
   ];
 
   final _detector = EnvironmentSoundDetector();
@@ -94,10 +95,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     setState(() {
       _enabledTypes
         ..clear()
-        ..addAll(values[1] as Set<EnvironmentSoundType>)
-        // Public announcements are captured separately, not shown as an
-        // important-sound alert that the traveller has to configure here.
-        ..add(EnvironmentSoundType.speechAnnouncement);
+        ..addAll(values[1] as Set<EnvironmentSoundType>);
       _sensitivity = values[2] as SoundSensitivity;
       _history
         ..clear()
@@ -265,7 +263,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Environment Sound Alert')),
+      appBar: AppBar(title: const Text('Environment Sound Detection')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(

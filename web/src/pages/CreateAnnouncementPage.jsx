@@ -11,7 +11,7 @@ const languageOptions = [
 
 const initialForm = {
   title: '', serviceAreaId: 'all', type: '', priority: 'normal',
-  messageEn: '', messageMs: '', messageZh: '', scheduledAt: '', autoTranslate: false,
+  messageEn: '', messageMs: '', messageZh: '', scheduledAt: '', expiresAt: '', autoTranslate: false,
   targetLanguages: ['ms'], status: 'active',
 }
 
@@ -59,6 +59,7 @@ export default function CreateAnnouncementPage() {
             messageMs: item.translations?.ms?.message || '',
             messageZh: item.translations?.zh?.message || '',
             scheduledAt: toLocalDateTime(item.published_at),
+            expiresAt: toLocalDateTime(item.expires_at),
             autoTranslate: item.auto_translated || false,
             targetLanguages: Object.keys(item.translations || {}).length ? Object.keys(item.translations) : ['ms'],
             status: item.status,
@@ -143,6 +144,10 @@ export default function CreateAnnouncementPage() {
     // A published announcement keeps its original (past) publish time in the
     // disabled schedule field — that must not fail validation.
     if (!publishLocked && form.scheduledAt && new Date(form.scheduledAt) <= new Date()) next.scheduledAt = 'Schedule publish time must be in the future.'
+    if (form.expiresAt) {
+      const publishTime = form.scheduledAt ? new Date(form.scheduledAt) : new Date()
+      if (new Date(form.expiresAt) <= publishTime) next.expiresAt = 'Expiry time must be after the publish time.'
+    }
     setFieldErrors(next)
     return Object.keys(next).length === 0
   }
@@ -185,6 +190,7 @@ export default function CreateAnnouncementPage() {
         status: form.status,
         translations: translationsPayload,
         auto_translated: form.autoTranslate,
+        expires_at: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
       }
       // A future schedule time becomes the publish time: mobile apps already
       // hide announcements whose published_at is in the future. Clearing the
@@ -232,6 +238,7 @@ export default function CreateAnnouncementPage() {
               <div className="form-group"><label htmlFor="announcement-type">Announcement Type </label><input id="announcement-type" className={`input ${fieldErrors.type ? 'invalid' : ''}`} value={form.type} onChange={update('type')} maxLength={160} placeholder="e.g. General Information" />{fieldError('type')}</div>
               <div className="form-group"><label htmlFor="announcement-priority">Priority <span className="required-mark">*</span></label><select id="announcement-priority" className={`input ${fieldErrors.priority ? 'invalid' : ''}`} value={form.priority} onChange={update('priority')}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>{fieldError('priority')}</div>
               <div className="form-group"><label htmlFor="announcement-schedule">Schedule Publish Time (Optional)</label><input id="announcement-schedule" type="datetime-local" className={`input ${fieldErrors.scheduledAt ? 'invalid' : ''}`} value={form.scheduledAt} min={new Date().toISOString().slice(0, 16)} disabled={publishLocked} onChange={update('scheduledAt')} />{fieldError('scheduledAt')}{publishLocked && <div className="field-note">Already published — the schedule can no longer be changed.</div>}</div>
+              <div className="form-group"><label htmlFor="announcement-expiry">Expires At (Optional)</label><input id="announcement-expiry" type="datetime-local" className={`input ${fieldErrors.expiresAt ? 'invalid' : ''}`} value={form.expiresAt} min={new Date().toISOString().slice(0, 16)} onChange={update('expiresAt')} />{fieldError('expiresAt')}<div className="field-note">Leave blank to keep this announcement active until it is cancelled.</div></div>
               {isEditing && <div className="form-group"><label htmlFor="announcement-status">Status <span className="required-mark">*</span></label><select id="announcement-status" className={`input ${fieldErrors.status ? 'invalid' : ''}`} value={form.status} onChange={update('status')}><option value="active">Active</option><option value="draft">Draft</option><option value="cancelled">Cancelled</option></select>{fieldError('status')}</div>}
             </div>
             <div className="form-group"><label htmlFor="message-en">Message Content (English) <span className="required-mark">*</span></label><textarea id="message-en" className={`input ${fieldErrors.messageEn ? 'invalid' : ''}`} rows={5} value={form.messageEn} onChange={update('messageEn')} maxLength={2000} placeholder="Type the official announcement in English..." />{fieldError('messageEn')}</div>

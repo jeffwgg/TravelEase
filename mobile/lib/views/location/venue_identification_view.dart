@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme.dart';
 import '../../models/entities/announcement.dart';
 import '../../models/entities/venue_search_result.dart';
+import '../../models/entities/venue_public_information.dart';
 import '../../models/entities/venue_session.dart';
 import '../../models/entities/venue_service_area.dart';
 import '../../models/repositories/announcement_repository.dart';
@@ -77,6 +79,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   RealtimeChannel? _announcementChannel;
 
   VenueSession? _session;
+  VenuePublicInformation? _venueInformation;
+  VenueServiceArea? _activeServiceArea;
+  bool _loadingVenueInformation = false;
   _HomeTourStep? _tourStep;
   bool _tourCheckStarted = false;
 
@@ -85,6 +90,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _session = VenueSessionService.instance.session;
+    unawaited(_loadVenueInformation(_session));
     VenueSessionService.instance.addListener(_onSessionChanged);
     CapturedAnnouncementStore.instance.version.addListener(_onSessionChanged);
     _refreshAnnouncementFeed();
@@ -130,7 +136,46 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   void _onSessionChanged() {
     if (!mounted) return;
     setState(() => _session = VenueSessionService.instance.session);
+    unawaited(_loadVenueInformation(_session));
     _refreshAnnouncementFeed();
+  }
+
+  Future<void> _loadVenueInformation(VenueSession? session) async {
+    if (session == null) {
+      if (mounted) {
+        setState(() {
+          _venueInformation = null;
+          _activeServiceArea = null;
+          _loadingVenueInformation = false;
+        });
+      }
+      return;
+    }
+    if (mounted) setState(() => _loadingVenueInformation = true);
+    try {
+      final values = await Future.wait([
+        _venueRepository.getPublicInformation(session.institutionId),
+        _venueRepository.getActiveServiceAreas(session.institutionId),
+      ]);
+      if (!mounted || _session?.institutionId != session.institutionId) return;
+      final areas = values[1] as List<VenueServiceArea>;
+      VenueServiceArea? selectedArea;
+      for (final area in areas) {
+        if (area.id == session.serviceAreaId) {
+          selectedArea = area;
+          break;
+        }
+      }
+      setState(() {
+        _venueInformation = values[0] as VenuePublicInformation?;
+        _activeServiceArea = selectedArea;
+        _loadingVenueInformation = false;
+      });
+    } catch (_) {
+      // Venue matching still works if the optional public profile cannot be
+      // retrieved. Do not disrupt the traveller's active session.
+      if (mounted) setState(() => _loadingVenueInformation = false);
+    }
   }
 
   void _refreshAnnouncementFeed() {
@@ -276,16 +321,20 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       _searchError = null;
     });
     try {
-      final match = await _venueRepository.matchLocation(
+      final matches = await _venueRepository.matchLocations(
         latitude: latitude,
         longitude: longitude,
       );
       if (!mounted) return;
-      if (match != null) {
+      if (matches.isNotEmpty) {
         setState(() {
           _matching = false;
           _locationStatus = null;
         });
+        final match = matches.length == 1
+            ? matches.single
+            : await _chooseLocationMatch(matches);
+        if (match == null || !mounted) return;
         await _confirmAndEstablish(
           match.venue,
           serviceArea: match.serviceArea,
@@ -315,6 +364,60 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         _locationError = 'Unable to match your location against the institution list right now.';
       });
     }
+  }
+
+  Future<VenueLocationMatch?> _chooseLocationMatch(
+    List<VenueLocationMatch> matches,
+  ) {
+    return showDialog<VenueLocationMatch>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Choose your location'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'More than one service area matches your location. Choose the one you are currently in.',
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: matches.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (_, index) {
+                    final match = matches[index];
+                    final area = match.serviceArea;
+                    final distance = match.venue.distanceLabel;
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.location_on_outlined),
+                      title: Text(match.venue.name),
+                      subtitle: Text(
+                        [
+                          area?.name ?? match.venue.branch,
+                          if (distance.isNotEmpty) distance,
+                        ].join(' • '),
+                      ),
+                      onTap: () => Navigator.pop(dialogContext, match),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// A manual institution selection asks for the current service area when
@@ -860,6 +963,19 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     final startedAt = session.startedAt;
     final startedLabel =
         '${startedAt.hour.toString().padLeft(2, '0')}:${startedAt.minute.toString().padLeft(2, '0')}';
+    final information = _venueInformation;
+    final serviceArea = _activeServiceArea;
+    final latitude = serviceArea?.latitude ?? information?.latitude;
+    final longitude = serviceArea?.longitude ?? information?.longitude;
+    final radiusMeters =
+        serviceArea?.radiusMeters ?? information?.radiusMeters ?? 500;
+    final coverageName =
+        serviceArea?.name ??
+            session.serviceAreaName ??
+            'Institution service area';
+    final address = serviceArea?.address ?? information?.address;
+    final hotline = information?.hotline;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -904,9 +1020,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                           ),
                         ),
                         const SizedBox(width: 6),
-                        const Text(
-                          'Venue session active',
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        Text(
+                          'Venue session active since $startedLabel',
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
                         ),
                       ],
                     ),
@@ -919,7 +1035,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                       ),
                     ),
                     Text(
-                      '${session.serviceAreaName ?? session.branch ?? 'Institution-wide'} • since $startedLabel',
+                    coverageName,
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 13,
@@ -929,6 +1045,78 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                 ),
               ),
             ],
+          ),
+          Container(
+            padding: const EdgeInsets.all(8),
+            child: _loadingVenueInformation
+                ? const SizedBox(
+              height: 72,
+              child: Center(child: CircularProgressIndicator()),
+            )
+                : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (latitude != null && longitude != null) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      height: 180,
+                      child: GoogleMap(
+                        initialCameraPosition: CameraPosition(
+                          target: LatLng(latitude, longitude),
+                          zoom: _zoomForRadius(radiusMeters),
+                        ),
+                        markers: {
+                          Marker(
+                            markerId: const MarkerId('service-area'),
+                            position: LatLng(latitude, longitude),
+                            infoWindow: InfoWindow(title: coverageName),
+                          ),
+                        },
+                        circles: {
+                          Circle(
+                            circleId: const CircleId('service-coverage'),
+                            center: LatLng(latitude, longitude),
+                            radius: radiusMeters,
+                            fillColor: AppColors.primary.withValues(
+                              alpha: 0.16,
+                            ),
+                            strokeColor: AppColors.primary,
+                            strokeWidth: 2,
+                          ),
+                        },
+                        zoomControlsEnabled: false,
+                        myLocationButtonEnabled: false,
+                        mapToolbarEnabled: false,
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 10),
+                  const Text(
+                    'This institution has not provided map coverage yet.',
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                  ),
+                ],
+                if (address != null && address.trim().isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _buildVenueDetail(
+                    Icons.location_on_outlined,
+                    'Address',
+                    address.trim(),
+                  ),
+                ],
+                if (hotline != null && hotline.trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  _buildVenueDetail(
+                    Icons.support_agent_outlined,
+                    'Support hotline',
+                    hotline.trim(),
+                  ),
+                ],
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -951,6 +1139,39 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         ],
       ),
     );
+  }
+
+  Widget _buildVenueDetail(IconData icon, String label, String value) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(icon, size: 18, color: Colors.white),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(value, style: const TextStyle(color: Colors.white, fontSize: 13)),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  double _zoomForRadius(double radiusMeters) {
+    if (radiusMeters <= 150) return 17;
+    if (radiusMeters <= 350) return 16;
+    if (radiusMeters <= 900) return 15;
+    if (radiusMeters <= 2000) return 14;
+    return 13;
   }
 
   ButtonStyle _venueActionStyle() => OutlinedButton.styleFrom(

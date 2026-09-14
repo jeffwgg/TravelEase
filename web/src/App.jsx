@@ -23,6 +23,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage'
 import ProfilePage from './pages/ProfilePage'
 import AnnouncementPage from './pages/AnnouncementPage'
 import CreateAnnouncementPage from './pages/CreateAnnouncementPage'
+import AnnouncementDetailsPage from './pages/AnnouncementDetailsPage'
 import QueueUpdatePage from './pages/QueueUpdatePage'
 import AddQueueLinePage from './pages/AddQueueLinePage'
 import AssistanceRequestPage from './pages/AssistanceRequestPage'
@@ -194,6 +195,7 @@ function AppRoutes() {
         <Route path="/profile" element={isManager ? <ProfilePage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/announcements" element={<AnnouncementPage />} />
         <Route path="/announcements/create" element={<CreateAnnouncementPage />} />
+        <Route path="/announcements/:id" element={<AnnouncementDetailsPage />} />
         <Route path="/announcements/:id/edit" element={<CreateAnnouncementPage />} />
         <Route path="/queue" element={<QueueUpdatePage />} />
         <Route path="/queue/add" element={<AddQueueLinePage />} />

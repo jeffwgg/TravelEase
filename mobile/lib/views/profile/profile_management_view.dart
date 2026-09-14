@@ -260,7 +260,7 @@ class _ProfileManagementViewState extends State<ProfileManagementView> {
                       ),
                       _MenuItem(
                         Icons.graphic_eq,
-                        'Environment Sound Alert',
+                        'Environment Sound Detection',
                         () => context.push('/environment-sound-alert'),
                       ),
                     ]),

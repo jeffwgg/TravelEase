@@ -6,7 +6,7 @@ import { announcementRepository } from '../repositories/announcementRepository'
 import { useAutoDismiss } from '../hooks/useAutoDismiss'
 
 const priorityClass = { low: 'muted', normal: 'primary', high: 'secondary', urgent: 'emergency' }
-const statusClass = { active: 'success', draft: 'muted', cancelled: 'emergency' }
+const statusClass = { active: 'success', scheduled: 'secondary', draft: 'muted', cancelled: 'emergency', expired: 'muted' }
 
 function formatDate(value) {
   if (!value) return 'Not published'
@@ -16,6 +16,16 @@ function formatDate(value) {
 // Scheduled = active row whose publish time is still in the future.
 function isScheduled(item) {
   return item.status === 'active' && Boolean(item.published_at) && new Date(item.published_at) > new Date()
+}
+
+function isExpired(item) {
+  return item.status === 'active' && Boolean(item.expires_at) && new Date(item.expires_at) <= new Date()
+}
+
+function displayStatus(item) {
+  if (isExpired(item)) return 'expired'
+  if (isScheduled(item)) return 'scheduled'
+  return item.status
 }
 
 export default function AnnouncementPage() {
@@ -49,8 +59,7 @@ export default function AnnouncementPage() {
     const query = search.trim().toLowerCase()
     const priorityRank = { urgent: 4, high: 3, normal: 2, low: 1 }
     return announcements.filter((item) => {
-      const matchesStatus = statusFilter === 'all'
-        || (statusFilter === 'scheduled' ? isScheduled(item) : item.status === statusFilter)
+      const matchesStatus = statusFilter === 'all' || displayStatus(item) === statusFilter
       const matchesSearch = !query || [item.title, item.message_en, item.service_areas?.name]
         .some((value) => value?.toLowerCase().includes(query))
       return matchesStatus && matchesSearch
@@ -63,7 +72,7 @@ export default function AnnouncementPage() {
 
   const summary = useMemo(() => ({
     total: announcements.length,
-    active: announcements.filter((item) => item.status === 'active' && !isScheduled(item)).length,
+    active: announcements.filter((item) => displayStatus(item) === 'active').length,
     scheduled: announcements.filter((item) => isScheduled(item)).length,
     urgent: announcements.filter((item) => item.priority === 'urgent' && item.status === 'active').length,
   }), [announcements])
@@ -105,7 +114,7 @@ export default function AnnouncementPage() {
             <div><h3>Official Announcements</h3><p>Review, edit and manage broadcasts sent to travellers.</p></div>
             <div className="announcement-filters">
               <label className="announcement-search"><Search size={17} /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search title, message or service area..." aria-label="Search announcements" /></label>
-              <select className="input announcement-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="scheduled">Scheduled</option><option value="draft">Draft</option><option value="cancelled">Cancelled</option></select>
+              <select className="input announcement-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="scheduled">Scheduled</option><option value="expired">Expired</option><option value="draft">Draft</option><option value="cancelled">Cancelled</option></select>
             </div>
           </div>
           {loading && <div className="announcement-empty">Loading announcements…</div>}
@@ -114,15 +123,16 @@ export default function AnnouncementPage() {
             <thead><tr><th>Announcement</th><th>Priority</th><th>Status</th><th>Target</th><th>Languages</th><th>Published</th><th>Reach</th><th>Actions</th></tr></thead>
             <tbody>{filtered.map((item) => {
               const translationCount = Object.keys(item.translations || {}).length
-              return <tr key={item.id} className={`announcement-table-row priority-${item.priority}`}>
-                <td><strong className="announcement-table-title">{item.title}</strong><span className="table-secondary">{item.message_en}</span></td>
+              const status = displayStatus(item)
+              return <tr key={item.id} className={`announcement-table-row status-${status}`}>
+                <td><Link className="announcement-table-title" to={`/announcements/${item.id}`}>{item.title}</Link></td>
                 <td><span className={`badge ${priorityClass[item.priority] || 'muted'}`}>{item.priority}</span></td>
-                <td><span className={`badge ${statusClass[item.status] || 'muted'}`}>{item.status}</span></td>
+                <td><span className={`badge ${statusClass[status] || 'muted'}`}>{status}</span></td>
                 <td><span className="announcement-table-meta"><MapPin size={14} />{item.service_areas?.name || 'All service areas'}</span></td>
                 <td><span className="announcement-table-meta"><Globe2 size={14} />{translationCount ? `${translationCount + 1} languages` : 'English only'}</span></td>
-                <td>{isScheduled(item) ? <span className="badge secondary">Scheduled — {formatDate(item.published_at)}</span> : formatDate(item.published_at || item.created_at)}</td>
+                <td>{status === 'scheduled' ? <span className="badge secondary">Scheduled — {formatDate(item.published_at)}</span> : formatDate(item.published_at || item.created_at)}</td>
                 <td><span className="announcement-table-meta"><Eye size={14} />{item.reach_count ?? 0}</span></td>
-                <td><div className="table-actions"><Link className="btn btn-outline btn-sm" to={`/announcements/${item.id}/edit`}><Pencil size={14} /> Edit</Link>{item.status === 'active' && <button className="btn btn-outline btn-sm announcement-cancel" disabled={cancellingId === item.id} onClick={() => cancelAnnouncement(item.id)}>{cancellingId === item.id ? 'Cancelling…' : 'Cancel'}</button>}</div></td>
+                <td><div className="table-actions"><Link className="btn btn-outline btn-sm" to={`/announcements/${item.id}`}><Eye size={14} /> View</Link><Link className="btn btn-outline btn-sm" to={`/announcements/${item.id}/edit`}><Pencil size={14} /> Edit</Link>{status === 'active' && <button className="btn btn-outline btn-sm announcement-cancel" disabled={cancellingId === item.id} onClick={() => cancelAnnouncement(item.id)}>{cancellingId === item.id ? 'Cancelling…' : 'Cancel'}</button>}</div></td>
               </tr>
             })}</tbody>
           </table></div>}

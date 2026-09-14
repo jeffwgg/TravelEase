@@ -166,6 +166,12 @@ class _AnnouncementViewState extends State<AnnouncementView> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          if (isSpokenFeed)
+            IconButton(
+              tooltip: 'Spoken announcement settings',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => context.push('/environment-sound-alert'),
+            ),
           PopupMenuButton<String>(
             tooltip: 'Announcement language',
             icon: const Icon(Icons.translate),
@@ -280,12 +286,16 @@ class _AnnouncementViewState extends State<AnnouncementView> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.accent.withValues(alpha: 0.2)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.mic_outlined, color: AppColors.accent, size: 18),
-          SizedBox(width: 8),
-          Expanded(
+          const Icon(Icons.mic_outlined, color: AppColors.accent, size: 18),
+          const SizedBox(width: 8),
+          const Expanded(
             child: Text('Captured on this device — no venue session needed.'),
+          ),
+          TextButton(
+            onPressed: () => context.push('/environment-sound-alert'),
+            child: const Text('Settings'),
           ),
         ],
       ),
@@ -355,10 +365,6 @@ class _AnnouncementViewState extends State<AnnouncementView> {
         _language == 'en' || translation == null || translation.title.isEmpty
         ? announcement.title
         : translation.title;
-    final message =
-        _language == 'en' || translation == null || translation.message.isEmpty
-        ? announcement.messageEn
-        : translation.message;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: Card(
@@ -469,21 +475,6 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  message,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                if (_language != 'en' && translation == null) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Translation unavailable — showing English.',
-                    style: Theme.of(context).textTheme.bodySmall
-                        ?.copyWith(fontStyle: FontStyle.italic),
-                  ),
-                ],
                 const SizedBox(height: 8),
                 Row(
                   children: [

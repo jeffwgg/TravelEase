@@ -10,6 +10,7 @@ class Announcement {
   final String? serviceAreaName;
   final String? institutionName;
   final DateTime publishedAt;
+  final DateTime? expiresAt;
   final Map<String, AnnouncementTranslation> translations;
 
   /// 'official' for institution-published rows, 'captured' for
@@ -28,6 +29,7 @@ class Announcement {
     required this.priority,
     required this.status,
     required this.publishedAt,
+    this.expiresAt,
     this.serviceAreaId,
     this.serviceAreaName,
     this.institutionName,
@@ -71,6 +73,9 @@ class Announcement {
       publishedAt: DateTime.parse(
         (json['published_at'] ?? json['created_at']) as String,
       ).toLocal(),
+      expiresAt: json['expires_at'] == null
+          ? null
+          : DateTime.tryParse(json['expires_at'] as String)?.toLocal(),
       translations: translations,
     );
   }

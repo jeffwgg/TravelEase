@@ -24,7 +24,7 @@ class AnnouncementDetailsView extends StatefulWidget {
 class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
   final _repository = AnnouncementRepository();
   final _translator = TranslationService();
-  final Map<String, AnnouncementTranslation> _capturedTranslations = {};
+  final Map<String, AnnouncementTranslation> _deviceTranslations = {};
   Announcement? _announcement;
   CapturedAnnouncement? _capture;
   bool _loading = true;
@@ -131,9 +131,8 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
   Widget _buildDetails(BuildContext context, Announcement announcement) {
     final captured = announcement.isCaptured;
     final color = captured ? AppColors.accent : _colorFor(announcement);
-    final translation = captured
-        ? _capturedTranslations[_language]
-        : announcement.translations[_language];
+    final translation =
+        _deviceTranslations[_language] ?? announcement.translations[_language];
     final title =
         _language == 'en' || translation == null || translation.title.isEmpty
         ? announcement.title
@@ -258,6 +257,11 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
                     Icons.schedule_outlined,
                     'Published ${_formatDateTime(announcement.publishedAt)}',
                   ),
+                  if (announcement.expiresAt != null)
+                    _buildMetaRow(
+                      Icons.timer_off_outlined,
+                      'Expires ${_formatDateTime(announcement.expiresAt!)}',
+                    ),
                 ],
                 const Divider(height: 24),
                 Text(message, style: Theme.of(context).textTheme.bodyLarge),
@@ -288,7 +292,9 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
                   const SizedBox(height: 10),
                   Text(
                     _translationError ??
-                        'Translation unavailable — showing recognised text.',
+                        (captured
+                            ? 'Translation unavailable — showing recognised text.'
+                            : 'Translation unavailable — showing English.'),
                     style: Theme.of(context).textTheme.bodySmall
                         ?.copyWith(fontStyle: FontStyle.italic),
                   ),
@@ -307,36 +313,44 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
       _translationError = null;
     });
 
-    final capture = _capture;
-    if (capture == null ||
+    final announcement = _announcement;
+    if (announcement == null ||
         language == 'en' ||
-        _capturedTranslations.containsKey(language)) {
+        _deviceTranslations.containsKey(language) ||
+        (announcement.translations[language]?.title.isNotEmpty == true &&
+            announcement.translations[language]?.message.isNotEmpty == true)) {
       return;
     }
 
     setState(() => _translating = true);
     try {
-      // Captures are local transcripts, so unlike official announcements they
-      // have no server-provided translations. Translate on demand and retain
-      // the result for this detail page.
-      final sourceLanguage = await _translator.detectLanguage(
-        capture.transcript,
-      );
+      // Captures and official announcements without an institution-provided
+      // translation both use the phone's translation service on demand. The
+      // result remains only in this detail page; it never overwrites the
+      // official announcement supplied by the institution.
+      final capture = _capture;
+      final sourceTitle = capture == null
+          ? announcement.title
+          : CapturedAnnouncement.deriveTitle(capture.transcript);
+      final sourceMessage = capture?.transcript ?? announcement.messageEn;
+      final sourceLanguage = capture == null
+          ? 'en'
+          : await _translator.detectLanguage(sourceMessage);
       final translated = await Future.wait([
         _translator.translateText(
-          text: CapturedAnnouncement.deriveTitle(capture.transcript),
+          text: sourceTitle,
           fromLang: sourceLanguage,
           toLang: language,
         ),
         _translator.translateText(
-          text: capture.transcript,
+          text: sourceMessage,
           fromLang: sourceLanguage,
           toLang: language,
         ),
       ]);
       if (!mounted) return;
       setState(() {
-        _capturedTranslations[language] = AnnouncementTranslation(
+        _deviceTranslations[language] = AnnouncementTranslation(
           title: translated[0],
           message: translated[1],
         );

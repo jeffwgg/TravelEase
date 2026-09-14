@@ -9,8 +9,6 @@ class EnvironmentSoundPreferences {
   static const _typesKey = 'environment_sound_types';
   static const _sensitivityKey = 'environment_sound_sensitivity';
   static const _historyKey = 'environment_sound_history';
-  static const _speechAnnouncementMigrationKey =
-      'environment_sound_speech_announcement_enabled_v1';
 
   Future<bool> loadEnabled() async {
     final preferences = await SharedPreferences.getInstance();
@@ -25,21 +23,6 @@ class EnvironmentSoundPreferences {
         : EnvironmentSoundType.values
               .where((type) => saved.contains(type.name))
               .toSet();
-
-    // Public-address speech is captured separately from the configurable
-    // important-sound alerts. Keep it enabled whenever sound monitoring is
-    // enabled, including for people who previously turned off its old alert
-    // row. The master switch remains the user's explicit microphone control.
-    if (!types.contains(EnvironmentSoundType.speechAnnouncement)) {
-      types.add(EnvironmentSoundType.speechAnnouncement);
-      await preferences.setStringList(
-        _typesKey,
-        types.map((type) => type.name).toList(),
-      );
-    }
-    if (!(preferences.getBool(_speechAnnouncementMigrationKey) ?? false)) {
-      await preferences.setBool(_speechAnnouncementMigrationKey, true);
-    }
     return types;
   }
 

@@ -21,6 +21,7 @@ class AnnouncementRepository {
         .eq('institution_id', institutionId)
         .eq('status', 'active')
         .lte('published_at', now);
+    query = query.or('expires_at.is.null,expires_at.gt.$now');
     query = serviceAreaId == null
         ? query.isFilter('service_area_id', null)
         : query.or('service_area_id.is.null,service_area_id.eq.$serviceAreaId');

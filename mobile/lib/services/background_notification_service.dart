@@ -160,7 +160,7 @@ Future<void> _pollAnnouncements() async {
   final seen = (preferences.getStringList(seenKey) ?? const <String>[]).toSet();
 
   final query = <String, String>{
-    'select': 'id,title,message_en,published_at',
+    'select': 'id,title,message_en,published_at,expires_at',
     'institution_id': 'eq.$institutionId',
     'status': 'eq.active',
     'order': 'published_at.desc',
@@ -184,7 +184,9 @@ Future<void> _pollAnnouncements() async {
     final publishedAt = DateTime.tryParse(
       data['published_at'] as String? ?? '',
     );
+    final expiresAt = DateTime.tryParse(data['expires_at'] as String? ?? '');
     if (publishedAt == null || publishedAt.isAfter(now)) continue;
+    if (expiresAt != null && !expiresAt.isAfter(now)) continue;
     if (seen.contains(id)) continue;
     if (publishedAt.isBefore(cutoff)) continue;
     fresh.add(data);

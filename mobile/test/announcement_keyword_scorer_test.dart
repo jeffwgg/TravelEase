@@ -26,5 +26,16 @@ void main() {
       expect(result.isAnnouncement, isTrue);
       expect(result.keywordHits, greaterThanOrEqualTo(3));
     });
+
+    test('does not treat ordinary synthetic speech as an announcement', () {
+      final result = scorer.score(
+        'Please collect your items from the information desk.',
+        0.95,
+        repetitionCount: 2,
+        pagingTone: true,
+      );
+
+      expect(result.isAnnouncement, isFalse);
+    });
   });
 }

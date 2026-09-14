@@ -280,6 +280,13 @@ class AnnouncementKeywordScorer {
     final matchedPlaces = _placeMatchers
         .where((matcher) => matcher.hasMatch(normalized))
         .length;
+    final hasTravelOrSafetyContext =
+        RegExp(
+          r'\b(flight|boarding|gate|passenger|airport|terminal|baggage|luggage|customs|immigration|train|bus|platform|station|service|departure|arrival|emergency|safety|unattended)\b',
+        ).hasMatch(normalized) ||
+        RegExp(
+          r'\b(penerbangan|menaiki|gerbang|penumpang|lapangan|bagasi|tren|bas|peron|stesen|kecemasan|keselamatan)\b',
+        ).hasMatch(normalized);
 
     // 2-3 strong hits already saturate the keyword score.
     final keywordScore = (strongHits.length * 1.0 + moderateHits * 0.4) / 2.5;
@@ -296,14 +303,17 @@ class AnnouncementKeywordScorer {
         toneBoost;
     final confidence = composite.clamp(0.0, 1.0);
 
-    // A paging tone (chime/bell/alarm) immediately around the speech is
-    // strong PA-system evidence, so the keyword floor is relaxed.
+    // A recognisable PA phrase must still refer to a transport or safety
+    // context. YAMNet labels a television, a screen reader and ordinary
+    // synthetic speech as "speech" too, so speech or repetition alone is not
+    // enough to publish a traveller-facing announcement.
     final isAnnouncement =
-        (confidence >= 0.55 && clampedKeywordScore >= 0.30) ||
-        (repetitionCount >= 2 &&
-            clampedKeywordScore >= 0.20 &&
-            confidence >= 0.40) ||
-        (pagingTone && clampedKeywordScore >= 0.15 && confidence >= 0.45);
+        hasTravelOrSafetyContext &&
+        ((confidence >= 0.55 && clampedKeywordScore >= 0.30) ||
+            (repetitionCount >= 2 &&
+                clampedKeywordScore >= 0.20 &&
+                confidence >= 0.40) ||
+            (pagingTone && clampedKeywordScore >= 0.15 && confidence >= 0.45));
 
     final language = malayHits > englishHits ? 'ms' : 'en';
 

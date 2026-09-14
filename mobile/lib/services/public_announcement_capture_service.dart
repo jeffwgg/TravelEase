@@ -220,11 +220,12 @@ class PublicAnnouncementCaptureService {
       'rep=$repetition tone=$pagingTone valid=${result.isAnnouncement}',
     );
 
-    // Keep below-threshold text as a repetition/tone candidate, but do not
-    // hide the transcript. A real announcement can contain names, local
-    // wording or instructions that are absent from the keyword dictionary.
+    // Sound classification only establishes that there was speech, narration
+    // or synthetic speech nearby. Keep an unverified transcript only for a
+    // possible second-pass check; never publish it as an announcement.
     if (!result.isAnnouncement) {
       _rememberCandidate(trimmed, detection.score);
+      return false;
     }
 
     final refinement = AnnouncementTextRefiner.formatLocally(trimmed);
@@ -578,6 +579,15 @@ class PublicAnnouncementCaptureService {
     if (_containsWordSequence(normalizedNext, normalizedCurrent)) return next;
     if (_containsWordSequence(normalizedCurrent, normalizedNext))
       return current;
+    // Repeated PA recordings often restart immediately after the final
+    // sentence. Treat a tail-to-opening update as the same circular
+    // utterance, not text that should be appended in reverse order.
+    if (_containsCircularWordSequence(normalizedCurrent, normalizedNext)) {
+      return current;
+    }
+    if (_containsCircularWordSequence(normalizedNext, normalizedCurrent)) {
+      return next;
+    }
 
     var overlap = 0;
     final maximumOverlap = math.min(currentWords.length, nextWords.length);
@@ -614,6 +624,13 @@ class PublicAnnouncementCaptureService {
       if (matches) return true;
     }
     return false;
+  }
+
+  bool _containsCircularWordSequence(List<String> text, List<String> sequence) {
+    if (text.isEmpty || sequence.isEmpty || sequence.length > text.length) {
+      return false;
+    }
+    return _containsWordSequence([...text, ...text], sequence);
   }
 
   String _normalize(String value) => value
