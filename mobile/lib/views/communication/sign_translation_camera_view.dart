@@ -63,6 +63,13 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
   bool _showDebugTray = false;
   bool _isRecordingClip = false;
 
+  // Batch capture: type one word, sign it N times with pauses; the motion
+  // gate segments each repetition into its own labeled clip automatically.
+  String? _batchLabel;
+  int _batchTarget = 0;
+  int _batchDone = 0;
+  bool get _batchActive => _batchLabel != null;
+
   // ASL / English First
   final _targetTextLanguages = const [
     {'code': 'en', 'name': 'English', 'flag': '🇺🇸'},
@@ -580,7 +587,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
     final hasText = _cameraViewModel.hasContent;
     final displayText = hasText
         ? _cameraViewModel.currentTranslatedText
-        : 'Awaiting sign gesture (or tap to enter)...';
+        : 'Complete sentence appears here as you sign…';
 
     return Column(
       key: const ValueKey('sign_to_text_mode'),
@@ -749,6 +756,35 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                       ),
                     ),
 
+                  // Batch capture progress — the tray can be closed while
+                  // signing, so the counter lives on the preview itself.
+                  if (_batchActive)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.72),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.fiber_manual_record_rounded,
+                                size: 12, color: AppColors.emergency),
+                            const SizedBox(width: 6),
+                            Text('$_batchLabel  $_batchDone/$_batchTarget',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                      ),
+                    ),
+
                   // Debug skeleton overlay: the 21 detected hand joints +
                   // face/body anchors, mapped through the same cover-fit
                   // transform as the preview (debug/profile builds only). If
@@ -863,6 +899,20 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                                     icon: _isRecordingClip ? Icons.stop_rounded : Icons.fiber_manual_record_rounded,
                                     color: _isRecordingClip ? AppColors.emergency : AppColors.success,
                                     onTap: _toggleClipRecording,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  // Batch: one word, 12 auto-segmented clips.
+                                  _buildRecorderButton(
+                                    label: _batchActive
+                                        ? 'Stop Batch ($_batchDone/$_batchTarget)'
+                                        : 'Batch ×12',
+                                    icon: _batchActive
+                                        ? Icons.stop_rounded
+                                        : Icons.burst_mode_rounded,
+                                    color: _batchActive
+                                        ? AppColors.emergency
+                                        : AppColors.secondary,
+                                    onTap: _toggleBatchRecording,
                                   ),
                                   const SizedBox(width: 6),
                                   _buildRecorderButton(
@@ -1016,6 +1066,58 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                     ],
                   ),
                 ],
+              ),
+              const SizedBox(height: 10),
+
+              // WORDS BOX: every accepted recognition stacks here (both
+              // dialects); the sentence box below assembles them into a
+              // complete travel phrase that the TTS speaks.
+              Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(minHeight: 44),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceVariant,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.cardBorder),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.translate_rounded,
+                        size: 16, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        reverse: true,
+                        child: Text(
+                          _cameraViewModel.recognizedWords.isEmpty
+                              ? 'Sign words — they stack here'
+                              : _cameraViewModel.wordsText,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: _cameraViewModel.recognizedWords.isEmpty
+                                ? AppColors.textMuted
+                                : AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (_cameraViewModel.recognizedWords.isNotEmpty) ...[
+                      Text(
+                        _cameraViewModel.phraseMatched
+                            ? '→ sentence ✓'
+                            : '…',
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.success),
+                      ),
+                    ],
+                  ],
+                ),
               ),
               const SizedBox(height: 10),
 
@@ -1264,6 +1366,83 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
     if (label != null && label.isNotEmpty) {
       _landmarkExtractor.startClipRecording(label);
       setState(() => _isRecordingClip = true);
+    }
+  }
+
+  // ── Batch capture: one word, N auto-segmented gesture clips ───────────
+  Future<void> _toggleBatchRecording() async {
+    if (_batchActive) {
+      _endBatch('stopped');
+      return;
+    }
+    final controller = TextEditingController();
+    final label = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Batch capture one word'),
+        content: SizedBox(
+          width: 260,
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'BIM gloss e.g. saya · ASL word e.g. doctor',
+              labelText: 'Word (12 clips)',
+            ),
+            onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('Start ×12')),
+        ],
+      ),
+    );
+    if (label == null || label.isEmpty || !mounted) return;
+    setState(() {
+      _batchLabel = label.toLowerCase();
+      _batchDone = 0;
+      _batchTarget = 12;
+    });
+    _landmarkExtractor.onGestureWindowClosed = _onBatchWindow;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Sign the word 12 times — pause ~1s between reps, '
+          'each sign is captured automatically.'),
+      duration: Duration(seconds: 3),
+    ));
+  }
+
+  void _onBatchWindow(List<SignFrameData> frames) {
+    final label = _batchLabel;
+    if (label == null || !mounted) return;
+    _landmarkExtractor.clipRecorder.captureClip(label, frames);
+    final total = _landmarkExtractor.clipRecorder.countFor(label);
+    setState(() => _batchDone = total);
+    if (total >= _batchTarget) {
+      _endBatch('complete');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        duration: const Duration(milliseconds: 900),
+        content: Text('$total/$_batchTarget'),
+      ));
+    }
+  }
+
+  void _endBatch(String why) {
+    final label = _batchLabel;
+    _landmarkExtractor.onGestureWindowClosed = null;
+    if (mounted) {
+      setState(() {
+        _batchLabel = null;
+        _batchTarget = 0;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Batch $why: $_batchDone clip(s) of "$label"'),
+        duration: const Duration(seconds: 3),
+      ));
     }
   }
 

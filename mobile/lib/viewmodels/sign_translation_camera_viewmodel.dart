@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import '../models/entities/sign_language_entity.dart';
 import '../services/asl_tflite_service.dart';
-import '../services/bim_sign_recognition_service.dart';
 import '../services/bim_tflite_service.dart';
+import '../services/travel_phrase_assembler.dart';
 import '../services/sign_frame_data.dart';
 import '../models/repositories/communication_repository.dart';
 import '../core/hardware_services.dart';
@@ -13,17 +13,13 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   final CommunicationRepository _repository;
   final HardwareServices _hardware;
   final AslTfliteService _aslTflite = AslTfliteService();
-  final BimSignRecognitionService _bimRecognitionService;
   final BimTfliteService _bimTflite = BimTfliteService();
 
   SignTranslationCameraViewModel({
     CommunicationRepository? repository,
     HardwareServices? hardware,
-    BimSignRecognitionService? bimRecognitionService,
   })  : _repository = repository ?? CommunicationRepository(),
-        _hardware = hardware ?? HardwareServices(),
-        _bimRecognitionService =
-            bimRecognitionService ?? BimSignRecognitionService() {
+        _hardware = hardware ?? HardwareServices() {
     _initServices();
   }
 
@@ -61,10 +57,16 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   /// Auto-speak toggle
   bool _isAutoSpeakEnabled = false;
 
-  bool _isLoading = false;
+  bool _isLoading = false; // ignore: prefer_final_fields — kept mutable for future async flows
   String? _errorMessage;
-  BimSignRecognition? _lastBimRecognition;
-  List<String> _bimGlosses = const [];
+
+  // Shared word→sentence pipeline (both dialects): recognized glosses
+  // accumulate in [recognizedWords]; the assembler turns them into a
+  // complete travel phrase shown in the sentence box and spoken by TTS.
+  static const int _maxWords = 8;
+  final TravelPhraseAssembler _phrases = TravelPhraseAssembler();
+  List<String> _words = const [];
+  AssembledPhrase _phrase = AssembledPhrase.empty;
   DateTime _lastPredictionTime = DateTime.now();
 
   // Getters
@@ -82,8 +84,15 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   bool get hasContent => _predictedText.trim().isNotEmpty;
   bool get isAslModelLoaded => _aslTflite.isModelLoaded;
   bool get isBimRecognitionActive => _selectedLanguage == SignLanguageType.bim;
-  List<String> get bimGlosses => List.unmodifiable(_bimGlosses);
-  BimSignRecognition? get lastBimRecognition => _lastBimRecognition;
+
+  /// Recognized gloss words accumulated for the current phrase (both
+  /// dialects) — shown in the words box.
+  List<String> get recognizedWords => List.unmodifiable(_words);
+  String get wordsText => _words.join(' ');
+
+  /// The assembled travel phrase — shown in the sentence box and spoken.
+  AssembledPhrase get phrase => _phrase;
+  bool get phraseMatched => _phrase.matched;
   String get trackingSource => _trackingSource;
   List<SGPoint> get handPoints => _handPoints;
   SignAnchors? get handAnchors => _handAnchors;
@@ -101,7 +110,10 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   final Map<String, String> _translationCache = {};
   int _translationSeq = 0;
 
-  /// Returns the active translated text or alphabet string.
+  /// The sentence-box text, in the active output language. Matched phrases
+  /// carry their own MS/EN/ZH translations (template table — no network);
+  /// an unmatched word list falls back to machine translation, cached as
+  /// before. Single fingerspelled letters pass through directly.
   String get currentTranslatedText {
     if (_predictedText.trim().isEmpty) {
       return '';
@@ -111,50 +123,43 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
       return _customTranslations[_targetOutputLang]!;
     }
 
-    final bim = _lastBimRecognition;
-    if (_selectedLanguage == SignLanguageType.bim && bim != null) {
-      return switch (_targetOutputLang) {
-        'zh' => bim.chinese,
-        'en' => bim.english,
-        _ => bim.malay,
-      };
+    if (_words.isEmpty && _predictedText.trim().length == 1) {
+      return _predictedText.trim().toUpperCase();
     }
 
-    final word = _predictedText.trim();
-    // Single letters (alphabet/fingerspelling) pass through directly.
-    if (word.length == 1) {
-      return word.toUpperCase();
+    final phrase = _phrase;
+    if (phrase.matched) {
+      return phrase.forLang(_targetOutputLang);
     }
-    if (_targetOutputLang == _sourceLang) {
-      return word;
+    final sourceText = phrase.words.join(' ');
+    if (_targetOutputLang == phrase.sourceLang) {
+      return sourceText;
     }
-    // Show the source word until the real translation lands.
-    return _translationCache['$_sourceLang|$_targetOutputLang|${word.toLowerCase()}'] ?? word;
+    // Show the source words until the real translation lands.
+    return _translationCache[
+            '${phrase.sourceLang}|$_targetOutputLang|$sourceText'] ??
+        sourceText;
   }
 
-  /// Language of the raw recognized word: the ASL model emits English
-  /// glosses, the on-device BIM model Malay ones — translation direction
-  /// follows the active dialect.
-  String get _sourceLang =>
-      _selectedLanguage == SignLanguageType.bim ? 'ms' : 'en';
-
-  /// Kicks off a real translation of the recognized word into the current
-  /// target language (no-op when the word is already in that language, and
-  /// for single letters).
-  void _requestTranslation(String word) {
-    final w = word.trim();
-    if (w.isEmpty || w.length == 1 || _targetOutputLang == _sourceLang) return;
+  /// Translate the accumulated word list when no template matched
+  /// (matched templates already include every language).
+  void _requestPhraseTranslation() {
+    if (_phrase.matched) return;
+    final source = _phrase.sourceLang;
     final lang = _targetOutputLang;
-    final source = _sourceLang;
-    final key = '$source|$lang|${w.toLowerCase()}';
+    if (lang == source) return;
+    final text = _phrase.words.join(' ');
+    if (text.isEmpty) return;
+    final key = '$source|$lang|$text';
     if (_translationCache.containsKey(key)) return;
     final seq = ++_translationSeq;
-    _translation.translateText(text: w, fromLang: source, toLang: lang).then((translated) {
+    _translation
+        .translateText(text: text, fromLang: source, toLang: lang)
+        .then((translated) {
       _translationCache[key] = translated;
-      // Only repaint while this exact word+language is still what's shown.
       if (seq == _translationSeq &&
           _targetOutputLang == lang &&
-          _predictedText.trim().toLowerCase() == w.toLowerCase()) {
+          _phrase.words.join(' ') == text) {
         notifyListeners();
       }
     });
@@ -187,16 +192,19 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
         _confidenceScore = confidence;
         _customTranslations.clear();
         _isConfirmed = false;
-        // BIM words are Malay glosses from the on-device model; accumulate
-        // them into the shared gloss list — the same word→phrase staging
-        // the ASL flow will use once sentence assembly is unified.
-        if (_selectedLanguage == SignLanguageType.bim && isNewSign) {
-          final all = [..._bimGlosses, newText];
-          _bimGlosses = List.unmodifiable(
-              all.length > 8 ? all.sublist(all.length - 8) : all);
+        // Both dialects accumulate words; the shared assembler turns the
+        // set into the sentence shown below the words box.
+        if (isNewSign) {
+          final all = [..._words, newText.toLowerCase()];
+          _words = all.length > _maxWords
+              ? List.unmodifiable(all.sublist(all.length - _maxWords))
+              : List.unmodifiable(all);
+          _phrase = _phrases.assemble(
+              _selectedLanguage == SignLanguageType.bim ? 'bim' : 'asl',
+              _words);
         }
         notifyListeners();
-        if (isNewSign) _requestTranslation(newText);
+        if (isNewSign) _requestPhraseTranslation();
 
         if (_isAutoSpeakEnabled && hasContent) {
           speakAloud();
@@ -229,20 +237,25 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     _predictedText = '';
     _confidenceScore = 0.0;
     _customTranslations.clear();
+    _words = const [];
+    _phrase = AssembledPhrase.empty;
+    _errorMessage = null;
     notifyListeners();
   }
 
   // Actions
   void switchDialect(SignLanguageType newDialect) {
-    final wasBim = _selectedLanguage == SignLanguageType.bim;
+    final changed = newDialect != _selectedLanguage;
     _selectedLanguage = newDialect;
     _customTranslations.clear();
-    if (wasBim || newDialect == SignLanguageType.bim) {
-      _lastBimRecognition = null;
-      _bimGlosses = const [];
+    if (changed) {
+      // Words/sentence are per-dialect: BIM glosses are Malay, ASL words
+      // English — never carry a half-built phrase across the switch.
       _predictedText = '';
       _confidenceScore = 0;
       _isConfirmed = false;
+      _words = const [];
+      _phrase = AssembledPhrase.empty;
     }
     if (newDialect == SignLanguageType.bim) {
       // Warm the on-device model while the user hasn't tapped yet;
@@ -255,7 +268,7 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   /// Switch target output text language (e.g. 'en', 'ms', 'zh')
   void switchTargetOutputLang(String langCode) {
     _targetOutputLang = langCode;
-    _requestTranslation(_predictedText);
+    _requestPhraseTranslation();
     notifyListeners();
 
     if (_isAutoSpeakEnabled && hasContent) {
@@ -359,56 +372,7 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Recognise one recorded clip with the BIM-only model service.
-  ///
-  /// Legacy HTTP path kept for reference/debugging: live recognition now
-  /// runs fully on-device (see CameraLandmarkExtractorService.bimMode), so
-  /// nothing calls this unless wired back in.
-  Future<void> recognizeBimVideo(String videoPath) async {
-    if (_selectedLanguage != SignLanguageType.bim) return;
-
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      final result = await _bimRecognitionService.recognizeVideo(
-        videoPath: videoPath,
-        previousGlosses: _bimGlosses,
-      );
-      _lastBimRecognition = result;
-      _bimGlosses = result.glosses;
-      _predictedText = result.malay;
-      _confidenceScore = result.confidence;
-      _customTranslations.clear();
-      _isConfirmed = false;
-      _isLoading = false;
-      notifyListeners();
-
-      if (_isAutoSpeakEnabled) {
-        await speakAloud();
-      }
-    } on BimSignRecognitionException catch (e) {
-      _errorMessage = e.message;
-      _isLoading = false;
-      notifyListeners();
-    } catch (_) {
-      _errorMessage = 'Unable to recognise this BIM sign. Please try again.';
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  /// Starts a new BIM phrase without changing ASL/CSL state or settings.
-  void clearBimPhrase() {
-    if (_selectedLanguage != SignLanguageType.bim) return;
-    _lastBimRecognition = null;
-    _bimGlosses = const [];
-    _predictedText = '';
-    _confidenceScore = 0;
-    _customTranslations.clear();
-    _isConfirmed = false;
-    _errorMessage = null;
-    notifyListeners();
-  }
+  // The legacy HTTP BIM path (recognizeBimVideo) and the BIM-only
+  // clearBimPhrase are retired: recognition is live and on-device for both
+  // dialects, and clearText() resets the shared words + sentence state.
 }

@@ -52,6 +52,20 @@ class SignClipRecorder {
   /// Appends the latest staged frame to the active clip.
   void addFrame(SignFrameData frame) => _active?.frames.add(frame);
 
+  /// Batch capture: append a complete, already-segmented clip directly
+  /// (used by batch recording where the motion gate supplies each gesture's
+  /// frames). Bypasses the manual start/end session flow. Returns the running
+  /// clip count for this label.
+  int captureClip(String label, List<SignFrameData> frames) {
+    if (label.trim().isEmpty || frames.length < 5) return clipCount;
+    _clips.add(SignClip(label: label.trim().toLowerCase(), frames: frames));
+    return clipCount;
+  }
+
+  int countFor(String label) => _clips
+      .where((c) => c.label == label.trim().toLowerCase())
+      .length;
+
   SignClip? endClip() {
     final c = _active;
     if (c != null && c.frames.isNotEmpty) _clips.add(c);

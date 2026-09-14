@@ -109,6 +109,11 @@ class CameraLandmarkExtractorService {
   /// model and suppresses the geometric path.
   bool get bimMode => _bimMode;
   bool _bimMode = false;
+
+  /// Fires with the raw frames of every VALID gesture window the motion
+  /// gate closes. Batch clip capture attaches this to turn "sign the word
+  /// 12 times" into 12 auto-segmented labeled clips without per-tap wiring.
+  void Function(List<SignFrameData> window)? onGestureWindowClosed;
   set bimMode(bool value) {
     if (_bimMode == value) return;
     _bimMode = value;
@@ -922,6 +927,17 @@ class CameraLandmarkExtractorService {
     }
 
     debugPrint('[Gate] close ${frames.length}f (span ${tsSpan}ms)');
+    // Batch clip capture hook: hand the RAW frames of this validated gesture
+    // to the screen (same window the classifiers see). Errors here must
+    // never break the frame loop.
+    final hook = onGestureWindowClosed;
+    if (hook != null && startIdx < _frameRing.length) {
+      try {
+        hook(_frameRing.sublist(startIdx));
+      } catch (e) {
+        debugPrint('[Gate] window hook error: $e');
+      }
+    }
     if (bimMode) {
       final bimStart = startIdx.clamp(0, _frameRing.length);
       _runBimInference(_frameRing.sublist(bimStart));
