@@ -23,16 +23,21 @@ import {
   ShieldCheck,
   Paperclip,
   ImageIcon,
-  Loader2
+  Loader2,
+  Radio
 } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useNotifications } from '../context/NotificationContext'
+import { useAuth } from '../context/AuthContext'
+import LiveLocationMap from '../components/LiveLocationMap'
 
 export default function StaffChatPage() {
   const location = useLocation()
   const targetRequestId = location.state?.requestId
   const { setActiveChatId } = useNotifications()
+  const { staffContext } = useAuth()
+  const myStaffId = staffContext?.staff?.id
 
   const [requests, setRequests] = useState([])
   const [selectedReq, setSelectedReq] = useState(null)
@@ -115,7 +120,8 @@ export default function StaffChatPage() {
 
   // Filter requests to ONLY assigned chat requests, respecting chatFilter ('unsolved' by default)
   const assignedChatRequests = requests.filter(
-    (r) => r.preferred_communication !== 'location' && r.assigned_staff_name && r.assigned_staff_name !== 'Unassigned'
+    (r) => r.preferred_communication !== 'location' &&
+      r.assigned_staff_id === myStaffId
   )
 
   const unsolvedCount = assignedChatRequests.filter(
@@ -718,12 +724,20 @@ export default function StaffChatPage() {
               <div style={{ padding: '16px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--divider)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h3 style={{ fontSize: '16px', fontWeight: '700' }}>{selectedReq.traveler_name} (Deaf Traveler)</h3>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px', flexWrap: 'wrap' }}>
                     <span>Location: <strong>{selectedReq.location_zone}</strong></span>
                     <span>•</span>
                     <span>Reach: <strong>{selectedReq.preferred_communication === 'location' ? 'In-Person (Come to Location)' : 'In-App Chat'}</strong></span>
                     <span>•</span>
                     <span style={{ textTransform: 'capitalize' }}>Request: <strong>{selectedReq.category}</strong></span>
+                    {selectedReq.share_location && (
+                      <>
+                        <span>•</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontWeight: 600 }}>
+                          <Radio size={13} color="#16a34a" /> Live Tracking Active
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -750,7 +764,7 @@ export default function StaffChatPage() {
                     style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
                     onClick={() => setShowMapModal(true)}
                   >
-                    <MapPin size={14} /> View on Map
+                    <MapPin size={14} /> {selectedReq.share_location ? 'Live Map' : 'View Location'}
                   </button>
                   <button
                     className="btn btn-primary btn-sm"
@@ -1074,36 +1088,16 @@ export default function StaffChatPage() {
             </div>
 
             {/* Map Content */}
-            <div style={{ position: 'relative', height: '380px', width: '100%', background: '#1e293b' }}>
-              <iframe
-                title="Traveler Location Map"
-                width="100%"
-                height="100%"
-                style={{ border: 0 }}
-                loading="lazy"
-                src={`https://maps.google.com/maps?q=${encodeURIComponent(selectedReq.venue_name || selectedReq.location_zone)}&t=&z=15&ie=UTF8&iwloc=&output=embed`}
+            <div style={{ position: 'relative', height: '420px', width: '100%' }}>
+              <LiveLocationMap
+                sessionId={selectedReq.id}
+                sessionType="assistance"
+                initialLat={selectedReq.latitude}
+                initialLng={selectedReq.longitude}
+                travelerName={selectedReq.traveler_name}
+                locationZone={selectedReq.location_zone}
+                height="420px"
               />
-            </div>
-
-            {/* Footer / Location details */}
-            <div style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface)' }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>
-                  {selectedReq.venue_name || selectedReq.location_zone}
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Urgency: <span style={{ textTransform: 'capitalize', fontWeight: '600', color: selectedReq.urgency === 'high' ? 'var(--emergency)' : 'var(--secondary)' }}>{selectedReq.urgency}</span> · Category: {selectedReq.category}
-                </div>
-              </div>
-              <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedReq.venue_name || selectedReq.location_zone)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-primary btn-sm"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
-              >
-                <Navigation size={14} /> Open in Google Maps <ExternalLink size={12} />
-              </a>
             </div>
           </div>
         </div>

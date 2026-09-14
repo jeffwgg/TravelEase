@@ -34,6 +34,7 @@ import ReportGenerationPage from './pages/ReportGenerationPage'
 import SosRequestsPage from './pages/SosRequestsPage'
 import StaffManagementPage from './pages/StaffManagementPage'
 import StaffSetupPage from './pages/StaffSetupPage'
+import StaffDashboardPage from './pages/StaffDashboardPage'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { NotificationProvider, useNotifications } from './context/NotificationContext'
 
@@ -52,7 +53,7 @@ function Sidebar() {
         <img src="/logo.png" alt="TravelEase Logo" style={{ width: 38, height: 38, objectFit: 'contain' }} />
         <div>
           <h1>TravelEase</h1>
-          <span>Staff Dashboard</span>
+          <span>{staffContext?.role === 'manager' ? 'Institution Manager' : 'Staff Member'}</span>
         </div>
       </div>
       <nav className="sidebar-nav">
@@ -79,43 +80,36 @@ function Sidebar() {
           <NavLink to="/requests" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><LifeBuoy size={18} /></span> Requests
           </NavLink>
-          <NavLink to="/chat" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+          {staffContext?.role === 'staff' && <NavLink to="/chat" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><MessageSquare size={18} /></span> Staff Chat
-          </NavLink>
+          </NavLink>}
           {isManager && <NavLink to="/staff" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><Users size={18} /></span> Staff Management
           </NavLink>}
         </div>
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">Analytics</div>
-          <NavLink to="/analytics" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="link-icon"><BarChart3 size={18} /></span> Accessibility
-          </NavLink>
-          <NavLink to="/usage" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="link-icon"><Activity size={18} /></span> Usage Insights
-          </NavLink>
-          <NavLink to="/performance" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="link-icon"><Zap size={18} /></span> Performance
-          </NavLink>
-          <NavLink to="/reports" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="link-icon"><FileText size={18} /></span> Reports
-          </NavLink>
-        </div>
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">Content</div>
-          <NavLink to="/sign-dictionary" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="link-icon"><Hand size={18} /></span> Sign Dictionary
-          </NavLink>
-          <NavLink to="/sign-feedback" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="link-icon"><MessageCircle size={18} /></span> Sign Feedback
-          </NavLink>
-        </div>
-        {isManager && <div className="sidebar-section">
-          <div className="sidebar-section-title">Settings</div>
-          <NavLink to="/profile" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="link-icon"><Building2 size={18} /></span> Organization
-          </NavLink>
-        </div>}
+        {isManager && <>
+          <div className="sidebar-section">
+            <div className="sidebar-section-title">Analytics</div>
+            <NavLink to="/analytics" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <span className="link-icon"><BarChart3 size={18} /></span> Accessibility
+            </NavLink>
+            <NavLink to="/usage" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <span className="link-icon"><Activity size={18} /></span> Usage Insights
+            </NavLink>
+            <NavLink to="/performance" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <span className="link-icon"><Zap size={18} /></span> Performance
+            </NavLink>
+            <NavLink to="/reports" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <span className="link-icon"><FileText size={18} /></span> Reports
+            </NavLink>
+          </div>
+          <div className="sidebar-section">
+            <div className="sidebar-section-title">Settings</div>
+            <NavLink to="/profile" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <span className="link-icon"><Building2 size={18} /></span> Organization
+            </NavLink>
+          </div>
+        </>}
 
         {permission === 'default' && (
           <div style={{ padding: '8px 12px', marginTop: '12px' }}>
@@ -196,21 +190,21 @@ function AppRoutes() {
     <DashboardLayout>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<AnalyticsPage />} />
+        <Route path="/dashboard" element={staffContext?.role === 'staff' ? <StaffDashboardPage /> : <AnalyticsPage />} />
         <Route path="/profile" element={isManager ? <ProfilePage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/announcements" element={<AnnouncementPage />} />
         <Route path="/announcements/create" element={<CreateAnnouncementPage />} />
         <Route path="/announcements/:id/edit" element={<CreateAnnouncementPage />} />
         <Route path="/queue" element={<QueueUpdatePage />} />
         <Route path="/queue/add" element={<AddQueueLinePage />} />
-        <Route path="/requests" element={<AssistanceRequestPage />} />
-        <Route path="/sos" element={<SosRequestsPage />} />
-        <Route path="/chat" element={<StaffChatPage />} />
+        <Route path="/requests" element={<AssistanceRequestPage staffOnly={staffContext?.role === 'staff'} />} />
+        <Route path="/sos" element={<SosRequestsPage staffOnly={staffContext?.role === 'staff'} />} />
+        <Route path="/chat" element={staffContext?.role === 'staff' ? <StaffChatPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/staff" element={isManager ? <StaffManagementPage /> : <Navigate to="/dashboard" replace />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
-        <Route path="/usage" element={<UsageInsightsPage />} />
-        <Route path="/performance" element={<ServicePerformancePage />} />
-        <Route path="/reports" element={<ReportGenerationPage />} />
+        <Route path="/analytics" element={isManager ? <AnalyticsPage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/usage" element={isManager ? <UsageInsightsPage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/performance" element={isManager ? <ServicePerformancePage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/reports" element={isManager ? <ReportGenerationPage /> : <Navigate to="/dashboard" replace />} />
       </Routes>
     </DashboardLayout>
   )

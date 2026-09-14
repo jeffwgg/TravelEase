@@ -6,13 +6,23 @@ import '../../core/supabase_client.dart';
 
 enum InstitutionSosResult { requestSent, noMatch }
 
+class InstitutionSosResponse {
+  const InstitutionSosResponse({
+    required this.result,
+    this.sosRequestId,
+  });
+
+  final InstitutionSosResult result;
+  final String? sosRequestId;
+}
+
 class SosRepository {
   SosRepository({SupabaseClient? client})
     : _client = client ?? SupabaseClientHelper.client;
 
   final SupabaseClient _client;
 
-  Future<InstitutionSosResult> matchServiceAreaAndCreateRequest({
+  Future<InstitutionSosResponse> matchServiceAreaAndCreateRequest({
     required double latitude,
     required double longitude,
     required DateTime triggeredAt,
@@ -42,9 +52,11 @@ class SosRepository {
       }
     }
 
-    if (closestMatch == null) return InstitutionSosResult.noMatch;
+    if (closestMatch == null) {
+      return const InstitutionSosResponse(result: InstitutionSosResult.noMatch);
+    }
 
-    await _client.from('sos_requests').insert({
+    final inserted = await _client.from('sos_requests').insert({
       'traveller_id': userId,
       'latitude': latitude,
       'longitude': longitude,
@@ -52,8 +64,12 @@ class SosRepository {
       'institution_id': closestMatch.area.institutionId,
       'triggered_at': triggeredAt.toUtc().toIso8601String(),
       'status': 'sent',
-    });
-    return InstitutionSosResult.requestSent;
+    }).select('id').single();
+
+    return InstitutionSosResponse(
+      result: InstitutionSosResult.requestSent,
+      sosRequestId: inserted['id']?.toString(),
+    );
   }
 
   static double distanceInMeters(
