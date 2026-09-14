@@ -525,7 +525,9 @@ class AppNotificationService {
     _rememberEntry(notificationId, entryId);
     return _plugin.show(
       id: notificationId,
-      title: 'Captured announcement ($confidencePercent% confidence)',
+      title: title.trim().isEmpty
+          ? 'Captured announcement ($confidencePercent% confidence)'
+          : title,
       body: message,
       payload: '$entryId|$route',
       notificationDetails: NotificationDetails(

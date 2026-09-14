@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+
 import '../../core/theme.dart';
 import '../../models/entities/sign_language_entity.dart';
 import '../../models/entities/sign_phrase_entity.dart';
+import '../../models/repositories/feature_usage_repository.dart';
 import '../../viewmodels/sign_dictionary_viewmodel.dart';
 import 'sign_media_viewer_view.dart';
 import 'favorite_phrases_view.dart';
@@ -33,6 +35,7 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
   void initState() {
     super.initState();
     _viewModel = SignDictionaryViewModel();
+    FeatureUsageTracker.instance.opened(TrackedFeature.signDictionary);
   }
 
   @override
@@ -56,12 +59,17 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
             ),
             actions: [
               IconButton(
-                icon: const Icon(Icons.star_rounded, color: AppColors.secondary),
+                icon: const Icon(
+                  Icons.star_rounded,
+                  color: AppColors.secondary,
+                ),
                 tooltip: 'Bookmarked Favorites',
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (ctx) => const FavoritePhrasesView()),
+                    MaterialPageRoute(
+                      builder: (ctx) => const FavoritePhrasesView(),
+                    ),
                   ).then((_) => _viewModel.loadDictionary());
                 },
               ),
@@ -78,7 +86,10 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                       controller: _searchController,
                       decoration: InputDecoration(
                         hintText: 'Search sign phrases, gloss, or keywords...',
-                        prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: AppColors.textMuted,
+                        ),
                         suffixIcon: _searchController.text.isNotEmpty
                             ? IconButton(
                                 icon: const Icon(Icons.clear, size: 18),
@@ -90,7 +101,10 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                             : null,
                         filled: true,
                         fillColor: AppColors.surfaceVariant,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
                       onSubmitted: (q) => _viewModel.search(q),
                     ),
@@ -103,7 +117,10 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                 height: 52,
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   itemCount: _categories.length,
                   itemBuilder: (context, i) {
                     final cat = _categories[i];
@@ -114,20 +131,30 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                         margin: const EdgeInsets.only(right: 8),
                         padding: const EdgeInsets.symmetric(horizontal: 14),
                         decoration: BoxDecoration(
-                          color: selected ? AppColors.primary : AppColors.surfaceVariant,
+                          color: selected
+                              ? AppColors.primary
+                              : AppColors.surfaceVariant,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(cat.icon, size: 16, color: selected ? Colors.white : AppColors.textSecondary),
+                            Icon(
+                              cat.icon,
+                              size: 16,
+                              color: selected
+                                  ? Colors.white
+                                  : AppColors.textSecondary,
+                            ),
                             const SizedBox(width: 6),
                             Text(
                               cat.name,
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
-                                color: selected ? Colors.white : AppColors.textSecondary,
+                                color: selected
+                                    ? Colors.white
+                                    : AppColors.textSecondary,
                               ),
                             ),
                           ],
@@ -140,33 +167,52 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
 
               // Sign Dialect Selector Tabs - FR-M4-01: toggle between BIM / ASL visual assets
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 child: Row(
                   children: [
-                    ...const [SignLanguageType.bim, SignLanguageType.asl].map((lang) {
+                    ...const [SignLanguageType.bim, SignLanguageType.asl].map((
+                      lang,
+                    ) {
                       final isSelected = _viewModel.selectedDialect == lang;
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: GestureDetector(
                           onTap: () => _viewModel.switchDialect(lang),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
-                              color: isSelected ? AppColors.primary.withValues(alpha: 0.12) : Colors.transparent,
+                              color: isSelected
+                                  ? AppColors.primary.withValues(alpha: 0.12)
+                                  : Colors.transparent,
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: isSelected ? AppColors.primary : AppColors.cardBorder),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : AppColors.cardBorder,
+                              ),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(lang.flagEmoji, style: const TextStyle(fontSize: 14)),
+                                Text(
+                                  lang.flagEmoji,
+                                  style: const TextStyle(fontSize: 14),
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   '${lang.code} (${lang.countryCode})',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
-                                    color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : AppColors.textSecondary,
                                   ),
                                 ),
                               ],
@@ -176,7 +222,10 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                       );
                     }),
                     const Spacer(),
-                    Text('${_viewModel.phrases.length} signs', style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      '${_viewModel.phrases.length} signs',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ],
                 ),
               ),
@@ -187,23 +236,31 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                 child: _viewModel.isLoading
                     ? const Center(child: CircularProgressIndicator())
                     : _viewModel.phrases.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.search_off_rounded, size: 54, color: AppColors.textMuted.withValues(alpha: 0.4)),
-                                const SizedBox(height: 12),
-                                const Text('No matching sign phrases found'),
-                                const SizedBox(height: 4),
-                                Text('Try another keyword or category filter', style: Theme.of(context).textTheme.bodySmall),
-                              ],
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.search_off_rounded,
+                              size: 54,
+                              color: AppColors.textMuted.withValues(alpha: 0.4),
                             ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: _viewModel.phrases.length,
-                            itemBuilder: (context, i) => _buildPhraseCard(_viewModel.phrases[i]),
-                          ),
+                            const SizedBox(height: 12),
+                            const Text('No matching sign phrases found'),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Try another keyword or category filter',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: _viewModel.phrases.length,
+                        itemBuilder: (context, i) =>
+                            _buildPhraseCard(_viewModel.phrases[i]),
+                      ),
               ),
             ],
           ),
@@ -217,7 +274,9 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
     final gloss = phrase.getGloss(_viewModel.selectedDialect);
     final dialect = _viewModel.selectedDialect;
     final primaryText = phrase.getPrimaryText(dialect);
-    final secondaryText = dialect == SignLanguageType.bim ? phrase.phraseEn : phrase.phraseMs;
+    final secondaryText = dialect == SignLanguageType.bim
+        ? phrase.phraseEn
+        : phrase.phraseMs;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -254,7 +313,11 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 alignment: Alignment.center,
-                child: const Icon(Icons.sign_language_rounded, color: AppColors.primary, size: 24),
+                child: const Icon(
+                  Icons.sign_language_rounded,
+                  color: AppColors.primary,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -263,18 +326,27 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                   children: [
                     Text(
                       primaryText,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       secondaryText,
-                      style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.accent.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(6),
@@ -290,14 +362,21 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                         ),
                         const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.surfaceVariant,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
                             phrase.categoryId.toUpperCase(),
-                            style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppColors.textMuted),
+                            style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textMuted,
+                            ),
                           ),
                         ),
                       ],

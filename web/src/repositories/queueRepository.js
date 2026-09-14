@@ -100,7 +100,11 @@ export const queueRepository = {
       event_type: 'updated',
       event_number: line.current_number,
       created_by: userId,
-      details: { status: line.status, service_area: line.service_area },
+      details: {
+        status: line.status,
+        service_area: line.service_area,
+        service_area_id: line.service_area_id,
+      },
     })
     if (eventError) throw eventError
     // await ensureTraceableNumbers(line)

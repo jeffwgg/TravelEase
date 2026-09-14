@@ -51,7 +51,7 @@ function ServiceAreaOverviewMap({ areas, selectedId, onSelect }) {
     </div>
     <div className="service-area-overview-map">
       <MapContainer center={[areas[0].latitude, areas[0].longitude]} zoom={13} scrollWheelZoom>
-        <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <TileLayer attribution='&copy; Google Maps' url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" maxZoom={20} />
         <OverviewMapController areas={areas} selectedId={selectedId} />
         {areas.map((area) => {
           const isSelected = area.id === selectedId
@@ -84,7 +84,7 @@ function MapEditor({ value, onChange }) {
   const map = useMap()
   useEffect(() => { map.flyTo(position, Math.max(map.getZoom(), 15)) }, [map, value.latitude, value.longitude])
   return <>
-    <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+    <TileLayer attribution='&copy; Google Maps' url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" maxZoom={20} />
     <Circle center={position} radius={Number(value.radius_m) || 1} pathOptions={{ color: '#0d9488', fillColor: '#14b8a6', fillOpacity: 0.18 }} />
     <Marker draggable position={position} icon={markerIcon} eventHandlers={{ dragend: (event) => {
       const point = event.target.getLatLng()

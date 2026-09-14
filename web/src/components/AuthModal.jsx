@@ -174,7 +174,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
         <div className="auth-modal-header">
           <div className="auth-modal-badge">
             <ShieldCheck size={14} />
-            <span>Authorized Institution Gateway</span>
+            <span>Staff &amp; Institution Portal</span>
           </div>
 
           <div className="auth-modal-branding">
@@ -493,7 +493,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
               <div className="form-group">
                 <label>
                   <Mail size={14} className="form-label-icon" />
-                  Registered Institutional Email
+                  Registered Email
                   <span className="required-mark"> *</span>
                 </label>
                 <input
@@ -530,7 +530,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
               <div className="form-group">
                 <label>
                   <Mail size={14} className="form-label-icon" />
-                  Institutional Email
+                  Email
                   <span className="required-mark"> *</span>
                 </label>
                 <input

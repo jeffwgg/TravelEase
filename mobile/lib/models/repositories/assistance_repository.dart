@@ -68,24 +68,30 @@ class AssistanceRepository {
     required String urgency,
     required bool shareLocation,
     required bool analyticsConsent,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
+      final insertData = <String, dynamic>{
+        'request_code': requestCode,
+        'user_id': _client.auth.currentUser?.id,
+        'traveler_name': await _currentTravelerName(),
+        'preferred_communication': preferredCommunication,
+        'category': category,
+        'venue_name': venueName,
+        'location_zone': locationZone,
+        'description': description,
+        'urgency': urgency,
+        'status': 'pending',
+        'share_location': shareLocation,
+        'analytics_consent': analyticsConsent,
+      };
+      if (latitude != null) insertData['latitude'] = latitude;
+      if (longitude != null) insertData['longitude'] = longitude;
+
       final response = await _client
           .from('assistance_requests')
-          .insert({
-            'request_code': requestCode,
-            'user_id': _client.auth.currentUser?.id,
-            'traveler_name': await _currentTravelerName(),
-            'preferred_communication': preferredCommunication,
-            'category': category,
-            'venue_name': venueName,
-            'location_zone': locationZone,
-            'description': description,
-            'urgency': urgency,
-            'status': 'pending',
-            'share_location': shareLocation,
-            'analytics_consent': analyticsConsent,
-          })
+          .insert(insertData)
           .select()
           .single();
       return response;

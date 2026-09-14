@@ -53,11 +53,18 @@ export const assistanceRepository = {
   },
 
   // Institution Staff Management
-  async getInstitutionStaff() {
-    const { data, error } = await supabase
+  async getInstitutionStaff(institutionId = null) {
+    let query = supabase
       .from('institution_staff')
       .select('*')
+      .eq('active', true)
       .order('name', { ascending: true })
+
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId)
+    }
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Error fetching institution staff:', error)
@@ -214,6 +221,19 @@ export const assistanceRepository = {
   },
 
   // Realtime Subscriptions
+  subscribeToStaff(institutionId, callback) {
+    const channel = supabase
+      .channel('public:institution_staff')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'institution_staff', filter: `institution_id=eq.${institutionId}` },
+        (payload) => callback(payload)
+      )
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  },
+
   subscribeToRequests(callback) {
     const channel = supabase
       .channel('public:assistance_requests')

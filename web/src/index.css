@@ -613,10 +613,23 @@ a.btn:focus { text-decoration: none; }
 .announcement-table td { vertical-align: middle; }
 .announcement-table td:first-child { position: relative; min-width: 280px; padding-left: 20px; }
 .announcement-table-row td:first-child::before { position: absolute; top: 13px; bottom: 13px; left: 0; width: 3px; border-radius: 3px; background: var(--primary-light); content: ''; }
-.announcement-table-row.priority-high td:first-child::before { background: var(--secondary); }
-.announcement-table-row.priority-urgent td:first-child::before { background: var(--emergency); }
-.announcement-table-title { display: block; margin-bottom: 3px; }
+.announcement-table-row.status-active td:first-child::before { background: var(--success); }
+.announcement-table-row.status-scheduled td:first-child::before { background: var(--secondary); }
+.announcement-table-row.status-cancelled td:first-child::before { background: var(--emergency); }
+.announcement-table-row.status-draft td:first-child::before,
+.announcement-table-row.status-expired td:first-child::before { background: var(--text-muted); }
+.announcement-table-title { display: block; color: var(--text-primary); font-weight: 700; text-decoration: none; }
+.announcement-table-title:hover { color: var(--primary); text-decoration: underline; }
 .announcement-table-meta { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); white-space: nowrap; }
+.announcement-detail-card { max-width: 900px; }
+.announcement-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.announcement-detail-heading h3 { margin-top: 10px; font-size: 22px; }
+.announcement-detail-meta { display: flex; flex-wrap: wrap; gap: 14px; margin: 20px 0; padding: 14px 0; border-block: 1px solid var(--divider); color: var(--text-secondary); font-size: 13px; }
+.announcement-detail-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.announcement-detail-message { padding: 16px 0; border-bottom: 1px solid var(--divider); }
+.announcement-detail-message:last-child { border-bottom: 0; }
+.announcement-detail-message h4 { margin-bottom: 8px; font-size: 14px; }
+.announcement-detail-message p { margin-top: 8px; white-space: pre-wrap; color: var(--text-secondary); line-height: 1.6; }
 
 @media (max-width: 1100px) {
   .announcement-summary { grid-template-columns: 1fr 1fr; }

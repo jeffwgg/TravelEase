@@ -3,12 +3,17 @@ import 'announcement.dart';
 /// A public-address announcement captured through the microphone (FR-M2-08,
 /// FR-M2-09). The device hears an announcement, transcribes it and validates
 /// it with the keyword/repetition scorer. Captured announcements are stored
-/// device-locally and rendered like official announcements but labelled
-/// "Captured" with their confidence score.
+/// device-locally and rendered in the separate spoken-announcement feed.
 class CapturedAnnouncement {
   final String id;
-  final String institutionId;
+
+  /// Kept only to read captures created by older app versions. New captures
+  /// are device-wide and do not require an active venue session.
+  final String? institutionId;
+  final String title;
   final String transcript;
+  final String originalTranscript;
+  final bool isAiRefined;
   final String language;
   final double confidence;
   final double detectionScore;
@@ -19,8 +24,11 @@ class CapturedAnnouncement {
 
   const CapturedAnnouncement({
     required this.id,
-    required this.institutionId,
+    this.institutionId,
+    required this.title,
     required this.transcript,
+    required this.originalTranscript,
+    required this.isAiRefined,
     required this.language,
     required this.confidence,
     required this.detectionScore,
@@ -33,7 +41,10 @@ class CapturedAnnouncement {
   Map<String, dynamic> toJson() => {
     'id': id,
     'institutionId': institutionId,
+    'title': title,
     'transcript': transcript,
+    'originalTranscript': originalTranscript,
+    'isAiRefined': isAiRefined,
     'language': language,
     'confidence': confidence,
     'detectionScore': detectionScore,
@@ -46,8 +57,15 @@ class CapturedAnnouncement {
   factory CapturedAnnouncement.fromJson(Map<String, dynamic> json) =>
       CapturedAnnouncement(
         id: json['id'] as String,
-        institutionId: json['institutionId'] as String,
+        institutionId: json['institutionId'] as String?,
+        title:
+            json['title'] as String? ??
+            deriveTitle(json['transcript'] as String? ?? ''),
         transcript: json['transcript'] as String,
+        originalTranscript:
+            json['originalTranscript'] as String? ??
+            json['transcript'] as String,
+        isAiRefined: json['isAiRefined'] as bool? ?? false,
         language: json['language'] as String? ?? 'en',
         confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
         detectionScore: (json['detectionScore'] as num?)?.toDouble() ?? 0,
@@ -66,8 +84,8 @@ class CapturedAnnouncement {
   /// and captured announcements uniformly.
   Announcement toAnnouncement() => Announcement(
     id: id,
-    institutionId: institutionId,
-    title: deriveTitle(transcript),
+    institutionId: institutionId ?? '',
+    title: title,
     messageEn: transcript,
     type: 'captured',
     priority: 'normal',

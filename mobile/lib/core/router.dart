@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../services/venue_session_service.dart';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'supabase_client.dart';
 import '../views/auth/authentication_view.dart';
 import '../views/auth/check_email_view.dart';
@@ -72,7 +75,11 @@ final GoRouter appRouter = GoRouter(
     ShellRoute(
       builder: (context, state, child) => HomeView(child: child),
       routes: [
-        GoRoute(path: '/home', builder: (context, state) => const _HomeTab()),
+        GoRoute(
+          path: '/home',
+          builder: (context, state) =>
+              _HomeTab(forceTour: state.uri.queryParameters['tour'] == '1'),
+        ),
         GoRoute(
           path: '/communicate',
           builder: (context, state) => const _CommunicateTab(),
@@ -130,7 +137,11 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/announcements',
-      builder: (context, state) => const AnnouncementView(),
+      builder: (context, state) => AnnouncementView(
+        feed: state.uri.queryParameters['type'] == 'spoken'
+            ? AnnouncementFeed.spoken
+            : AnnouncementFeed.official,
+      ),
     ),
     GoRoute(
       path: '/announcement-details',
@@ -143,8 +154,6 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/queue',
-      redirect: (context, state) =>
-          VenueSessionService.instance.hasActiveSession ? null : '/home',
       builder: (context, state) => const QueueTrackingView(),
     ),
     GoRoute(
@@ -218,11 +227,13 @@ class AuthRouterNotifier extends ChangeNotifier {
 
 // Tab placeholder widgets that build the actual tab content
 class _HomeTab extends StatelessWidget {
-  const _HomeTab();
+  const _HomeTab({this.forceTour = false});
+
+  final bool forceTour;
 
   @override
   Widget build(BuildContext context) {
-    return const VenueIdentificationView();
+    return VenueIdentificationView(forceTour: forceTour);
   }
 }
 
