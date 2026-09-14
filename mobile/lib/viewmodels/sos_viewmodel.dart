@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/repositories/emergency_contact_repository.dart';
 import '../models/repositories/sos_repository.dart';
 import '../services/current_location_service.dart';
+import '../services/live_location_service.dart';
 
 enum SosLocationStatus { pending, retrieved, unavailable }
 
@@ -83,9 +84,17 @@ class SosViewModel extends ChangeNotifier {
         triggeredAt: triggeredAt,
       );
       if (_disposed) return;
-      _institutionStatus = result == InstitutionSosResult.requestSent
+      _institutionStatus = result.result == InstitutionSosResult.requestSent
           ? SosInstitutionStatus.requestSent
           : SosInstitutionStatus.noAffiliatedInstitution;
+
+      if (result.result == InstitutionSosResult.requestSent &&
+          result.sosRequestId != null) {
+        LiveLocationService.instance.start(
+          sessionId: result.sosRequestId!,
+          sessionType: 'sos',
+        );
+      }
     } catch (error, stackTrace) {
       debugPrint('[SOS] Institution assistance request failed: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -126,6 +135,7 @@ class SosViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    LiveLocationService.instance.stop();
     super.dispose();
   }
 }

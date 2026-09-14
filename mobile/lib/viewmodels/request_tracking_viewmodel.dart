@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/repositories/assistance_repository.dart';
+import '../services/live_location_service.dart';
 
 class RequestTrackingViewModel extends ChangeNotifier {
   final AssistanceRepository _repository = AssistanceRepository();
@@ -20,12 +21,19 @@ class RequestTrackingViewModel extends ChangeNotifier {
     try {
       final result = await _repository.getAssistanceRequests();
       // Detect any newly resolved requests that haven't been confirmed
+      final activeTrackingId = LiveLocationService.instance.activeSessionId;
       for (final r in result) {
         final status = r['status'] as String? ?? '';
         final outcome = r['resolution_outcome'];
         final id = r['id']?.toString() ?? '';
         if (status == 'resolved' && outcome == null && id.isNotEmpty) {
           pendingResolution.add(id);
+        }
+        // If staff marked the active request as resolved, closed or cancelled, stop GPS stream
+        if (activeTrackingId != null && id == activeTrackingId) {
+          if (status == 'resolved' || status == 'closed' || status == 'cancelled') {
+            LiveLocationService.instance.stop();
+          }
         }
       }
       requests = result;
@@ -41,7 +49,12 @@ class RequestTrackingViewModel extends ChangeNotifier {
   // FR-M5-29: Cancel a request
   Future<bool> cancelRequest(String requestId) async {
     final success = await _repository.cancelRequest(requestId);
-    if (success) await loadRequests();
+    if (success) {
+      if (LiveLocationService.instance.activeSessionId == requestId) {
+        await LiveLocationService.instance.stop();
+      }
+      await loadRequests();
+    }
     return success;
   }
 
@@ -60,6 +73,10 @@ class RequestTrackingViewModel extends ChangeNotifier {
     );
     if (success) {
       pendingResolution.remove(requestId);
+      if (outcome == 'fully_resolved' &&
+          LiveLocationService.instance.activeSessionId == requestId) {
+        await LiveLocationService.instance.stop();
+      }
       await loadRequests();
     }
     return success;

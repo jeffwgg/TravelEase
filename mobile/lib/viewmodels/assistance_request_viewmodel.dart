@@ -5,6 +5,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import '../models/repositories/assistance_repository.dart';
+import '../services/live_location_service.dart';
 
 class AssistanceRequestViewModel extends ChangeNotifier {
   final AssistanceRepository _repository = AssistanceRepository();
@@ -18,6 +19,8 @@ class AssistanceRequestViewModel extends ChangeNotifier {
   bool shareAnalytics = false;
   String venueName = '';
   String locationZone = '';
+  double? currentLat;
+  double? currentLng;
   bool isFetchingLocation = false;
   final TextEditingController descriptionController = TextEditingController();
 
@@ -99,6 +102,9 @@ class AssistanceRequestViewModel extends ChangeNotifier {
           timeLimit: Duration(seconds: 10),
         ),
       );
+
+      currentLat = position.latitude;
+      currentLng = position.longitude;
 
       final resolved = await _reverseGeocode(position.latitude, position.longitude);
       venueName = resolved;
@@ -204,6 +210,19 @@ class AssistanceRequestViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
+      if (shareLocation && (currentLat == null || currentLng == null)) {
+        try {
+          final pos = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 5),
+            ),
+          );
+          currentLat = pos.latitude;
+          currentLng = pos.longitude;
+        } catch (_) {}
+      }
+
       final result = await _repository.createAssistanceRequest(
         requestCode: _generateRequestCode(),
         preferredCommunication: contactMethod,
@@ -214,12 +233,20 @@ class AssistanceRequestViewModel extends ChangeNotifier {
         urgency: urgencyLabel,
         shareLocation: shareLocation,
         analyticsConsent: shareAnalytics,
+        latitude: shareLocation ? currentLat : null,
+        longitude: shareLocation ? currentLng : null,
       );
 
       isSubmitting = false;
 
       if (result != null) {
         submittedRequest = result;
+        if (shareLocation && result['id'] != null) {
+          LiveLocationService.instance.start(
+            sessionId: result['id'].toString(),
+            sessionType: 'assistance',
+          );
+        }
         notifyListeners();
         return true;
       } else {
@@ -241,6 +268,8 @@ class AssistanceRequestViewModel extends ChangeNotifier {
     urgencyLevel = 1;
     shareLocation = true;
     shareAnalytics = false;
+    currentLat = null;
+    currentLng = null;
     descriptionController.clear();
     errorMessage = null;
     submittedRequest = null;
