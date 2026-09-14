@@ -87,9 +87,9 @@ class _PreferencesViewState extends State<PreferencesView> {
                 child: Column(
                   children: [
                     _buildSwitch(
-                      'Enable Alert Notification',
-                      'Push notifications (announcements, queue updates and '
-                          'messages) when you are not in the app',
+                      'Enable General Notification',
+                      'Push announcements, queue updates and '
+                          'messages notifications when you are not in the app',
                       Icons.notifications_active,
                       _viewModel.generalNotification,
                       _viewModel.setGeneralNotification,

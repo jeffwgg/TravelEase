@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../core/theme.dart';
 import '../../models/entities/announcement.dart';
 import '../../models/repositories/announcement_repository.dart';
 import '../../models/repositories/captured_announcement_store.dart';
+import '../../models/repositories/feature_usage_repository.dart';
 import '../../services/venue_session_service.dart';
 import '../../widgets/app_message_banner.dart';
 
+enum AnnouncementFeed { spoken, official }
+
 class AnnouncementView extends StatefulWidget {
-  const AnnouncementView({super.key});
+  const AnnouncementView({super.key, this.feed = AnnouncementFeed.official});
+
+  final AnnouncementFeed feed;
 
   @override
   State<AnnouncementView> createState() => _AnnouncementViewState();
@@ -25,20 +31,29 @@ class _AnnouncementViewState extends State<AnnouncementView> {
   String? _error;
   String? _institutionId;
   String? _institutionName;
+  String? _serviceAreaId;
+  String? _serviceAreaName;
 
   @override
   void initState() {
     super.initState();
-    _syncSession(reload: true);
-    VenueSessionService.instance.addListener(_onSessionChanged);
-    CapturedAnnouncementStore.instance.version.addListener(_onSessionChanged);
+    FeatureUsageTracker.instance.opened(TrackedFeature.announcements);
+    if (widget.feed == AnnouncementFeed.official) {
+      _syncSession(reload: true);
+      VenueSessionService.instance.addListener(_onSessionChanged);
+    } else {
+      _loadSpokenAnnouncements();
+      CapturedAnnouncementStore.instance.version.addListener(
+        _onCapturedAnnouncementsChanged,
+      );
+    }
   }
 
   @override
   void dispose() {
     VenueSessionService.instance.removeListener(_onSessionChanged);
     CapturedAnnouncementStore.instance.version.removeListener(
-      _onSessionChanged,
+      _onCapturedAnnouncementsChanged,
     );
     final channel = _channel;
     if (channel != null) _repository.removeSubscription(channel);
@@ -50,15 +65,24 @@ class _AnnouncementViewState extends State<AnnouncementView> {
     _syncSession(reload: true);
   }
 
-  /// Official announcements are institution-scoped, so the list follows the
+  void _onCapturedAnnouncementsChanged() {
+    if (!mounted) return;
+    _loadSpokenAnnouncements();
+  }
+
+  /// Official announcements are institution-scoped, so this feed follows the
   /// active venue session and resubscribes when the session changes.
   Future<void> _syncSession({required bool reload}) async {
     final session = VenueSessionService.instance.session;
     final institutionId = session?.institutionId;
-    final changed = institutionId != _institutionId;
+    final serviceAreaId = session?.serviceAreaId;
+    final changed =
+        institutionId != _institutionId || serviceAreaId != _serviceAreaId;
     setState(() {
       _institutionId = institutionId;
       _institutionName = session?.institutionName;
+      _serviceAreaId = serviceAreaId;
+      _serviceAreaName = session?.serviceAreaName;
     });
     final previous = _channel;
     _channel = null;
@@ -86,14 +110,11 @@ class _AnnouncementViewState extends State<AnnouncementView> {
     try {
       final official = await _repository.getActiveAnnouncements(
         institutionId: institutionId,
+        serviceAreaId: _serviceAreaId,
       );
-      final captured = await CapturedAnnouncementStore.instance
-          .announcementsFor(institutionId);
-      final merged = [...official, ...captured]
-        ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
       if (!mounted) return;
       setState(() {
-        _announcements = merged;
+        _announcements = official;
         _error = null;
         _loading = false;
       });
@@ -106,20 +127,51 @@ class _AnnouncementViewState extends State<AnnouncementView> {
     }
   }
 
+  Future<void> _loadSpokenAnnouncements() async {
+    try {
+      final spoken = await CapturedAnnouncementStore.instance.announcements();
+      if (!mounted) return;
+      setState(() {
+        _announcements = spoken;
+        _error = null;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _reload() => widget.feed == AnnouncementFeed.spoken
+      ? _loadSpokenAnnouncements()
+      : _loadAnnouncements();
+
   @override
   Widget build(BuildContext context) {
+    final isSpokenFeed = widget.feed == AnnouncementFeed.spoken;
     final visible = _urgentOnly
         ? _announcements.where((item) => item.isUrgent).toList()
         : _announcements;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Announcements'),
+        title: Text(
+          isSpokenFeed ? 'Spoken Announcements' : 'Official Announcements',
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          if (isSpokenFeed)
+            IconButton(
+              tooltip: 'Spoken announcement settings',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => context.push('/environment-sound-alert'),
+            ),
           PopupMenuButton<String>(
             tooltip: 'Announcement language',
             icon: const Icon(Icons.translate),
@@ -131,39 +183,48 @@ class _AnnouncementViewState extends State<AnnouncementView> {
               PopupMenuItem(value: 'zh', child: Text('Chinese (Simplified)')),
             ],
           ),
-          IconButton(
-            tooltip: _urgentOnly
-                ? 'Show all announcements'
-                : 'Show urgent only',
-            icon: Icon(
-              _urgentOnly ? Icons.filter_alt : Icons.filter_list,
-              color: _urgentOnly ? AppColors.primary : null,
+          if (!isSpokenFeed)
+            IconButton(
+              tooltip: _urgentOnly
+                  ? 'Show all announcements'
+                  : 'Show urgent only',
+              icon: Icon(
+                _urgentOnly ? Icons.filter_alt : Icons.filter_list,
+                color: _urgentOnly ? AppColors.primary : null,
+              ),
+              onPressed: () => setState(() => _urgentOnly = !_urgentOnly),
             ),
-            onPressed: () => setState(() => _urgentOnly = !_urgentOnly),
-          ),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _loadAnnouncements,
+        onRefresh: _reload,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _buildVenueHeader(context),
+            if (isSpokenFeed)
+              _buildSpokenHeader(context)
+            else
+              _buildVenueHeader(context),
             const SizedBox(height: 20),
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(40),
                 child: Center(child: CircularProgressIndicator()),
               ),
-            if (!_loading && _institutionId == null) _buildNoSession(context),
-            if (!_loading && _error != null && _institutionId != null)
+            if (!_loading && !isSpokenFeed && _institutionId == null)
+              _buildNoSession(context),
+            if (!_loading &&
+                _error != null &&
+                (isSpokenFeed || _institutionId != null))
               _buildError(context),
             if (!_loading &&
                 _error == null &&
-                _institutionId != null &&
+                (isSpokenFeed || _institutionId != null) &&
                 visible.isEmpty)
-              _buildEmpty(context),
-            if (!_loading && _error == null && _institutionId != null)
+              _buildEmpty(context, isSpokenFeed: isSpokenFeed),
+            if (!_loading &&
+                _error == null &&
+                (isSpokenFeed || _institutionId != null))
               ...visible.map(
                 (announcement) => _buildAnnouncement(context, announcement),
               ),
@@ -187,10 +248,13 @@ class _AnnouncementViewState extends State<AnnouncementView> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              _institutionName ?? 'No active venue session',
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(color: AppColors.primary),
+              _institutionName == null
+                  ? 'No active venue session'
+                  : _serviceAreaName == null
+                  ? _institutionName!
+                  : '$_institutionName · $_serviceAreaName',
+              style: Theme.of(context).textTheme.labelLarge
+                  ?.copyWith(color: AppColors.primary),
             ),
           ),
           if (_institutionId != null) ...[
@@ -205,11 +269,34 @@ class _AnnouncementViewState extends State<AnnouncementView> {
             const SizedBox(width: 6),
             Text(
               'Live',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: AppColors.success),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: AppColors.success),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpokenHeader(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.mic_outlined, color: AppColors.accent, size: 18),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text('Captured on this device — no venue session needed.'),
+          ),
+          TextButton(
+            onPressed: () => context.push('/environment-sound-alert'),
+            child: const Text('Settings'),
+          ),
         ],
       ),
     );
@@ -246,7 +333,7 @@ class _AnnouncementViewState extends State<AnnouncementView> {
     );
   }
 
-  Widget _buildEmpty(BuildContext context) {
+  Widget _buildEmpty(BuildContext context, {required bool isSpokenFeed}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 48),
       child: Column(
@@ -258,7 +345,9 @@ class _AnnouncementViewState extends State<AnnouncementView> {
           ),
           const SizedBox(height: 12),
           Text(
-            _urgentOnly
+            isSpokenFeed
+                ? 'No spoken announcements yet.'
+                : _urgentOnly
                 ? 'No urgent announcements.'
                 : 'No active announcements.',
             style: Theme.of(context).textTheme.titleMedium,
@@ -270,18 +359,12 @@ class _AnnouncementViewState extends State<AnnouncementView> {
 
   Widget _buildAnnouncement(BuildContext context, Announcement announcement) {
     final captured = announcement.isCaptured;
-    final color = captured
-        ? AppColors.accent
-        : _colorFor(announcement);
+    final color = captured ? AppColors.accent : _colorFor(announcement);
     final translation = announcement.translations[_language];
     final title =
         _language == 'en' || translation == null || translation.title.isEmpty
         ? announcement.title
         : translation.title;
-    final message =
-        _language == 'en' || translation == null || translation.message.isEmpty
-        ? announcement.messageEn
-        : translation.message;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: Card(
@@ -293,7 +376,8 @@ class _AnnouncementViewState extends State<AnnouncementView> {
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => context.push('/announcement-details?id=${announcement.id}'),
+          onTap: () =>
+              context.push('/announcement-details?id=${announcement.id}'),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -391,33 +475,21 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  message,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                if (_language != 'en' && translation == null) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Translation unavailable — showing English.',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
-                  ),
-                ],
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Icon(
-                      Icons.pin_drop_outlined,
+                    Icon(
+                      captured
+                          ? Icons.phone_android_outlined
+                          : Icons.pin_drop_outlined,
                       size: 14,
                       color: AppColors.textMuted,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      announcement.zoneName ?? 'All Zones',
+                      captured
+                          ? 'Captured on this device'
+                          : announcement.serviceAreaName ?? 'All service areas',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],

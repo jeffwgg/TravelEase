@@ -1,12 +1,14 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../../core/theme.dart';
 import '../../models/entities/environment_sound.dart';
 import '../../models/repositories/captured_announcement_store.dart';
 import '../../models/repositories/environment_sound_repository.dart';
 import '../../services/environment_sound_detector.dart';
-import '../../services/venue_session_service.dart';
+import '../../services/public_announcement_capture_service.dart';
 import '../../services/app_notification_service.dart';
 import '../../widgets/app_message_banner.dart';
 
@@ -19,6 +21,14 @@ class EnvironmentSoundAlertView extends StatefulWidget {
 }
 
 class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
+  static const _alertTypes = <EnvironmentSoundType>[
+    EnvironmentSoundType.alarm,
+    EnvironmentSoundType.siren,
+    EnvironmentSoundType.vehicleHorn,
+    EnvironmentSoundType.doorbell,
+    EnvironmentSoundType.speechAnnouncement,
+  ];
+
   final _detector = EnvironmentSoundDetector();
   final _preferences = EnvironmentSoundPreferences();
   final Set<EnvironmentSoundType> _enabledTypes = {};
@@ -58,11 +68,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   }
 
   Future<void> _showLatestCapturedAnnouncement() async {
-    final institutionId = VenueSessionService.instance.session?.institutionId;
-    if (institutionId == null) return;
-    final captures = await CapturedAnnouncementStore.instance.forVenue(
-      institutionId,
-    );
+    final captures = await CapturedAnnouncementStore.instance.all();
     if (!mounted || captures.isEmpty) return;
     setState(() {
       _message = 'Announcement: ${captures.first.transcript}';
@@ -78,6 +84,13 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
       _preferences.loadHistory(),
     ]);
     if (!mounted) return;
+    final savedHistory = values[3] as List<EnvironmentSoundDetection>;
+    final alertHistory = savedHistory
+        .where(
+          (detection) =>
+              detection.type != EnvironmentSoundType.speechAnnouncement,
+        )
+        .toList();
     final shouldStart = values[0] as bool;
     setState(() {
       _enabledTypes
@@ -86,9 +99,12 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
       _sensitivity = values[2] as SoundSensitivity;
       _history
         ..clear()
-        ..addAll(values[3] as List<EnvironmentSoundDetection>);
+        ..addAll(alertHistory);
       _loading = false;
     });
+    if (alertHistory.length != savedHistory.length) {
+      unawaited(_preferences.saveHistory(alertHistory));
+    }
     if (shouldStart) await _setMonitoring(true);
   }
 
@@ -110,6 +126,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
           sensitivity: _sensitivity,
         );
       } else {
+        await PublicAnnouncementCaptureService.instance.cancelPendingCapture();
         await _detector.stop();
       }
       if (!mounted) return;
@@ -163,6 +180,11 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
       enabledTypes: _enabledTypes,
       sensitivity: _sensitivity,
     );
+    if (type == EnvironmentSoundType.speechAnnouncement && !value) {
+      unawaited(
+        PublicAnnouncementCaptureService.instance.cancelPendingCapture(),
+      );
+    }
     unawaited(_saveSettings());
   }
 
@@ -178,18 +200,11 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
 
   Future<void> _handleDetection(EnvironmentSoundDetection detection) async {
     if (!mounted) return;
+    // Announcement capture owns this event. It appears in Announcements and
+    // Notifications, never in the generic alert history or modal alerts.
+    if (detection.type == EnvironmentSoundType.speechAnnouncement) return;
     setState(() => _history.insert(0, detection));
     await _preferences.saveHistory(_history);
-    if (detection.type == EnvironmentSoundType.speechAnnouncement) {
-      if (!mounted) return;
-      setState(() {
-        _message = VenueSessionService.instance.hasActiveSession
-            ? 'Public announcement detected. Listening for the spoken message…'
-            : 'Spoken announcement detected. Start a venue session to save its transcript.';
-        _messageType = AppMessageType.information;
-      });
-      return;
-    }
     for (var pulse = 0; pulse < 3; pulse++) {
       await HapticFeedback.heavyImpact();
       await Future<void>.delayed(const Duration(milliseconds: 180));
@@ -248,7 +263,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Environment Sound Alert')),
+      appBar: AppBar(title: const Text('Environment Sound Detection')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
@@ -265,18 +280,14 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
                 ],
                 const SizedBox(height: 16),
                 _buildMonitoringCard(),
-                if (_enabledTypes.contains(
-                  EnvironmentSoundType.speechAnnouncement,
-                )) ...[
-                  const SizedBox(height: 12),
-                  _buildAnnouncementCaptureGuide(),
-                ],
+                const SizedBox(height: 12),
+                _buildAnnouncementCaptureGuide(),
                 const SizedBox(height: 20),
                 _sectionTitle('Sounds to Detect'),
                 const SizedBox(height: 10),
                 Card(
                   child: Column(
-                    children: EnvironmentSoundType.values.indexed.map((entry) {
+                    children: _alertTypes.indexed.map((entry) {
                       final (index, type) = entry;
                       return Column(
                         children: [
@@ -390,7 +401,6 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   }
 
   Widget _buildAnnouncementCaptureGuide() {
-    final ready = VenueSessionService.instance.hasActiveSession;
     return Card(
       color: AppColors.accent.withValues(alpha: 0.06),
       child: Padding(
@@ -401,10 +411,8 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
             const Icon(Icons.campaign_outlined, color: AppColors.accent),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                ready
-                    ? 'Announcement capture is ready. Play or speak the announcement from a second device; when the banner says “Listening”, keep it playing. Captures appear in Announcements and Notifications.'
-                    : 'Start a venue session before testing. Captured public announcements are saved to the active venue and then appear in Announcements and Notifications.',
+              child: const Text(
+                'Spoken announcements are captured on this device and appear in Spoken Announcements. No venue session is needed.',
               ),
             ),
           ],

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../core/theme.dart';
 import '../../models/entities/queue_tracking.dart';
+import '../../models/repositories/feature_usage_repository.dart';
 import '../../models/repositories/queue_repository.dart';
 import '../../services/queue_notification_service.dart';
+import '../../services/venue_session_service.dart';
 import '../../widgets/app_message_banner.dart';
 
 class QueueTrackingView extends StatefulWidget {
@@ -36,6 +39,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    FeatureUsageTracker.instance.opened(TrackedFeature.queueTracking);
     _loadLines();
   }
 
@@ -62,15 +66,39 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
   }
 
   Future<void> _loadLines() async {
+    final institutionId = VenueSessionService.instance.session?.institutionId;
+    if (institutionId == null) {
+      if (mounted) {
+        setState(() {
+          _lines = const [];
+          _tracking = null;
+          _selectedLineId = null;
+          _loadingLines = false;
+          _error = null;
+        });
+      }
+      return;
+    }
     try {
-      final lines = await _repository.getActiveQueueLines();
+      // Queue lines are intentionally institution-wide: the selected service
+      // area is shown as information but never filters this list.
+      final lines = await _repository.getActiveQueueLines(
+        institutionId: institutionId,
+      );
       if (!mounted) return;
       setState(() {
         _lines = lines;
+        _error = null;
         _loadingLines = false;
+        if (!lines.any((line) => line.id == _selectedLineId)) {
+          _tracking = null;
+          _selectedLineId = null;
+        }
       });
       final saved = QueueNotificationService.instance.current;
-      if (saved != null && mounted) {
+      final savedLineIsHere =
+          saved != null && lines.any((line) => line.id == saved.line.id);
+      if (saved != null && savedLineIsHere && mounted) {
         _numberController.text = saved.number;
         setState(() {
           _tracking = saved;
@@ -91,6 +119,11 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
   }
 
   Future<void> _trackNumber() async {
+    final institutionId = VenueSessionService.instance.session?.institutionId;
+    if (institutionId == null) {
+      setState(() => _error = 'Start a venue session before tracking a queue.');
+      return;
+    }
     final number = _numberController.text.trim();
     if (number.isEmpty) {
       setState(() => _error = 'Enter your queue number.');
@@ -118,6 +151,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
         number: number,
         queueLineId: _selectedLineId,
         queuePrefix: _selectedLine?.prefix,
+        institutionId: institutionId,
       );
       if (!mounted) return;
       if (result == null) {
@@ -138,6 +172,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
         _selectedLineId = result.line.id;
       });
       await QueueNotificationService.instance.track(result);
+      FeatureUsageTracker.instance.completed(TrackedFeature.queueTracking);
     } catch (error) {
       if (!mounted) return;
       setState(
@@ -152,12 +187,14 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
 
   Future<void> _refreshTracking() async {
     final current = _tracking;
-    if (current == null) return;
+    final institutionId = VenueSessionService.instance.session?.institutionId;
+    if (current == null || institutionId == null) return;
     try {
       final result = await _repository.trackNumber(
         number: current.number,
         queueLineId: current.line.id,
         queuePrefix: current.line.prefix,
+        institutionId: institutionId,
       );
       if (mounted && result != null) setState(() => _tracking = result);
     } catch (_) {
@@ -167,6 +204,9 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
 
   @override
   Widget build(BuildContext context) {
+    final session = VenueSessionService.instance.session;
+    final serviceUnavailable =
+        session != null && !_loadingLines && _lines.isEmpty && _error == null;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Queue Number Tracking'),
@@ -180,23 +220,45 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _buildTrackingForm(context),
+            if (_loadingLines)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (session == null)
+              const AppMessageBanner(
+                message: 'Identify your current institution on the Home page before tracking a queue number.',
+                type: AppMessageType.information,
+              )
+            else if (serviceUnavailable)
+              AppMessageBanner(
+                message:
+                    '${session.institutionName} is not currently providing a queue tracking service.',
+                type: AppMessageType.information,
+              )
+            else if (_error == null)
+              _buildTrackingForm(context),
             if (_error != null) ...[
               const SizedBox(height: 12),
               AppMessageBanner(message: _error!, type: AppMessageType.error),
             ],
-            const SizedBox(height: 20),
-            if (_tracking == null)
-              _buildEmptyState()
-            else ...[
-              _buildStatusCard(_tracking!),
-              const SizedBox(height: 24),
-              Text(
-                'Queue Line Information',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 12),
-              _buildLineInformation(_tracking!.line),
+            if (!_loadingLines &&
+                session != null &&
+                !serviceUnavailable &&
+                _error == null) ...[
+              const SizedBox(height: 20),
+              if (_tracking == null)
+                _buildEmptyState()
+              else ...[
+                _buildStatusCard(_tracking!),
+                const SizedBox(height: 24),
+                Text(
+                  'Queue Line Information',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                _buildLineInformation(_tracking!.line),
+              ],
             ],
           ],
         ),

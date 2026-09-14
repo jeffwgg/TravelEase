@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+
 import '../../core/theme.dart';
 import '../../core/hardware_services.dart';
 import '../../models/entities/dialogue_message_entity.dart';
+import '../../models/repositories/feature_usage_repository.dart';
 import '../../viewmodels/two_way_dialogue_viewmodel.dart';
 import 'communication_history_view.dart';
 
@@ -29,6 +31,7 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
   void initState() {
     super.initState();
     _viewModel = TwoWayDialogueViewModel()..initSession();
+    FeatureUsageTracker.instance.opened(TrackedFeature.twoWayDialogue);
     _pulseController = AnimationController(
       vsync: this,
       lowerBound: 0.94,
@@ -50,7 +53,11 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
   void _showSnackBar(String message, {Color? color}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color, duration: const Duration(seconds: 2)),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 2),
+      ),
     );
   }
 
@@ -80,8 +87,9 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
               ),
             ),
             ...TwoWayDialogueViewModel.supportedLanguages.entries.map((e) {
-              final selected =
-                  isSource ? _viewModel.sourceLang == e.key : _viewModel.targetLang == e.key;
+              final selected = isSource
+                  ? _viewModel.sourceLang == e.key
+                  : _viewModel.targetLang == e.key;
               return ListTile(
                 title: Text(
                   e.value,
@@ -131,6 +139,7 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
     if (text.isEmpty) return;
     _inputController.clear();
     _viewModel.sendAutoDetectedText(text);
+    FeatureUsageTracker.instance.completed(TrackedFeature.twoWayDialogue);
   }
 
   /// Inline input bar docked above the mic controls; stays visible while the
@@ -194,8 +203,9 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
               final hw = HardwareServices();
               await hw.initialize(); // handles TTS init internally
               if (hw.availableVoices.isEmpty) await hw.loadVoices();
-              final hasGender = hw.availableVoices.any((v) =>
-                  (v['gender'] ?? v['Gender'] ?? '').toString().isNotEmpty);
+              final hasGender = hw.availableVoices.any(
+                (v) => (v['gender'] ?? v['Gender'] ?? '').toString().isNotEmpty,
+              );
               if (mounted) setModalState(() => genderSupported = hasGender);
             });
 
@@ -208,14 +218,23 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Speech Synthesis Settings', style: Theme.of(context).textTheme.titleLarge),
-                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                      Text(
+                        'Speech Synthesis Settings',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
 
                   // Playback Speed Slider (FR-M3-10)
-                  Text('Speech Speed: ${speed.toStringAsFixed(2)}x', style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    'Speech Speed: ${speed.toStringAsFixed(2)}x',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   Slider(
                     value: speed,
                     min: 0.5,
@@ -229,7 +248,10 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                   ),
 
                   // Volume Slider (FR-M3-11)
-                  Text('Playback Volume: ${(volume * 100).toInt()}%', style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    'Playback Volume: ${(volume * 100).toInt()}%',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   Slider(
                     value: volume,
                     min: 0.1,
@@ -241,7 +263,10 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                   ),
 
                   // Voice Gender Selector (FR-M3-12)
-                  const Text('Preferred Voice Gender:', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const Text(
+                    'Preferred Voice Gender:',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 8),
                   if (!genderSupported)
                     Container(
@@ -252,14 +277,21 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.textMuted),
+                          const Icon(
+                            Icons.info_outline_rounded,
+                            size: 18,
+                            color: AppColors.textMuted,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'Voice gender selection not available on this device. '
                               'The system TTS engine does not expose gender metadata. '
                               'Download voice packages in Settings → Accessibility → Text-to-speech output.',
-                              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                           ),
                         ],
@@ -334,7 +366,10 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
             ),
             ElevatedButton(
               onPressed: () {
-                _viewModel.correctMessage(messageId: msg.id, correctedText: controller.text);
+                _viewModel.correctMessage(
+                  messageId: msg.id,
+                  correctedText: controller.text,
+                );
                 Navigator.pop(ctx);
                 _showSnackBar('Text corrected.');
               },
@@ -364,8 +399,14 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Favorite Phrases', style: Theme.of(ctx).textTheme.titleLarge),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  Text(
+                    'Favorite Phrases',
+                    style: Theme.of(ctx).textTheme.titleLarge,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
                 ],
               ),
             ),
@@ -375,12 +416,19 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                 child: Center(
                   child: Column(
                     children: [
-                      Icon(Icons.favorite_border_rounded, size: 48, color: AppColors.textMuted),
+                      Icon(
+                        Icons.favorite_border_rounded,
+                        size: 48,
+                        color: AppColors.textMuted,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         'No favorite phrases yet.\nAdd phrases from the Sign Reference screen.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 14, color: AppColors.textMuted),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textMuted,
+                        ),
                       ),
                     ],
                   ),
@@ -397,24 +445,41 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                     final fav = _viewModel.favoritePhrases[index];
                     final phrase = fav.phrase;
                     if (phrase == null) return const SizedBox.shrink();
-                    final text = phrase.getTextByLanguage(_viewModel.sourceLang);
+                    final text = phrase.getTextByLanguage(
+                      _viewModel.sourceLang,
+                    );
                     return ListTile(
                       dense: true,
                       leading: CircleAvatar(
-                        backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                        backgroundColor: AppColors.primary.withValues(
+                          alpha: 0.12,
+                        ),
                         child: Text(
                           '${index + 1}',
-                          style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary, fontSize: 12),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
-                      title: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      title: Text(
+                        text,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
                       subtitle: Text(
                         phrase.categoryId.toUpperCase(),
-                        style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textMuted,
+                        ),
                       ),
                       onTap: () {
                         Navigator.pop(ctx);
                         _viewModel.sendFavoritePhrase(fav);
+                        FeatureUsageTracker.instance.completed(
+                          TrackedFeature.twoWayDialogue,
+                        );
                       },
                     );
                   },
@@ -437,7 +502,8 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
       builder: (context, _) {
         // Pulse animation only while the conversation mic is live
         if (_viewModel.isConversationMicActive) {
-          if (!_pulseController.isAnimating) _pulseController.repeat(reverse: true);
+          if (!_pulseController.isAnimating)
+            _pulseController.repeat(reverse: true);
         } else if (_pulseController.isAnimating) {
           _pulseController.stop();
           _pulseController.value = 1.0;
@@ -446,6 +512,11 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
         // Auto-scroll to the newest sentence
         if (_viewModel.messages.length != _lastMessageCount) {
           _lastMessageCount = _viewModel.messages.length;
+          if (_lastMessageCount > 0) {
+            FeatureUsageTracker.instance.completed(
+              TrackedFeature.twoWayDialogue,
+            );
+          }
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (_scrollController.hasClients) {
               _scrollController.animateTo(
@@ -482,10 +553,16 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
               // Auto-TTS Toggle Action
               IconButton(
                 icon: Icon(
-                  _viewModel.isAutoTtsEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-                  color: _viewModel.isAutoTtsEnabled ? AppColors.secondary : AppColors.textMuted,
+                  _viewModel.isAutoTtsEnabled
+                      ? Icons.volume_up_rounded
+                      : Icons.volume_off_rounded,
+                  color: _viewModel.isAutoTtsEnabled
+                      ? AppColors.secondary
+                      : AppColors.textMuted,
                 ),
-                tooltip: _viewModel.isAutoTtsEnabled ? 'Auto-Speak: ON' : 'Auto-Speak: OFF',
+                tooltip: _viewModel.isAutoTtsEnabled
+                    ? 'Auto-Speak: ON'
+                    : 'Auto-Speak: OFF',
                 onPressed: () {
                   _viewModel.toggleAutoTts();
                   _showSnackBar(
@@ -502,7 +579,11 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
               ),
               IconButton(
                 icon: _viewModel.isSaving
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Icon(Icons.save_alt_rounded),
                 tooltip: 'Save Conversation Log to Device',
                 onPressed: _viewModel.isSaving
@@ -513,8 +594,13 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                         if (!mounted) return;
                         messenger.showSnackBar(
                           SnackBar(
-                            content: Text(_viewModel.statusMessage ?? (ok ? 'Saved!' : 'Nothing to save.')),
-                            backgroundColor: ok ? AppColors.success : AppColors.emergency,
+                            content: Text(
+                              _viewModel.statusMessage ??
+                                  (ok ? 'Saved!' : 'Nothing to save.'),
+                            ),
+                            backgroundColor: ok
+                                ? AppColors.success
+                                : AppColors.emergency,
                           ),
                         );
                         if (ok) _viewModel.clearStatus();
@@ -534,18 +620,30 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                       child: Text(
                         _langName(_viewModel.sourceLang),
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 8),
-                      child: Icon(Icons.arrow_forward_rounded, size: 14, color: AppColors.primary),
+                      child: Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 14,
+                        color: AppColors.primary,
+                      ),
                     ),
                     Flexible(
                       child: Text(
                         _langName(_viewModel.targetLang),
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ),
                   ],
@@ -612,10 +710,10 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                       msg.inputModality == 'speech_to_text'
                           ? Icons.mic_rounded
                           : msg.inputModality == 'quick_phrase'
-                              ? Icons.flash_on_rounded
-                              : msg.inputModality == 'sign_to_text'
-                                  ? Icons.sign_language_rounded
-                                  : Icons.keyboard_rounded,
+                          ? Icons.flash_on_rounded
+                          : msg.inputModality == 'sign_to_text'
+                          ? Icons.sign_language_rounded
+                          : Icons.keyboard_rounded,
                       size: 12,
                       color: tagColor,
                     ),
@@ -633,7 +731,10 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                       const SizedBox(width: 6),
                       const Text(
                         '• corrected',
-                        style: TextStyle(fontSize: 10, color: AppColors.accentLight),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.accentLight,
+                        ),
                       ),
                     ],
                   ],
@@ -656,7 +757,11 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                     ),
                     IconButton(
                       visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.volume_up_rounded, size: 18, color: AppColors.textMuted),
+                      icon: const Icon(
+                        Icons.volume_up_rounded,
+                        size: 18,
+                        color: AppColors.textMuted,
+                      ),
                       tooltip: 'Speak Aloud',
                       onPressed: () => _viewModel.speakMessage(msg),
                     ),
@@ -691,12 +796,20 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
           child: Column(
             children: [
-              Icon(Icons.graphic_eq_rounded, size: 40, color: AppColors.textMuted.withValues(alpha: 0.5)),
+              Icon(
+                Icons.graphic_eq_rounded,
+                size: 40,
+                color: AppColors.textMuted.withValues(alpha: 0.5),
+              ),
               const SizedBox(height: 12),
               const Text(
                 'Tap the mic and start talking.\nEach sentence is auto-detected and translated —\nin both directions, hands-free.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, height: 1.6, color: AppColors.textMuted),
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.6,
+                  color: AppColors.textMuted,
+                ),
               ),
             ],
           ),
@@ -715,14 +828,21 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
               Container(
                 width: 8,
                 height: 8,
-                decoration: const BoxDecoration(color: AppColors.emergency, shape: BoxShape.circle),
+                decoration: const BoxDecoration(
+                  color: AppColors.emergency,
+                  shape: BoxShape.circle,
+                ),
               ),
               const SizedBox(width: 6),
               Text(
                 _viewModel.isProcessingSpeech
                     ? 'Translating (${_langName(_viewModel.processingTurnLang ?? _viewModel.activeListenLang)})...'
                     : 'Listening (${_langName(_viewModel.activeListenLang)})...',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textMuted),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textMuted,
+                ),
               ),
             ],
           ),
@@ -787,7 +907,11 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                   child: const SizedBox(
                     width: 44,
                     height: 44,
-                    child: Icon(Icons.swap_horiz_rounded, size: 22, color: AppColors.primary),
+                    child: Icon(
+                      Icons.swap_horiz_rounded,
+                      size: 22,
+                      color: AppColors.primary,
+                    ),
                   ),
                 ),
               ),
@@ -812,7 +936,9 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                     ? 'Auto turn-switch'
                     : 'Manual turn — use the flip button',
                 style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary),
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
               ),
               SizedBox(
                 height: 28,
@@ -837,8 +963,12 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                 child: Align(
                   alignment: Alignment.centerRight,
                   child: _buildSmallActionButton(
-                    icon: _showInputBar ? Icons.keyboard_hide_rounded : Icons.keyboard_rounded,
-                    tooltip: _showInputBar ? 'Hide typing bar' : 'Type a message to translate',
+                    icon: _showInputBar
+                        ? Icons.keyboard_hide_rounded
+                        : Icons.keyboard_rounded,
+                    tooltip: _showInputBar
+                        ? 'Hide typing bar'
+                        : 'Type a message to translate',
                     onPressed: _toggleKeyboardInput,
                   ),
                 ),
@@ -849,7 +979,10 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                 onTap: () async {
                   await _viewModel.toggleConversationMic();
                   if (_viewModel.statusMessage != null && mounted) {
-                    _showSnackBar(_viewModel.statusMessage!, color: AppColors.emergency);
+                    _showSnackBar(
+                      _viewModel.statusMessage!,
+                      color: AppColors.emergency,
+                    );
                     _viewModel.clearStatus();
                   }
                 },
@@ -860,10 +993,14 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                     height: 76,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: micActive ? AppColors.primaryDark : AppColors.primary,
+                      color: micActive
+                          ? AppColors.primaryDark
+                          : AppColors.primary,
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.primary.withValues(alpha: micActive ? 0.4 : 0.25),
+                          color: AppColors.primary.withValues(
+                            alpha: micActive ? 0.4 : 0.25,
+                          ),
                           blurRadius: micActive ? 20 : 10,
                           offset: const Offset(0, 4),
                         ),
@@ -940,7 +1077,11 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                 child: Text(
                   _langName(code),
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
                 ),
               ),
               Icon(Icons.arrow_drop_down_rounded, size: 20, color: color),

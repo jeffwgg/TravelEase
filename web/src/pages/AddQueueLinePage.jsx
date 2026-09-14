@@ -1,11 +1,12 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { queueRepository } from '../repositories/queueRepository'
+import { serviceAreaRepository } from '../repositories/serviceAreaRepository'
 import { useAutoDismiss } from '../hooks/useAutoDismiss'
 
 const initialForm = {
-  name: '', serviceArea: '', prefix: '', firstNumber: '',
+  name: '', serviceAreaId: '', prefix: '', firstNumber: '',
   status: 'active', estimatedServiceMinutes: '5', maxTrackingNumber: '',
   operatingHours: '', staffNotes: '',
 }
@@ -22,10 +23,21 @@ export default function AddQueueLinePage() {
   const navigate = useNavigate()
   const { session, staffContext } = useAuth()
   const [form, setForm] = useState(initialForm)
+  const [serviceAreas, setServiceAreas] = useState([])
+  const [loadingServiceAreas, setLoadingServiceAreas] = useState(true)
   const [fieldErrors, setFieldErrors] = useState({})
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   useAutoDismiss(error, () => setError(''))
+
+  useEffect(() => {
+    let active = true
+    serviceAreaRepository.list(staffContext)
+      .then((areas) => { if (active) setServiceAreas(areas.filter((area) => area.active)) })
+      .catch((loadError) => { if (active) setError(loadError.message || 'Unable to load service areas.') })
+      .finally(() => { if (active) setLoadingServiceAreas(false) })
+    return () => { active = false }
+  }, [staffContext])
 
   const update = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }))
@@ -35,7 +47,7 @@ export default function AddQueueLinePage() {
   const validate = () => {
     const next = {}
     if (!form.name.trim()) next.name = 'Queue line name is required.'
-    if (!form.serviceArea.trim()) next.serviceArea = 'Service area is required.'
+    if (!form.serviceAreaId) next.serviceAreaId = 'Select a service area.'
     if (!form.prefix.trim()) next.prefix = 'Queue prefix is required.'
     const firstNumber = Number(form.firstNumber)
     if (form.firstNumber !== '' && (!Number.isInteger(firstNumber) || firstNumber < 0)) next.firstNumber = 'Enter a whole number of 0 or greater.'
@@ -54,6 +66,11 @@ export default function AddQueueLinePage() {
     setSubmitting(true)
     setError('')
     try {
+      const serviceArea = serviceAreas.find((area) => area.id === form.serviceAreaId)
+      if (!serviceArea) {
+        setFieldErrors((current) => ({ ...current, serviceAreaId: 'Select an active service area.' }))
+        return
+      }
       // Empty inputs fall back to the defaults shown as placeholders.
       const firstNumber = form.firstNumber === '' ? 1 : Number(form.firstNumber)
       const maxTrackingNumber = form.maxTrackingNumber === '' ? 100 : Number(form.maxTrackingNumber)
@@ -62,7 +79,9 @@ export default function AddQueueLinePage() {
       await queueRepository.createQueueLine({
         institution_id: staffContext.institution_id,
         name: form.name.trim(),
-        service_area: form.serviceArea.trim(),
+        service_area_id: serviceArea.id,
+        // Kept as a denormalised display label for existing queue screens.
+        service_area: serviceArea.name,
         prefix: form.prefix.trim().toUpperCase(),
         current_number: currentNumber,
         upcoming_number: upcomingNumber,
@@ -94,7 +113,7 @@ export default function AddQueueLinePage() {
           {error && <div className="form-alert error" role="alert">{error}</div>}
           <div className="form-grid">
             <div className="form-group"><label htmlFor="queue-name">Queue Line Name <span className="required-mark">*</span></label><input id="queue-name" className={`input ${fieldErrors.name ? 'invalid' : ''}`} value={form.name} onChange={update('name')} placeholder="e.g. A Series" />{fieldError('name')}</div>
-            <div className="form-group"><label htmlFor="queue-service">Service Area <span className="required-mark">*</span></label><input id="queue-service" className={`input ${fieldErrors.serviceArea ? 'invalid' : ''}`} value={form.serviceArea} onChange={update('serviceArea')} placeholder="e.g. General Ticketing" />{fieldError('serviceArea')}</div>
+            <div className="form-group"><label htmlFor="queue-service-area">Service Area <span className="required-mark">*</span></label><select id="queue-service-area" className={`input ${fieldErrors.serviceAreaId ? 'invalid' : ''}`} value={form.serviceAreaId} onChange={update('serviceAreaId')} disabled={loadingServiceAreas}><option value="">{loadingServiceAreas ? 'Loading service areas…' : serviceAreas.length ? 'Select a service area' : 'No active service areas'}</option>{serviceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select>{fieldError('serviceAreaId')}{!loadingServiceAreas && serviceAreas.length === 0 && <div className="field-note">Create an active service area in the institution profile before creating a queue line.</div>}</div>
             <div className="form-group"><label htmlFor="queue-prefix">Queue Prefix <span className="required-mark">*</span></label><input id="queue-prefix" className={`input ${fieldErrors.prefix ? 'invalid' : ''}`} value={form.prefix} onChange={update('prefix')} placeholder="e.g. A" maxLength={8} />{fieldError('prefix')}</div>
             <div className="form-group"><label htmlFor="queue-first-number">First Number</label><input id="queue-first-number" type="number" min="0" step="1" className={`input ${fieldErrors.firstNumber ? 'invalid' : ''}`} value={form.firstNumber} onChange={update('firstNumber')} placeholder="1" />{fieldError('firstNumber')}<div className="field-note">Numbers only; defaults to 1 when left empty. The queue prefix is added automatically.</div><div className="queue-number-preview" role="note"><div><span>Current number</span><strong>{formatQueueNumber(form.prefix, form.firstNumber === '' ? 1 : form.firstNumber) || 'A-001'}</strong></div><span className="queue-number-preview-arrow">→</span><div><span>Next number (+1)</span><strong>{formatQueueNumber(form.prefix, form.firstNumber === '' ? 2 : Number(form.firstNumber) + 1) || 'A-002'}</strong></div></div></div>
             <div className="form-group"><label htmlFor="queue-status">Queue Status <span className="required-mark">*</span></label><select id="queue-status" className={`input ${fieldErrors.status ? 'invalid' : ''}`} value={form.status} onChange={update('status')}><option value="active">Active</option><option value="paused">Paused</option><option value="closed">Closed</option></select>{fieldError('status')}</div>

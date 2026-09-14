@@ -125,13 +125,16 @@ Future<Map<String, dynamic>?> _trackedSession() async {
   final preferences = await SharedPreferences.getInstance();
   final institutionId = preferences.getString('venue_session_institution_id');
   if (institutionId == null) return null;
-  return {'institutionId': institutionId, 'preferences': preferences};
+  return {
+    'institutionId': institutionId,
+    'serviceAreaId': preferences.getString('venue_session_service_area_id'),
+    'preferences': preferences,
+  };
 }
 
 Future<List<dynamic>> _restGet(String path, Map<String, String> query) async {
-  final uri = Uri.parse(
-    '${SupabaseClientHelper.supabaseUrl}/rest/v1/$path',
-  ).replace(queryParameters: query);
+  final uri = Uri.parse('${SupabaseClientHelper.supabaseUrl}/rest/v1/$path')
+      .replace(queryParameters: query);
   final response = await http.get(
     uri,
     headers: {
@@ -150,17 +153,25 @@ Future<void> _pollAnnouncements() async {
   final session = await _trackedSession();
   if (session == null) return;
   final institutionId = session['institutionId'] as String;
+  final serviceAreaId = session['serviceAreaId'] as String?;
   final preferences = session['preferences'] as SharedPreferences;
-  final seenKey = 'notified_announcement_ids:$institutionId';
+  final seenKey =
+      'notified_announcement_ids:$institutionId:${serviceAreaId ?? 'institution'}';
   final seen = (preferences.getStringList(seenKey) ?? const <String>[]).toSet();
 
-  final rows = await _restGet('announcements', {
-    'select': 'id,title,message_en,published_at',
+  final query = <String, String>{
+    'select': 'id,title,message_en,published_at,expires_at',
     'institution_id': 'eq.$institutionId',
     'status': 'eq.active',
     'order': 'published_at.desc',
     'limit': '15',
-  });
+  };
+  if (serviceAreaId == null) {
+    query['service_area_id'] = 'is.null';
+  } else {
+    query['or'] = '(service_area_id.is.null,service_area_id.eq.$serviceAreaId)';
+  }
+  final rows = await _restGet('announcements', query);
 
   final now = DateTime.now().toUtc();
   final cutoff = now.subtract(_freshWindow);
@@ -173,7 +184,9 @@ Future<void> _pollAnnouncements() async {
     final publishedAt = DateTime.tryParse(
       data['published_at'] as String? ?? '',
     );
+    final expiresAt = DateTime.tryParse(data['expires_at'] as String? ?? '');
     if (publishedAt == null || publishedAt.isAfter(now)) continue;
+    if (expiresAt != null && !expiresAt.isAfter(now)) continue;
     if (seen.contains(id)) continue;
     if (publishedAt.isBefore(cutoff)) continue;
     fresh.add(data);

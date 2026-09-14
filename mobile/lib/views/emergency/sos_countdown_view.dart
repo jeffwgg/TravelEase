@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
+import '../../models/repositories/feature_usage_repository.dart';
 
 class SosCountdownView extends StatefulWidget {
   const SosCountdownView({super.key});
@@ -20,6 +21,7 @@ class _SosCountdownViewState extends State<SosCountdownView> {
   @override
   void initState() {
     super.initState();
+    FeatureUsageTracker.instance.opened(TrackedFeature.sos);
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       if (_secondsRemaining == 1) {
