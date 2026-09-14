@@ -4,7 +4,6 @@ import '../../core/theme.dart';
 import '../../models/entities/sign_language_entity.dart';
 import '../sign_reference/sign_dictionary_view.dart';
 import '../sign_reference/favorite_phrases_view.dart';
-import 'speech_to_sign_view.dart';
 import 'two_way_dialogue_view.dart';
 
 class CommunicationHubView extends StatelessWidget {
@@ -30,7 +29,7 @@ class CommunicationHubView extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // Grid of Communication Tools
+            // 2 x 2 grid of Communication Tools
             Row(
               children: [
                 Expanded(
@@ -47,26 +46,6 @@ class CommunicationHubView extends StatelessWidget {
                 Expanded(
                   child: _buildToolCard(
                     context: context,
-                    icon: Icons.mic_rounded,
-                    title: 'Speech to Sign',
-                    subtitle: 'Microphone captions & gloss',
-                    accentColor: AppColors.accent,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (ctx) => const SpeechToSignView()),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildToolCard(
-                    context: context,
                     icon: Icons.chat_bubble_outline_rounded,
                     title: '2-Way Dialogue',
                     subtitle: 'Counter split-screen chat',
@@ -79,7 +58,11 @@ class CommunicationHubView extends StatelessWidget {
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
                 Expanded(
                   child: _buildToolCard(
                     context: context,
@@ -95,11 +78,7 @@ class CommunicationHubView extends StatelessWidget {
                     },
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
+                const SizedBox(width: 12),
                 Expanded(
                   child: _buildToolCard(
                     context: context,
@@ -115,8 +94,6 @@ class CommunicationHubView extends StatelessWidget {
                     },
                   ),
                 ),
-                const SizedBox(width: 12),
-                const Expanded(child: SizedBox()),
               ],
             ),
             const SizedBox(height: 24),

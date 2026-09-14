@@ -7,16 +7,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
-import 'bim_sign_recognition_service.dart';
 import 'sign_frame_data.dart';
 
 typedef _ResetNative = Void Function(Pointer<Void>);
 typedef _ResetDart = void Function(Pointer<Void>);
 
 /// On-device BIM word recognition: the exported BIM-SIGN Pose BiLSTM
-/// (slr/scripts/export_tflite.py) run over live gesture windows.
+/// (training_resources/bim/slr/scripts/export_tflite.py) run over live gesture windows.
 ///
-/// This is a frame-accurate port of `predict_sign` in `slr/scripts/demo.py` —
+/// This is a frame-accurate port of `predict_sign` in `training_resources/bim/slr/scripts/demo.py` —
 /// guards, idle trimming, the mirror-flip x multi-temporal-scale ensemble, and
 /// shoulder-center standardization must all stay in lockstep with the desktop
 /// inference, because the model's real-webcam accuracy was tuned against that
@@ -498,4 +497,53 @@ class _PreparedBimViews {
   final List<List<List<double>>> seqsFlip;
   final double poseVis;
   final double handMotion;
+}
+
+// ─── recognition result shape ───────────────────────────────────────────────
+// Formerly in bim_sign_recognition_service.dart; kept as the shared shape so
+// the on-device path and (if revived) any future remote path return the same
+// object to the viewmodel.
+
+/// A word plus its accumulated BIM travel phrase, produced per recognized clip.
+class BimSignRecognition {
+  const BimSignRecognition({
+    required this.word,
+    required this.confidence,
+    required this.glosses,
+    required this.malay,
+    required this.chinese,
+    required this.english,
+    required this.matched,
+  });
+
+  final String word;
+  final double confidence;
+  final List<String> glosses;
+  final String malay;
+  final String chinese;
+  final String english;
+  final bool matched;
+
+  factory BimSignRecognition.fromJson(Map<String, dynamic> json) {
+    return BimSignRecognition(
+      word: json['word'] as String? ?? '',
+      confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
+      glosses: (json['glosses'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(growable: false),
+      malay: json['malay'] as String? ?? '',
+      chinese: json['chinese'] as String? ?? '',
+      english: json['english'] as String? ?? '',
+      matched: json['matched'] as bool? ?? false,
+    );
+  }
+}
+
+class BimSignRecognitionException implements Exception {
+  const BimSignRecognitionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }

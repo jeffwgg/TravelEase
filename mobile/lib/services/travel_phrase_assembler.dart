@@ -1,5 +1,5 @@
 /// Shared word→sentence assembly for ASL and BIM (port of
-/// `slr/scripts/templates.py`).
+/// `training_resources/bim/slr/scripts/templates.py`).
 ///
 /// Recognition produces loose gloss words; both dialects feed the SAME
 /// engine: unordered keyword-set matching (biggest subset first, up to 3
@@ -56,7 +56,7 @@ class _Template {
 class TravelPhraseAssembler {
   static const int maxTemplateWords = 3;
 
-  // --- BIM (Malay glosses; 1:1 with slr/scripts/templates.py + the
+  // --- BIM (Malay glosses; 1:1 with training_resources/bim/slr/scripts/templates.py + the
   //     MALAY_TO_ENGLISH map from bim_api.py) ------------------------------
   static const _bimTemplates = [
     _Template({'tandas', 'mana'}, 'Where is the toilet?', 'Di mana tandas?', '廁所在哪裏?'),

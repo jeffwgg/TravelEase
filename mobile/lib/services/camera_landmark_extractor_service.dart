@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:hand_landmarker/hand_landmarker.dart';
 import 'asl_tflite_service.dart';
-import 'bim_sign_recognition_service.dart';
 import 'bim_tflite_service.dart';
 import 'geometric_sign_recognizer.dart';
 import 'sign_clip_recorder.dart';
