@@ -7,9 +7,8 @@ import '../entities/announcement.dart';
 import '../entities/captured_announcement.dart';
 
 /// Device-local storage for microphone-captured public announcements. No
-/// Supabase table is introduced: captures live in SharedPreferences, are
-/// scoped to the venue session they were heard in, and are capped so the
-/// oldest entries age out.
+/// Supabase table is introduced: captures live in SharedPreferences on the
+/// traveller's device and are capped so the oldest entries age out.
 class CapturedAnnouncementStore {
   CapturedAnnouncementStore._();
 
@@ -42,19 +41,17 @@ class CapturedAnnouncementStore {
     await preferences.setStringList(_storageKey, limited);
   }
 
-  /// Captured announcements for the given venue, newest first.
-  Future<List<CapturedAnnouncement>> forVenue(String institutionId) async {
+  /// All locally captured spoken announcements, newest first.
+  Future<List<CapturedAnnouncement>> all() async {
     final entries = await _loadAll();
-    return entries
-        .where((entry) => entry.institutionId == institutionId)
-        .toList()
-      ..sort((a, b) => b.lastCapturedAt.compareTo(a.lastCapturedAt));
+    entries.sort((a, b) => b.lastCapturedAt.compareTo(a.lastCapturedAt));
+    return entries;
   }
 
-  /// The captured announcements of the venue rendered through the shared
+  /// Device-wide spoken announcements rendered through the shared
   /// [Announcement] entity.
-  Future<List<Announcement>> announcementsFor(String institutionId) async {
-    final entries = await forVenue(institutionId);
+  Future<List<Announcement>> announcements() async {
+    final entries = await all();
     return entries.map((entry) => entry.toAnnouncement()).toList();
   }
 

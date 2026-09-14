@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
 
@@ -109,6 +110,24 @@ class HelpCenterView extends StatelessWidget {
             title: 'Manage your account',
             description:
                 'Update personal details, change your password, or replace your profile photo from the Profile page.',
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(
+                Icons.tour_outlined,
+                color: AppColors.primary,
+              ),
+              title: const Text('Replay Home Guide'),
+              subtitle: const Text(
+                'See the Quick Actions, location, and announcement guidance again.',
+              ),
+              trailing: const Icon(
+                Icons.chevron_right,
+                color: AppColors.textMuted,
+              ),
+              onTap: () => context.go('/home?tour=1'),
+            ),
           ),
           const SizedBox(height: 12),
           const _SectionTitle('Accessibility Features'),

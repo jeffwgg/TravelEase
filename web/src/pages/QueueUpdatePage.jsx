@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { queueRepository } from '../repositories/queueRepository'
+import { serviceAreaRepository } from '../repositories/serviceAreaRepository'
 import { useAutoDismiss } from '../hooks/useAutoDismiss'
 
 const labelStatus = (status) => status ? status[0].toUpperCase() + status.slice(1) : ''
@@ -28,6 +29,7 @@ const realWaitingCount = (line) => {
 export default function QueueUpdatePage() {
   const { session, staffContext } = useAuth()
   const [lines, setLines] = useState([])
+  const [serviceAreas, setServiceAreas] = useState([])
   const [editing, setEditing] = useState(null)
   const [directLineId, setDirectLineId] = useState('')
   const [directNumber, setDirectNumber] = useState('')
@@ -86,14 +88,27 @@ export default function QueueUpdatePage() {
     }
   }, [loadLines, staffContext.institution_id])
 
+  useEffect(() => {
+    let active = true
+    serviceAreaRepository.list(staffContext)
+      .then((areas) => {
+        if (active) setServiceAreas(areas.filter((area) => area.active))
+      })
+      .catch((loadError) => {
+        if (active) setError(loadError.message || 'Unable to load service areas.')
+      })
+    return () => { active = false }
+  }, [staffContext])
+
   const openManage = (line) => {
     setEditing({ ...line, was_closed: line.status === 'closed', originalStatus: line.status })
     setError('')
   }
 
   const saveLine = async () => {
-    if (!editing.name.trim() || !editing.service_area.trim()) {
-      setError('Queue line name and service area are required.')
+    const serviceArea = serviceAreas.find((area) => area.id === editing.service_area_id)
+    if (!editing.name.trim() || !serviceArea) {
+      setError('Queue line name and an active service area are required.')
       return
     }
     if (editing.status !== editing.originalStatus) {
@@ -112,7 +127,8 @@ export default function QueueUpdatePage() {
     try {
       await queueRepository.updateQueueLine(editing.id, {
         name: editing.name.trim(),
-        service_area: editing.service_area.trim(),
+        service_area_id: serviceArea.id,
+        service_area: serviceArea.name,
         status: editing.status,
         estimated_service_minutes: Number(editing.estimated_service_minutes),
         max_tracking_number: Number(editing.max_tracking_number) > 0 ? Number(editing.max_tracking_number) : 100,
@@ -316,7 +332,7 @@ export default function QueueUpdatePage() {
             <div className="form-group"><label>Queue Line Name</label><input className="input" disabled={editing.was_closed} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></div>
             <div className="form-group"><label>Current Number</label><div className="input queue-readonly-value" aria-label="Current Number">{editing.current_number}</div></div>
             <div className="form-group"><label>Upcoming Number</label><div className="input queue-readonly-value" aria-label="Upcoming Number">{editing.upcoming_number}</div></div>
-            <div className="form-group"><label>Service Area</label><input className="input" disabled={editing.was_closed} value={editing.service_area} onChange={(event) => setEditing({ ...editing, service_area: event.target.value })} /></div>
+            <div className="form-group"><label>Service Area</label><select className="input" disabled={editing.was_closed} value={editing.service_area_id || ''} onChange={(event) => setEditing({ ...editing, service_area_id: event.target.value })}><option value="">Select an active service area</option>{serviceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select>{!editing.was_closed && serviceAreas.length === 0 && <div className="field-note">No active service areas are available. Create one in the institution profile first.</div>}</div>
             <div className="form-group"><label>Estimated Service Time (Minutes)</label><input type="number" min="1" max="240" className="input" disabled={editing.was_closed} value={editing.estimated_service_minutes} onChange={(event) => setEditing({ ...editing, estimated_service_minutes: event.target.value })} /></div>
             <div className="form-group"><label>Maximum Queue Number</label><input type="number" min="1" max="500" step="1" className="input" disabled={editing.was_closed} value={editing.max_tracking_number ?? 100} onChange={(event) => setEditing({ ...editing, max_tracking_number: event.target.value })} /><div className="field-note">Queue numbers stop at this value; no larger numbers can be called or tracked.</div></div>
             <div className="form-group"><label>Operating Hours</label><input className="input" disabled={editing.was_closed} value={editing.operating_hours || ''} onChange={(event) => setEditing({ ...editing, operating_hours: event.target.value })} placeholder="e.g. 6:00 AM – 11:00 PM" /></div>

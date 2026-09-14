@@ -1,23 +1,30 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../core/supabase_client.dart';
 import '../entities/announcement.dart';
 
 class AnnouncementRepository {
   final SupabaseClient _client = SupabaseClientHelper.client;
 
-  /// Official announcements published by the given institution. Official
-  /// announcements are institution-scoped, so without an active venue session
-  /// there are none to show.
-  Future<List<Announcement>> getActiveAnnouncements({String? institutionId}) async {
+  /// Official announcements published for the active service area. A null
+  /// service area represents an institution-level session and receives only
+  /// institution-wide announcements.
+  Future<List<Announcement>> getActiveAnnouncements({
+    String? institutionId,
+    String? serviceAreaId,
+  }) async {
     if (institutionId == null) return const [];
     final now = DateTime.now().toUtc().toIso8601String();
-    final response = await _client
+    var query = _client
         .from('announcements')
-        .select('*, venue_zones(name, code), institutions(name)')
+        .select('*, service_areas(name), institutions(name)')
         .eq('institution_id', institutionId)
         .eq('status', 'active')
-        .lte('published_at', now)
-        .order('published_at', ascending: false);
+        .lte('published_at', now);
+    query = serviceAreaId == null
+        ? query.isFilter('service_area_id', null)
+        : query.or('service_area_id.is.null,service_area_id.eq.$serviceAreaId');
+    final response = await query.order('published_at', ascending: false);
 
     return (response as List<dynamic>)
         .map((row) => Announcement.fromJson(row as Map<String, dynamic>))
@@ -29,7 +36,7 @@ class AnnouncementRepository {
   Future<Announcement?> getAnnouncementById(String id) async {
     final response = await _client
         .from('announcements')
-        .select('*, venue_zones(name, code), institutions(name)')
+        .select('*, service_areas(name), institutions(name)')
         .eq('id', id)
         .maybeSingle();
     if (response == null) return null;
@@ -56,5 +63,6 @@ class AnnouncementRepository {
         .subscribe();
   }
 
-  Future<void> removeSubscription(RealtimeChannel channel) => _client.removeChannel(channel);
+  Future<void> removeSubscription(RealtimeChannel channel) =>
+      _client.removeChannel(channel);
 }

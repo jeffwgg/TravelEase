@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../entities/environment_sound.dart';
@@ -25,16 +26,18 @@ class EnvironmentSoundPreferences {
               .where((type) => saved.contains(type.name))
               .toSet();
 
-    // The initial release silently left spoken announcements out of the
-    // default set. Enable it once for existing installs so turning on sound
-    // monitoring also enables the PA transcript feature. The master switch
-    // remains off until the traveller chooses to start monitoring.
-    if (!(preferences.getBool(_speechAnnouncementMigrationKey) ?? false)) {
+    // Public-address speech is captured separately from the configurable
+    // important-sound alerts. Keep it enabled whenever sound monitoring is
+    // enabled, including for people who previously turned off its old alert
+    // row. The master switch remains the user's explicit microphone control.
+    if (!types.contains(EnvironmentSoundType.speechAnnouncement)) {
       types.add(EnvironmentSoundType.speechAnnouncement);
       await preferences.setStringList(
         _typesKey,
         types.map((type) => type.name).toList(),
       );
+    }
+    if (!(preferences.getBool(_speechAnnouncementMigrationKey) ?? false)) {
       await preferences.setBool(_speechAnnouncementMigrationKey, true);
     }
     return types;

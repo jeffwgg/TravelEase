@@ -75,6 +75,9 @@ class AnnouncementKeywordScorer {
     // English — generic PA
     'please note that', 'kindly note', 'this is an announcement',
     'please be informed', 'please be advised', 'for your safety',
+    'attention passengers', 'ladies and gentlemen', 'passengers for flight',
+    'should proceed to', 'boarding begins', 'we have now reached',
+    'we have now reach', 'have reached the destination', 'enjoy the flight',
     'emergency exit', 'keep your belongings', 'do not leave your belongings',
     'please queue', 'queue here', 'please form a line', 'in a few minutes',
     'in approximately', 'remains closed', 'is now open',
@@ -116,16 +119,63 @@ class AnnouncementKeywordScorer {
   /// Supporting transport vocabulary. One hit alone is weak; combined with
   /// other signals it strengthens the classification.
   static const _moderate = <String>[
-    'gate', 'boarding', 'flight', 'delay', 'delayed', 'cancelled', 'cancellation',
-    'departure', 'departing', 'arrive', 'arriving', 'minutes', 'minute',
-    'platform', 'station', 'terminal', 'counter', 'queue', 'passengers',
-    'disruption', 'maintenance', 'on time', 'schedule', 'timetable',
-    'security', 'baggage', 'luggage', 'train', 'bus', 'transit', 'lane',
-    'peron', 'stesen', 'tangguh', 'batal', 'berlepas', 'tiba', 'minit',
-    'gerbang', 'penerbangan', 'kaunter', 'beratur', 'penumpang', 'gangguan',
-    'penyelenggaraan', 'keselamatan', 'bagasi', 'tren', 'keretapi', 'bas',
-    'hentian', 'jadual', 'tiket', 'lapangan terbang', 'terminal bas',
-    'stesen bas', 'hentian bas',
+    'gate',
+    'boarding',
+    'flight',
+    'delay',
+    'delayed',
+    'cancelled',
+    'cancellation',
+    'departure',
+    'departing',
+    'arrive',
+    'arriving',
+    'minutes',
+    'minute',
+    'platform',
+    'station',
+    'terminal',
+    'counter',
+    'queue',
+    'passengers',
+    'disruption',
+    'maintenance',
+    'on time',
+    'schedule',
+    'timetable',
+    'security',
+    'baggage',
+    'luggage',
+    'train',
+    'bus',
+    'transit',
+    'lane',
+    'peron',
+    'stesen',
+    'tangguh',
+    'batal',
+    'berlepas',
+    'tiba',
+    'minit',
+    'gerbang',
+    'penerbangan',
+    'kaunter',
+    'beratur',
+    'penumpang',
+    'gangguan',
+    'penyelenggaraan',
+    'keselamatan',
+    'bagasi',
+    'tren',
+    'keretapi',
+    'bas',
+    'hentian',
+    'jadual',
+    'tiket',
+    'lapangan terbang',
+    'terminal bas',
+    'stesen bas',
+    'hentian bas',
   ];
 
   /// Compact gazetteer of Malaysian transit places plus common destination
@@ -175,8 +225,9 @@ class AnnouncementKeywordScorer {
   ];
 
   static final List<(String, RegExp)> _strongMatchers = _buildMatchers(_strong);
-  static final List<(String, RegExp)> _moderateMatchers =
-      _buildMatchers(_moderate);
+  static final List<(String, RegExp)> _moderateMatchers = _buildMatchers(
+    _moderate,
+  );
   static final List<RegExp> _placeMatchers = _places
       .where((place) => place.isNotEmpty)
       .map(_wordMatcher)
@@ -185,8 +236,9 @@ class AnnouncementKeywordScorer {
   static RegExp _wordMatcher(String phrase) =>
       RegExp('\\b${RegExp.escape(phrase)}\\b');
 
-  static List<(String, RegExp)> _buildMatchers(List<String> phrases) =>
-      phrases.map((phrase) => (phrase, _wordMatcher(phrase))).toList(growable: false);
+  static List<(String, RegExp)> _buildMatchers(List<String> phrases) => phrases
+      .map((phrase) => (phrase, _wordMatcher(phrase)))
+      .toList(growable: false);
 
   AnnouncementScoreResult score(
     String transcript,
@@ -194,7 +246,10 @@ class AnnouncementKeywordScorer {
     int repetitionCount = 1,
     bool pagingTone = false,
   }) {
-    final normalized = transcript.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normalized = transcript
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
 
     final strongHits = <String>[];
     var moderateHits = 0;
@@ -245,7 +300,9 @@ class AnnouncementKeywordScorer {
     // strong PA-system evidence, so the keyword floor is relaxed.
     final isAnnouncement =
         (confidence >= 0.55 && clampedKeywordScore >= 0.30) ||
-        (repetitionCount >= 2 && clampedKeywordScore >= 0.20 && confidence >= 0.40) ||
+        (repetitionCount >= 2 &&
+            clampedKeywordScore >= 0.20 &&
+            confidence >= 0.40) ||
         (pagingTone && clampedKeywordScore >= 0.15 && confidence >= 0.45);
 
     final language = malayHits > englishHits ? 'ms' : 'en';
@@ -270,15 +327,65 @@ class AnnouncementKeywordScorer {
   }
 
   static const _malayMarkers = [
-    'sila', 'perhatian', 'penerbangan', 'tiba', 'berlepas', 'gerbang',
-    'kaunter', 'bagasi', 'penumpang', 'beratur', 'tren', 'bas', 'bas seterusnya',
-    'perkhidmatan', 'gangguan', 'penyelenggaraan', 'keselamatan', 'maaf',
-    'tangguh', 'batal', 'minit', 'stesen', 'hentian', 'jadual', 'kastam',
-    'imigresen', 'kesabaran', 'peron', 'lif', 'tangga', 'makluman',
-    'pengumuman', 'kecemasan', 'tiket', 'lapangan', 'menaiki', 'menuju',
-    'berakhir', 'pengganti', 'rosak', 'dalam', 'kira-kira', 'dikehendaki',
-    'dijaga', 'berhati', 'garisan', 'beri', 'lalu', 'atur', 'tutup',
-    'dibuka', 'dengan', 'untuk', 'dijangka', 'destinasi', 'terima',
-    'wajib', 'melangkah', 'berdiri', 'kuning',
+    'sila',
+    'perhatian',
+    'penerbangan',
+    'tiba',
+    'berlepas',
+    'gerbang',
+    'kaunter',
+    'bagasi',
+    'penumpang',
+    'beratur',
+    'tren',
+    'bas',
+    'bas seterusnya',
+    'perkhidmatan',
+    'gangguan',
+    'penyelenggaraan',
+    'keselamatan',
+    'maaf',
+    'tangguh',
+    'batal',
+    'minit',
+    'stesen',
+    'hentian',
+    'jadual',
+    'kastam',
+    'imigresen',
+    'kesabaran',
+    'peron',
+    'lif',
+    'tangga',
+    'makluman',
+    'pengumuman',
+    'kecemasan',
+    'tiket',
+    'lapangan',
+    'menaiki',
+    'menuju',
+    'berakhir',
+    'pengganti',
+    'rosak',
+    'dalam',
+    'kira-kira',
+    'dikehendaki',
+    'dijaga',
+    'berhati',
+    'garisan',
+    'beri',
+    'lalu',
+    'atur',
+    'tutup',
+    'dibuka',
+    'dengan',
+    'untuk',
+    'dijangka',
+    'destinasi',
+    'terima',
+    'wajib',
+    'melangkah',
+    'berdiri',
+    'kuning',
   ];
 }

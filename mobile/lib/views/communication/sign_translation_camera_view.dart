@@ -1,22 +1,18 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
-import 'package:share_plus/share_plus.dart';
+
 import '../../core/theme.dart';
 import '../../models/entities/sign_language_entity.dart';
+import '../../models/repositories/feature_usage_repository.dart';
 import '../../services/camera_landmark_extractor_service.dart';
 import '../../services/sign_frame_data.dart';
 import '../../viewmodels/sign_translation_camera_viewmodel.dart';
 import '../../viewmodels/speech_to_sign_viewmodel.dart';
-
-/// Debug overlays (skeleton painter, harness tray) are hidden in release
-/// builds but shown in BOTH debug and profile — profiling runs are exactly
-/// where the landmark overlay is most useful.
-const bool _debugOverlayEnabled = kDebugMode || kProfileMode;
 
 enum SignTranslationMode {
   signToText, // Sign Language (Camera) -> Text & Voice
@@ -41,7 +37,8 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
   late final SignTranslationCameraViewModel _cameraViewModel;
   late final SpeechToSignViewModel _speechViewModel;
   final TextEditingController _speechInputController = TextEditingController();
-  final CameraLandmarkExtractorService _landmarkExtractor = CameraLandmarkExtractorService();
+  final CameraLandmarkExtractorService _landmarkExtractor =
+      CameraLandmarkExtractorService();
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -62,6 +59,8 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
   /// the clip recorder controls.
   bool _showDebugTray = false;
   bool _isRecordingClip = false;
+  bool _hasRecordedSignTranslation = false;
+  bool _hasRecordedSpeechToSign = false;
 
   // ASL / English First
   final _targetTextLanguages = const [
@@ -82,6 +81,12 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
     _currentMode = widget.initialMode;
     _cameraViewModel = SignTranslationCameraViewModel();
     _speechViewModel = SpeechToSignViewModel();
+    FeatureUsageTracker.instance.opened(
+      widget.initialMode == SignTranslationMode.signToText
+          ? TrackedFeature.signTranslate
+          : TrackedFeature.speechToSign,
+    );
+    _cameraViewModel.addListener(_trackSignTranslationCompletion);
     _speechInputController.text = _speechViewModel.currentInputText;
     _landmarkExtractor.initialize();
 
@@ -93,6 +98,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           offset: _speechInputController.text.length,
         );
       }
+      _trackSpeechToSignCompletion();
     });
 
     _pulseController = AnimationController(
@@ -201,15 +207,17 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
       // sub-millisecond and pose runs on its own decoupled cadence)
       try {
         _cameraController!.startImageStream((CameraImage image) async {
-          if (!_cameraViewModel.isDetecting || _currentMode != SignTranslationMode.signToText) return;
-          if (isProcessing) {
-            _landmarkExtractor.noteFrameDropped();
+          if (!_cameraViewModel.isDetecting ||
+              _currentMode != SignTranslationMode.signToText)
             return;
-          }
+          if (isProcessing) return;
           isProcessing = true;
 
           try {
-            final result = await _landmarkExtractor.processCameraFrame(image, camera);
+            final result = await _landmarkExtractor.processCameraFrame(
+              image,
+              camera,
+            );
             if (result != null && mounted) {
               _cameraViewModel.onLiveFrameRecognized(
                 hasHand: result['hasHand'] == true,
@@ -267,6 +275,23 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           ? SignTranslationMode.speechToSign
           : SignTranslationMode.signToText;
     });
+    FeatureUsageTracker.instance.opened(
+      _currentMode == SignTranslationMode.signToText
+          ? TrackedFeature.signTranslate
+          : TrackedFeature.speechToSign,
+    );
+  }
+
+  void _trackSignTranslationCompletion() {
+    if (_hasRecordedSignTranslation || !_cameraViewModel.hasContent) return;
+    _hasRecordedSignTranslation = true;
+    FeatureUsageTracker.instance.completed(TrackedFeature.signTranslate);
+  }
+
+  void _trackSpeechToSignCompletion() {
+    if (_hasRecordedSpeechToSign || !_speechViewModel.hasContent) return;
+    _hasRecordedSpeechToSign = true;
+    FeatureUsageTracker.instance.completed(TrackedFeature.speechToSign);
   }
 
   @override
@@ -355,6 +380,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                       _cameraViewModel.updateActiveTranslatedText(
                         controller.text.trim(),
                       );
+                      _trackSignTranslationCompletion();
                     }
                     Navigator.pop(ctx);
                   },
@@ -380,11 +406,6 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
     return ListenableBuilder(
       listenable: Listenable.merge([_cameraViewModel, _speechViewModel]),
       builder: (context, _) {
-        // Single source of truth for model routing: the extractor's mode
-        // follows the viewmodel's dialect on EVERY rebuild, so no dialect
-        // change path (now or later) can leave it on the wrong model.
-        _landmarkExtractor.bimMode =
-            _cameraViewModel.selectedLanguage == SignLanguageType.bim;
         final isSignToText = _currentMode == SignTranslationMode.signToText;
 
         return Scaffold(
@@ -612,57 +633,58 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                     // CSL input is not offered on this screen yet.
                     .where((lang) => lang != SignLanguageType.csl)
                     .map((lang) {
-                  final isSelected = _cameraViewModel.selectedLanguage == lang;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      avatar: Text(
-                        lang.flagEmoji,
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      label: Text('${lang.code} (${lang.countryCode})'),
-                      selected: isSelected,
-                      selectedColor: AppColors.primary,
-                      labelStyle: TextStyle(
-                        color: isSelected
-                            ? Colors.white
-                            : AppColors.textPrimary,
-                        fontWeight: isSelected
-                            ? FontWeight.w800
-                            : FontWeight.w500,
-                        fontSize: 12,
-                      ),
-                      backgroundColor: AppColors.surfaceVariant,
-                      side: BorderSide(
-                        color: isSelected
-                            ? AppColors.primary
-                            : AppColors.cardBorder,
-                      ),
-                      onSelected: (val) {
-                        if (!val) return;
-                        // Recognition routing follows automatically: the
-                        // builder syncs _landmarkExtractor.bimMode from the
-                        // viewmodel's dialect on the rebuild this triggers.
-                        _cameraViewModel.switchDialect(lang);
-                      },
-                    ),
-                  );
-                }),
+                      final isSelected =
+                          _cameraViewModel.selectedLanguage == lang;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          avatar: Text(
+                            lang.flagEmoji,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          label: Text('${lang.code} (${lang.countryCode})'),
+                          selected: isSelected,
+                          selectedColor: AppColors.primary,
+                          labelStyle: TextStyle(
+                            color: isSelected
+                                ? Colors.white
+                                : AppColors.textPrimary,
+                            fontWeight: isSelected
+                                ? FontWeight.w800
+                                : FontWeight.w500,
+                            fontSize: 12,
+                          ),
+                          backgroundColor: AppColors.surfaceVariant,
+                          side: BorderSide(
+                            color: isSelected
+                                ? AppColors.primary
+                                : AppColors.cardBorder,
+                          ),
+                          onSelected: (val) {
+                            if (val) _cameraViewModel.switchDialect(lang);
+                          },
+                        ),
+                      );
+                    }),
               ],
             ),
           ),
         ),
 
-        // Honest labeling: CSL is the only dialect still running on the
-        // ASL-trained engine (Phase 3.3).
-        if (_cameraViewModel.selectedLanguage == SignLanguageType.csl)
+        // Honest labeling: the geometric engine + TFLite model are ASL-trained;
+        // BIM selection does not change recognition yet (Phase 3.3).
+        if (_cameraViewModel.selectedLanguage != SignLanguageType.asl)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
             color: const Color(0xFFFFF7E6),
             child: const Text(
-              'ℹ️ Recognition currently uses ASL rules for this dialect — CSL model coming soon',
-              style: TextStyle(color: Color(0xFF92600A), fontSize: 10.5, fontWeight: FontWeight.w600),
+              'ℹ️ Recognition currently uses ASL rules for all dialects — BIM coming soon',
+              style: TextStyle(
+                color: Color(0xFF92600A),
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
 
@@ -751,10 +773,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
 
                   // Debug skeleton overlay: the 21 detected hand joints +
                   // face/body anchors, mapped through the same cover-fit
-                  // transform as the preview (debug/profile builds only). If
-                  // the skeleton appears flipped/rotated vs your real hand,
+                  // transform as the preview (debug builds only). If the
+                  // skeleton appears flipped/rotated vs your real hand,
                   // the landmark coordinate space needs fixing.
-                  if (_debugOverlayEnabled &&
+                  if (kDebugMode &&
                       _isCameraInitialized &&
                       _cameraController != null &&
                       _cameraController!.value.isInitialized)
@@ -766,14 +788,17 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                             anchors: _cameraViewModel.handAnchors,
                             fromMediaPipe: _cameraViewModel.handFromMediaPipe,
                             cameraWidth:
-                                _cameraController!.value.previewSize?.height ?? 1,
+                                _cameraController!.value.previewSize?.height ??
+                                1,
                             cameraHeight:
-                                _cameraController!.value.previewSize?.width ?? 1,
+                                _cameraController!.value.previewSize?.width ??
+                                1,
                             // Model coords are third-person (unmirrored);
                             // the front-camera preview is the mirrored
                             // selfie view — flip for display only.
                             mirrorX:
-                                _currentLensDirection == CameraLensDirection.front,
+                                _currentLensDirection ==
+                                CameraLensDirection.front,
                           ),
                         ),
                       ),
@@ -782,7 +807,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                   // Real-time Full Viewport Tracking Frame with Status Badge
                   // Long-press toggles the debug/harness tray (debug builds).
                   GestureDetector(
-                    onLongPress: _debugOverlayEnabled
+                    onLongPress: kDebugMode
                         ? () => setState(() => _showDebugTray = !_showDebugTray)
                         : null,
                     child: ScaleTransition(
@@ -792,26 +817,41 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                         height: 270,
                         decoration: BoxDecoration(
                           border: Border.all(
-                            color: _cameraViewModel.isHandDetected ? AppColors.success : AppColors.primaryLight.withValues(alpha: 0.5),
+                            color: _cameraViewModel.isHandDetected
+                                ? AppColors.success
+                                : AppColors.primaryLight.withValues(alpha: 0.5),
                             width: _cameraViewModel.isHandDetected ? 2.5 : 1.5,
                           ),
                           borderRadius: BorderRadius.circular(24),
-                          color: (_cameraViewModel.isHandDetected ? AppColors.success : AppColors.primary).withValues(alpha: 0.04),
+                          color:
+                              (_cameraViewModel.isHandDetected
+                                      ? AppColors.success
+                                      : AppColors.primary)
+                                  .withValues(alpha: 0.04),
                         ),
                         child: Align(
                           alignment: Alignment.topCenter,
                           child: Container(
                             margin: const EdgeInsets.only(top: 10),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
-                              color: _cameraViewModel.isHandDetected ? AppColors.success : AppColors.primary,
+                              color: _cameraViewModel.isHandDetected
+                                  ? AppColors.success
+                                  : AppColors.primary,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
                               _cameraViewModel.isHandDetected
                                   ? '● TRACKING ACTIVE ($_trackingSourceLabel)'
                                   : '● SCANNING ENTIRE CAMERA VIEW...',
-                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
@@ -821,7 +861,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
 
                   // Debug/harness tray: manual letters + clip recorder.
                   // Hidden by default — long-press the tracking badge (debug builds only).
-                  if (_debugOverlayEnabled && _showDebugTray)
+                  if (kDebugMode && _showDebugTray)
                     Positioned(
                       bottom: 12,
                       left: 12,
@@ -837,20 +877,13 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('DEBUG HARNESS',
-                                style: TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
-                            const SizedBox(height: 6),
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: [
-                                  _buildGesturePoseChip('A', 'Letter A', Icons.fingerprint),
-                                  _buildGesturePoseChip('B', 'Letter B', Icons.pan_tool_rounded),
-                                  _buildGesturePoseChip('C', 'Letter C', Icons.circle_outlined),
-                                  _buildGesturePoseChip('L', 'Letter L', Icons.straighten_rounded),
-                                  _buildGesturePoseChip('V', 'Letter V', Icons.favorite_border_rounded),
-                                  _buildGesturePoseChip('Y', 'Letter Y', Icons.call_made_rounded),
-                                ],
+                            const Text(
+                              'DEBUG HARNESS',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1,
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -858,31 +891,62 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                               scrollDirection: Axis.horizontal,
                               child: Row(
                                 children: [
-                                  _buildRecorderButton(
-                                    label: _isRecordingClip ? 'Stop & Save Clip' : 'Record Clip',
-                                    icon: _isRecordingClip ? Icons.stop_rounded : Icons.fiber_manual_record_rounded,
-                                    color: _isRecordingClip ? AppColors.emergency : AppColors.success,
-                                    onTap: _toggleClipRecording,
+                                  _buildGesturePoseChip(
+                                    'A',
+                                    'Letter A',
+                                    Icons.fingerprint,
                                   ),
-                                  const SizedBox(width: 6),
-                                  _buildRecorderButton(
-                                    label: 'Copy Clips JSON',
-                                    icon: Icons.copy_rounded,
-                                    color: AppColors.primary,
-                                    onTap: _copyClipsJson,
+                                  _buildGesturePoseChip(
+                                    'B',
+                                    'Letter B',
+                                    Icons.pan_tool_rounded,
                                   ),
-                                  const SizedBox(width: 6),
-                                  // Clipboard drops large exports on Android —
-                                  // save the session to a file and open the
-                                  // system share sheet instead.
-                                  _buildRecorderButton(
-                                    label: 'Save & Share Clips',
-                                    icon: Icons.ios_share_rounded,
-                                    color: AppColors.accent,
-                                    onTap: _shareClipsJson,
+                                  _buildGesturePoseChip(
+                                    'C',
+                                    'Letter C',
+                                    Icons.circle_outlined,
+                                  ),
+                                  _buildGesturePoseChip(
+                                    'L',
+                                    'Letter L',
+                                    Icons.straighten_rounded,
+                                  ),
+                                  _buildGesturePoseChip(
+                                    'V',
+                                    'Letter V',
+                                    Icons.favorite_border_rounded,
+                                  ),
+                                  _buildGesturePoseChip(
+                                    'Y',
+                                    'Letter Y',
+                                    Icons.call_made_rounded,
                                   ),
                                 ],
                               ),
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                _buildRecorderButton(
+                                  label: _isRecordingClip
+                                      ? 'Stop & Save Clip'
+                                      : 'Record Clip',
+                                  icon: _isRecordingClip
+                                      ? Icons.stop_rounded
+                                      : Icons.fiber_manual_record_rounded,
+                                  color: _isRecordingClip
+                                      ? AppColors.emergency
+                                      : AppColors.success,
+                                  onTap: _toggleClipRecording,
+                                ),
+                                const SizedBox(width: 6),
+                                _buildRecorderButton(
+                                  label: 'Copy Clips JSON',
+                                  icon: Icons.copy_rounded,
+                                  color: AppColors.primary,
+                                  onTap: _copyClipsJson,
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -925,7 +989,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                         width: 8,
                         height: 8,
                         decoration: BoxDecoration(
-                          color: hasText ? AppColors.success : AppColors.primary,
+                          color: hasText
+                              ? AppColors.success
+                              : AppColors.primary,
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -934,7 +1000,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                         hasText
                             ? 'Recognized (${_cameraViewModel.selectedLanguage.code})'
                             : 'AI Live Tracking (${_cameraViewModel.selectedLanguage.code})',
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w700),
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                   ),
@@ -951,20 +1021,36 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
-                                color: AppColors.successLight.withValues(alpha: 0.25),
+                                color: AppColors.successLight.withValues(
+                                  alpha: 0.25,
+                                ),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: AppColors.success, width: 0.8),
+                                border: Border.all(
+                                  color: AppColors.success,
+                                  width: 0.8,
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.verified, size: 13, color: AppColors.success),
+                                  const Icon(
+                                    Icons.verified,
+                                    size: 13,
+                                    color: AppColors.success,
+                                  ),
                                   const SizedBox(width: 4),
                                   Text(
                                     '${(_cameraViewModel.confidenceScore * 100).toInt()}% Conf.',
-                                    style: const TextStyle(color: AppColors.success, fontSize: 10.5, fontWeight: FontWeight.w700),
+                                    style: const TextStyle(
+                                      color: AppColors.success,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -972,7 +1058,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                             IconButton(
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
-                              icon: const Icon(Icons.clear_rounded, size: 18, color: AppColors.textMuted),
+                              icon: const Icon(
+                                Icons.clear_rounded,
+                                size: 18,
+                                color: AppColors.textMuted,
+                              ),
                               tooltip: 'Clear Recognized Text',
                               onPressed: _cameraViewModel.clearText,
                             ),
@@ -983,18 +1073,23 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                       // Manual capture — debug harness only (the previous
                       // version faked this by feeding a zero tensor into the
                       // temporal model, which always produced a garbage class).
-                      if (_debugOverlayEnabled && _showDebugTray)
+                      if (kDebugMode && _showDebugTray)
                         InkWell(
                           onTap: () => _cameraViewModel.debugCaptureLetter('A'),
                           borderRadius: BorderRadius.circular(8),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.primary,
                               borderRadius: BorderRadius.circular(8),
                               boxShadow: [
                                 BoxShadow(
-                                  color: AppColors.primary.withValues(alpha: 0.25),
+                                  color: AppColors.primary.withValues(
+                                    alpha: 0.25,
+                                  ),
                                   blurRadius: 6,
                                   offset: const Offset(0, 2),
                                 ),
@@ -1003,11 +1098,19 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.camera_alt_rounded, size: 13, color: Colors.white),
+                                Icon(
+                                  Icons.camera_alt_rounded,
+                                  size: 13,
+                                  color: Colors.white,
+                                ),
                                 SizedBox(width: 4),
                                 Text(
                                   'Capture Letter',
-                                  style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800),
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
                               ],
                             ),
@@ -1062,11 +1165,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                                 : AppColors.cardBorder,
                           ),
                           onSelected: (val) {
-                            if (val) {
+                            if (val)
                               _cameraViewModel.switchTargetOutputLang(
                                 lang['code']!,
                               );
-                            }
                           },
                         ),
                       );
@@ -1200,7 +1302,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
               const SizedBox(width: 4),
               Text(
                 label,
-                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
@@ -1227,12 +1333,15 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
       final clip = _landmarkExtractor.stopClipRecording();
       setState(() => _isRecordingClip = false);
       if (mounted && clip != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
               'Clip saved: "${clip.label}" (${clip.frames.length} frames). '
-              'Tap "Copy Clips JSON" to export.'),
-          duration: const Duration(seconds: 3),
-        ));
+              'Tap "Copy Clips JSON" to export.',
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
       return;
     }
@@ -1252,7 +1361,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, labelController.text.trim()),
             child: const Text('Start'),
@@ -1270,38 +1382,16 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
   Future<void> _copyClipsJson() async {
     final count = await _landmarkExtractor.copyRecordingsToClipboard();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(count > 0
-            ? '$count clip(s) copied as JSON — paste into test/fixtures/sign_clips.json'
-            : 'No clips recorded yet.'),
-        duration: const Duration(seconds: 3),
-      ));
-    }
-  }
-
-  /// Large JSON exports exceed the Android clipboard (silently dropped,
-  /// worst on Huawei), so this writes the session to a file and opens the
-  /// system share sheet — save to Files, send via email/Drive, or pull it
-  /// over adb using the path shown in the snackbar.
-  Future<void> _shareClipsJson() async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final path = await _landmarkExtractor.exportRecordingsToFile();
-      await SharePlus.instance.share(
-        ShareParams(
-          subject: 'BIM landmark clips',
-          files: [XFile(path, mimeType: 'application/json')],
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            count > 0
+                ? '$count clip(s) copied as JSON — paste into test/fixtures/sign_clips.json'
+                : 'No clips recorded yet.',
+          ),
+          duration: const Duration(seconds: 3),
         ),
       );
-      messenger.showSnackBar(SnackBar(
-        content: Text('Saved:\n$path', style: const TextStyle(fontSize: 11)),
-        duration: const Duration(seconds: 6),
-      ));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(
-        content: Text('Clip export failed: $e'),
-        duration: const Duration(seconds: 4),
-      ));
     }
   }
 
@@ -1326,7 +1416,14 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           children: [
             Icon(icon, size: 13, color: Colors.white),
             const SizedBox(width: 4),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w800)),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ],
         ),
       ),
@@ -1732,9 +1829,8 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                           : _speechViewModel.spokenLang == "zh"
                           ? "中文"
                           : "English"}',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(fontSize: 10.5),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(fontSize: 10.5),
               ),
             ],
           ),
@@ -1769,24 +1865,27 @@ class _HandOverlayPainter extends CustomPainter {
   final bool mirrorX;
 
   static const List<List<int>> _bones = [
-    [0, 1], [1, 2], [2, 3], [3, 4],       // thumb
-    [0, 5], [5, 6], [6, 7], [7, 8],       // index
-    [9, 10], [10, 11], [11, 12],          // middle
-    [13, 14], [14, 15], [15, 16],         // ring
-    [0, 17], [17, 18], [18, 19], [19, 20],// pinky
-    [5, 9], [9, 13], [13, 17],            // knuckle row
+    [0, 1], [1, 2], [2, 3], [3, 4], // thumb
+    [0, 5], [5, 6], [6, 7], [7, 8], // index
+    [9, 10], [10, 11], [11, 12], // middle
+    [13, 14], [14, 15], [15, 16], // ring
+    [0, 17], [17, 18], [18, 19], [19, 20], // pinky
+    [5, 9], [9, 13], [13, 17], // knuckle row
   ];
 
   @override
   void paint(Canvas canvas, Size size) {
     if (cameraWidth < 2 || cameraHeight < 2) return;
-    final scale =
-        math.max(size.width / cameraWidth, size.height / cameraHeight);
+    final scale = math.max(
+      size.width / cameraWidth,
+      size.height / cameraHeight,
+    );
     final dx = (size.width - cameraWidth * scale) / 2;
     final dy = (size.height - cameraHeight * scale) / 2;
     Offset map(SGPoint p) => Offset(
-        dx + (mirrorX ? 1 - p.x : p.x) * cameraWidth * scale,
-        dy + p.y * cameraHeight * scale);
+      dx + (mirrorX ? 1 - p.x : p.x) * cameraWidth * scale,
+      dy + p.y * cameraHeight * scale,
+    );
 
     // Face/body anchors (orange) — verify hand/pose space alignment.
     final anchorPaint = Paint()..color = const Color(0xFFFFB300);
@@ -1804,8 +1903,9 @@ class _HandOverlayPainter extends CustomPainter {
 
     if (hand.length < 21) return;
 
-    final color =
-        fromMediaPipe ? const Color(0xFF69F0AE) : const Color(0xFFFF6E40);
+    final color = fromMediaPipe
+        ? const Color(0xFF69F0AE)
+        : const Color(0xFFFF6E40);
     final bonePaint = Paint()
       ..color = color.withValues(alpha: 0.95)
       ..strokeWidth = 3.0

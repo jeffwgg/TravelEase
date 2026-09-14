@@ -10,7 +10,7 @@ const languageOptions = [
 ]
 
 const initialForm = {
-  title: '', zoneId: 'all', type: '', priority: 'normal',
+  title: '', serviceAreaId: 'all', type: '', priority: 'normal',
   messageEn: '', messageMs: '', messageZh: '', scheduledAt: '', autoTranslate: false,
   targetLanguages: ['ms'], status: 'active',
 }
@@ -33,7 +33,7 @@ export default function CreateAnnouncementPage() {
   const navigate = useNavigate()
   const { session, staffContext } = useAuth()
   const [form, setForm] = useState(initialForm)
-  const [zones, setZones] = useState([])
+  const [serviceAreas, setServiceAreas] = useState([])
   const [fieldErrors, setFieldErrors] = useState({})
   const [loading, setLoading] = useState(true)
   const [publishLocked, setPublishLocked] = useState(false)
@@ -46,13 +46,13 @@ export default function CreateAnnouncementPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const zoneData = await announcementRepository.getZones(staffContext.institution_id)
-        setZones(zoneData)
+        const serviceAreaData = await announcementRepository.getServiceAreas(staffContext.institution_id)
+        setServiceAreas(serviceAreaData)
         if (isEditing) {
           const item = await announcementRepository.getAnnouncement(id, staffContext.institution_id)
           setForm({
             title: item.title,
-            zoneId: item.zone_id || 'all',
+            serviceAreaId: item.service_area_id || 'all',
             type: item.announcement_type,
             priority: item.priority,
             messageEn: item.message_en,
@@ -135,7 +135,7 @@ export default function CreateAnnouncementPage() {
   const validate = () => {
     const next = {}
     if (!form.title.trim()) next.title = 'Title / Subject is required.'
-    if (!form.zoneId) next.zoneId = 'Target Zone / Area is required.'
+    if (!form.serviceAreaId) next.serviceAreaId = 'Target service area is required.'
     if (!form.priority) next.priority = 'Priority is required.'
     if (isEditing && !form.status) next.status = 'Status is required.'
     if (!form.messageEn.trim()) next.messageEn = 'English message content is required.'
@@ -177,7 +177,7 @@ export default function CreateAnnouncementPage() {
       const scheduledFor = form.scheduledAt ? new Date(form.scheduledAt) : null
       const isScheduled = Boolean(scheduledFor) && scheduledFor > new Date()
       const payload = {
-        zone_id: form.zoneId === 'all' ? null : form.zoneId,
+        service_area_id: form.serviceAreaId === 'all' ? null : form.serviceAreaId,
         title: form.title.trim(),
         message_en: form.messageEn.trim(),
         announcement_type: form.type,
@@ -228,7 +228,7 @@ export default function CreateAnnouncementPage() {
           {loading ? <div className="table-message">Loading announcement…</div> : <>
             <div className="form-group"><label htmlFor="announcement-title">Title / Subject <span className="required-mark">*</span></label><input id="announcement-title" className={`input ${fieldErrors.title ? 'invalid' : ''}`} value={form.title} onChange={update('title')} maxLength={160} placeholder="e.g. Gate Change — MH370" />{fieldError('title')}</div>
             <div className="form-grid">
-              <div className="form-group"><label htmlFor="announcement-zone">Target Zone / Area <span className="required-mark">*</span></label><select id="announcement-zone" className={`input ${fieldErrors.zoneId ? 'invalid' : ''}`} value={form.zoneId} onChange={update('zoneId')}><option value="all">All Zones (Entire Venue)</option>{zones.filter((zone) => zone.code !== 'ALL').map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}</select>{fieldError('zoneId')}</div>
+              <div className="form-group"><label htmlFor="announcement-service-area">Target Service Area <span className="required-mark">*</span></label><select id="announcement-service-area" className={`input ${fieldErrors.serviceAreaId ? 'invalid' : ''}`} value={form.serviceAreaId} onChange={update('serviceAreaId')}><option value="all">All service areas (entire institution)</option>{serviceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select>{fieldError('serviceAreaId')}</div>
               <div className="form-group"><label htmlFor="announcement-type">Announcement Type </label><input id="announcement-type" className={`input ${fieldErrors.type ? 'invalid' : ''}`} value={form.type} onChange={update('type')} maxLength={160} placeholder="e.g. General Information" />{fieldError('type')}</div>
               <div className="form-group"><label htmlFor="announcement-priority">Priority <span className="required-mark">*</span></label><select id="announcement-priority" className={`input ${fieldErrors.priority ? 'invalid' : ''}`} value={form.priority} onChange={update('priority')}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>{fieldError('priority')}</div>
               <div className="form-group"><label htmlFor="announcement-schedule">Schedule Publish Time (Optional)</label><input id="announcement-schedule" type="datetime-local" className={`input ${fieldErrors.scheduledAt ? 'invalid' : ''}`} value={form.scheduledAt} min={new Date().toISOString().slice(0, 16)} disabled={publishLocked} onChange={update('scheduledAt')} />{fieldError('scheduledAt')}{publishLocked && <div className="field-note">Already published — the schedule can no longer be changed.</div>}</div>

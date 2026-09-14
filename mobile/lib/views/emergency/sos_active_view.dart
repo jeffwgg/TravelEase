@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
 import '../../services/accessibility_alert_service.dart';
+import '../../models/repositories/feature_usage_repository.dart';
 import '../../viewmodels/sos_viewmodel.dart';
 
 class SosActiveView extends StatefulWidget {
@@ -21,6 +22,7 @@ class _SosActiveViewState extends State<SosActiveView> {
   @override
   void initState() {
     super.initState();
+    FeatureUsageTracker.instance.completed(TrackedFeature.sos);
     unawaited(_alertService.vibrateForSos());
     _viewModel = SosViewModel()..activateSos();
   }

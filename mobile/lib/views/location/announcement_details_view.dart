@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+
 import '../../core/theme.dart';
 import '../../models/entities/announcement.dart';
 import '../../models/entities/captured_announcement.dart';
 import '../../models/repositories/announcement_repository.dart';
 import '../../models/repositories/captured_announcement_store.dart';
+import '../../models/repositories/feature_usage_repository.dart';
+import '../../services/translation_service.dart';
 import '../../widgets/app_message_banner.dart';
 
 /// Full content of a single announcement reached from the home preview or the
@@ -20,11 +23,15 @@ class AnnouncementDetailsView extends StatefulWidget {
 
 class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
   final _repository = AnnouncementRepository();
+  final _translator = TranslationService();
+  final Map<String, AnnouncementTranslation> _capturedTranslations = {};
   Announcement? _announcement;
   CapturedAnnouncement? _capture;
   bool _loading = true;
   String? _error;
   String _language = 'en';
+  bool _translating = false;
+  String? _translationError;
 
   @override
   void initState() {
@@ -38,14 +45,13 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
       _error = null;
     });
     try {
-      final announcement = await _repository.getAnnouncementById(widget.id);
-      CapturedAnnouncement? capture;
-      var resolved = announcement;
-      if (resolved == null) {
-        // Not an official row — check device-local captured announcements.
-        capture = await CapturedAnnouncementStore.instance.byId(widget.id);
-        resolved = capture?.toAnnouncement();
-      }
+      // A captured id uses the local `cap-...` format, not Supabase's UUID
+      // format. Resolve locally first so the remote query cannot throw before
+      // this page gets its fallback.
+      final capture = await CapturedAnnouncementStore.instance.byId(widget.id);
+      final resolved =
+          capture?.toAnnouncement() ??
+          await _repository.getAnnouncementById(widget.id);
       if (!mounted) return;
       setState(() {
         _announcement = resolved;
@@ -55,6 +61,9 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
           _error = 'This announcement is no longer available.';
         }
       });
+      if (resolved != null) {
+        FeatureUsageTracker.instance.completed(TrackedFeature.announcements);
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -75,7 +84,7 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
               tooltip: 'Announcement language',
               icon: const Icon(Icons.translate),
               initialValue: _language,
-              onSelected: (value) => setState(() => _language = value),
+              onSelected: _selectLanguage,
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'en', child: Text('English')),
                 PopupMenuItem(value: 'ms', child: Text('Bahasa Melayu')),
@@ -122,7 +131,9 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
   Widget _buildDetails(BuildContext context, Announcement announcement) {
     final captured = announcement.isCaptured;
     final color = captured ? AppColors.accent : _colorFor(announcement);
-    final translation = announcement.translations[_language];
+    final translation = captured
+        ? _capturedTranslations[_language]
+        : announcement.translations[_language];
     final title =
         _language == 'en' || translation == null || translation.title.isEmpty
         ? announcement.title
@@ -157,7 +168,9 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
-                        captured ? Icons.mic_outlined : _iconFor(announcement.type),
+                        captured
+                            ? Icons.mic_outlined
+                            : _iconFor(announcement.type),
                         color: color,
                         size: 24,
                       ),
@@ -179,10 +192,10 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
                                   color: color.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                  child: Text(
-                                    captured
-                                        ? 'CAPTURED • ${((announcement.confidence ?? 0) * 100).round()}%'
-                                        : announcement.priority.toUpperCase(),
+                                child: Text(
+                                  captured
+                                      ? 'CAPTURED • ${((announcement.confidence ?? 0) * 100).round()}%'
+                                      : announcement.priority.toUpperCase(),
                                   style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.w700,
@@ -226,32 +239,58 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
                       Icons.history_outlined,
                       'First heard ${_formatDateTime(_capture!.firstCapturedAt)}',
                     ),
+                    _buildMetaRow(
+                      Icons.format_size_outlined,
+                      'Recognised text was formatted on this device. Verify names, times and gates against official displays.',
+                    ),
                   ],
-                  _buildMetaRow(
-                    Icons.info_outline,
-                    'Recognised from the environment — content may be imperfect.',
-                  ),
                 ] else ...[
                   _buildMetaRow(
                     Icons.account_balance_outlined,
                     announcement.institutionName ?? 'Participating institution',
                   ),
-                  if (announcement.zoneName != null)
-                    _buildMetaRow(Icons.pin_drop_outlined, announcement.zoneName!),
+                  if (announcement.serviceAreaName != null)
+                    _buildMetaRow(
+                      Icons.pin_drop_outlined,
+                      announcement.serviceAreaName!,
+                    ),
                   _buildMetaRow(
                     Icons.schedule_outlined,
                     'Published ${_formatDateTime(announcement.publishedAt)}',
-                  )
+                  ),
                 ],
                 const Divider(height: 24),
                 Text(message, style: Theme.of(context).textTheme.bodyLarge),
-                if (_language != 'en' && !captured && translation == null) ...[
+                if (captured &&
+                    _capture != null &&
+                    _capture!.originalTranscript != _capture!.transcript) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    'Original recognised text',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    _capture!.originalTranscript,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (_translating) ...[
+                  const SizedBox(height: 12),
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Translating announcement…',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (_language != 'en' && translation == null) ...[
                   const SizedBox(height: 10),
                   Text(
-                    'Translation unavailable — showing English.',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+                    _translationError ??
+                        'Translation unavailable — showing recognised text.',
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(fontStyle: FontStyle.italic),
                   ),
                 ],
               ],
@@ -262,6 +301,56 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
     );
   }
 
+  Future<void> _selectLanguage(String language) async {
+    setState(() {
+      _language = language;
+      _translationError = null;
+    });
+
+    final capture = _capture;
+    if (capture == null ||
+        language == 'en' ||
+        _capturedTranslations.containsKey(language)) {
+      return;
+    }
+
+    setState(() => _translating = true);
+    try {
+      // Captures are local transcripts, so unlike official announcements they
+      // have no server-provided translations. Translate on demand and retain
+      // the result for this detail page.
+      final sourceLanguage = await _translator.detectLanguage(
+        capture.transcript,
+      );
+      final translated = await Future.wait([
+        _translator.translateText(
+          text: CapturedAnnouncement.deriveTitle(capture.transcript),
+          fromLang: sourceLanguage,
+          toLang: language,
+        ),
+        _translator.translateText(
+          text: capture.transcript,
+          fromLang: sourceLanguage,
+          toLang: language,
+        ),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _capturedTranslations[language] = AnnouncementTranslation(
+          title: translated[0],
+          message: translated[1],
+        );
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _translationError = 'Translation failed — showing recognised text.';
+      });
+    } finally {
+      if (mounted) setState(() => _translating = false);
+    }
+  }
+
   Widget _buildMetaRow(IconData icon, String label) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -270,10 +359,7 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
           Icon(icon, size: 15, color: AppColors.textMuted),
           const SizedBox(width: 6),
           Expanded(
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
           ),
         ],
       ),
