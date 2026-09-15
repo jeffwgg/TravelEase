@@ -14,6 +14,7 @@ class QueueRepository {
         .select()
         .eq('institution_id', institutionId)
         .neq('status', 'closed')
+        .neq('status', 'reset')
         .order('name');
     return (response as List<dynamic>)
         .map((row) => QueueLineInfo.fromJson(row as Map<String, dynamic>))
@@ -35,12 +36,71 @@ class QueueRepository {
       query = query.eq('queue_line_id', queueLineId);
     }
     final response = await query.limit(1).maybeSingle();
-    if (response == null) return null;
+    if (response == null) {
+      return _virtualWaitingNumber(
+        number: number,
+        queueLineId: queueLineId,
+        queuePrefix: queuePrefix,
+        institutionId: institutionId,
+      );
+    }
     final tracking = QueueTrackingData.fromJson(
       Map<String, dynamic>.from(response),
     );
     enforceMaximumQueueNumber(tracking);
     return tracking;
+  }
+
+  /// Waiting numbers are not pre-created in the database. When a number is
+  /// inside a live line's configured maximum, expose it as a local Waiting
+  /// record so travellers can look it up without filling Supabase with future
+  /// queue rows. A real row replaces it when staff calls the number.
+  Future<QueueTrackingData?> _virtualWaitingNumber({
+    required String number,
+    required String institutionId,
+    String? queueLineId,
+    String? queuePrefix,
+  }) async {
+    final match = RegExp(r'^(?:([A-Z]+)[-\\s]?)?(\\d+)$')
+        .firstMatch(number.trim().toUpperCase());
+    if (match == null) return null;
+    final value = int.tryParse(match.group(2)!);
+    if (value == null || value < 1) return null;
+    final requestedPrefix = (queuePrefix ?? match.group(1) ?? '')
+        .replaceAll(RegExp(r'[\\s-]'), '')
+        .toUpperCase();
+    var lines = _client
+        .from('queue_lines')
+        .select()
+        .eq('institution_id', institutionId)
+        .neq('status', 'reset');
+    if (queueLineId != null && queueLineId.isNotEmpty) {
+      lines = lines.eq('id', queueLineId);
+    }
+    final response = await lines.limit(20);
+    final lineJson = (response as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .where((row) {
+          final linePrefix = (row['prefix'] as String? ?? '')
+              .replaceAll(RegExp(r'[\\s-]'), '')
+              .toUpperCase();
+          return row['status'] != 'reset' &&
+              linePrefix == requestedPrefix &&
+              value <= (row['max_tracking_number'] as int? ??
+                  QueueLineInfo.defaultMaxTrackingNumber);
+        })
+        .cast<Map<String, dynamic>>()
+        .firstOrNull;
+    if (lineJson == null) return null;
+    final line = QueueLineInfo.fromJson(lineJson);
+    final digits = value.toString().padLeft(3, '0');
+    final formatted = line.prefix.trim().isEmpty ? digits : '${line.prefix}-$digits';
+    return QueueTrackingData(
+      id: 'virtual-${line.id}-$value',
+      number: formatted,
+      status: 'waiting',
+      line: line,
+    );
   }
 
   /// The maximum queue number configured on the web portal is a hard cap:
@@ -133,6 +193,7 @@ class QueueRepository {
     String queueLineId,
     void Function() onChanged, {
     String channelTag = 'view',
+    void Function(Map<String, dynamic> event)? onNotification,
   }) {
     return _client
         .channel('mobile-queue-tracking:$channelTag:$queueLineId')
@@ -157,6 +218,25 @@ class QueueRepository {
             value: queueLineId,
           ),
           callback: (_) => onChanged(),
+        )
+        // A staff member can notify a number again without changing its
+        // status. Keep that event separate from queue-number updates so a
+        // repeated call still reaches the traveller after the number is
+        // already marked as called.
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'queue_events',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'queue_line_id',
+            value: queueLineId,
+          ),
+          callback: (payload) {
+            onChanged();
+            final event = payload.newRecord;
+            if (event['event_type'] == 'notified') onNotification?.call(event);
+          },
         )
         .subscribe();
   }

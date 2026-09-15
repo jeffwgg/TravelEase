@@ -10,7 +10,7 @@ const languageOptions = [
 ]
 
 const initialForm = {
-  title: '', serviceAreaId: 'all', type: '', priority: 'normal',
+  title: '', serviceAreaId: 'all', priority: 'normal',
   messageEn: '', messageMs: '', messageZh: '', scheduledAt: '', expiresAt: '', autoTranslate: false,
   targetLanguages: ['ms'], status: 'active',
 }
@@ -53,7 +53,6 @@ export default function CreateAnnouncementPage() {
           setForm({
             title: item.title,
             serviceAreaId: item.service_area_id || 'all',
-            type: item.announcement_type,
             priority: item.priority,
             messageEn: item.message_en,
             messageMs: item.translations?.ms?.message || '',
@@ -62,7 +61,7 @@ export default function CreateAnnouncementPage() {
             expiresAt: toLocalDateTime(item.expires_at),
             autoTranslate: item.auto_translated || false,
             targetLanguages: Object.keys(item.translations || {}).length ? Object.keys(item.translations) : ['ms'],
-            status: item.status,
+            status: item.status === 'draft' ? 'active' : item.status,
           })
           setPublishLocked(Boolean(item.published_at) && new Date(item.published_at) <= new Date())
           setTranslations({
@@ -111,7 +110,7 @@ export default function CreateAnnouncementPage() {
 
   const generateTranslations = async () => {
     const next = {}
-    if (!form.title.trim()) next.title = 'Title / Subject is required before translating.'
+    if (!form.title.trim()) next.title = 'Title is required before translating.'
     if (!form.messageEn.trim()) next.messageEn = 'English message content is required before translating.'
     if (form.targetLanguages.length === 0) next.targetLanguages = 'Choose at least one translation language.'
     setFieldErrors((current) => ({ ...current, ...next }))
@@ -135,7 +134,7 @@ export default function CreateAnnouncementPage() {
 
   const validate = () => {
     const next = {}
-    if (!form.title.trim()) next.title = 'Title / Subject is required.'
+    if (!form.title.trim()) next.title = 'Title is required.'
     if (!form.serviceAreaId) next.serviceAreaId = 'Target service area is required.'
     if (!form.priority) next.priority = 'Priority is required.'
     if (isEditing && !form.status) next.status = 'Status is required.'
@@ -185,13 +184,16 @@ export default function CreateAnnouncementPage() {
         service_area_id: form.serviceAreaId === 'all' ? null : form.serviceAreaId,
         title: form.title.trim(),
         message_en: form.messageEn.trim(),
-        announcement_type: form.type,
         priority: form.priority,
         status: form.status,
         translations: translationsPayload,
         auto_translated: form.autoTranslate,
         expires_at: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
       }
+      // Announcement type is no longer part of the staff workflow. New rows
+      // retain a stable value for the existing database column; edits leave
+      // legacy values untouched.
+      if (!isEditing) payload.announcement_type = 'general'
       // A future schedule time becomes the publish time: mobile apps already
       // hide announcements whose published_at is in the future. Clearing the
       // schedule on an editable announcement publishes it immediately; a
@@ -232,14 +234,12 @@ export default function CreateAnnouncementPage() {
         <form className="card full-width-form" onSubmit={handleSubmit} noValidate>
           {error && <div className="form-alert error" role="alert">{error}</div>}
           {loading ? <div className="table-message">Loading announcement…</div> : <>
-            <div className="form-group"><label htmlFor="announcement-title">Title / Subject <span className="required-mark">*</span></label><input id="announcement-title" className={`input ${fieldErrors.title ? 'invalid' : ''}`} value={form.title} onChange={update('title')} maxLength={160} placeholder="e.g. Gate Change — MH370" />{fieldError('title')}</div>
+            <div className="form-group"><label htmlFor="announcement-title">Title <span className="required-mark">*</span></label><input id="announcement-title" className={`input ${fieldErrors.title ? 'invalid' : ''}`} value={form.title} onChange={update('title')} maxLength={160} placeholder="e.g. Gate Change — MH370" />{fieldError('title')}</div>
             <div className="form-grid">
               <div className="form-group"><label htmlFor="announcement-service-area">Target Service Area <span className="required-mark">*</span></label><select id="announcement-service-area" className={`input ${fieldErrors.serviceAreaId ? 'invalid' : ''}`} value={form.serviceAreaId} onChange={update('serviceAreaId')}><option value="all">All service areas (entire institution)</option>{serviceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select>{fieldError('serviceAreaId')}</div>
-              <div className="form-group"><label htmlFor="announcement-type">Announcement Type </label><input id="announcement-type" className={`input ${fieldErrors.type ? 'invalid' : ''}`} value={form.type} onChange={update('type')} maxLength={160} placeholder="e.g. General Information" />{fieldError('type')}</div>
-              <div className="form-group"><label htmlFor="announcement-priority">Priority <span className="required-mark">*</span></label><select id="announcement-priority" className={`input ${fieldErrors.priority ? 'invalid' : ''}`} value={form.priority} onChange={update('priority')}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>{fieldError('priority')}</div>
+              <div className="form-group"><label htmlFor="announcement-priority">Priority <span className="required-mark">*</span></label><select id="announcement-priority" className={`input ${fieldErrors.priority ? 'invalid' : ''}`} value={form.priority} onChange={update('priority')}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High priority</option><option value="urgent">Urgent</option></select>{fieldError('priority')}</div>
               <div className="form-group"><label htmlFor="announcement-schedule">Schedule Publish Time (Optional)</label><input id="announcement-schedule" type="datetime-local" className={`input ${fieldErrors.scheduledAt ? 'invalid' : ''}`} value={form.scheduledAt} min={new Date().toISOString().slice(0, 16)} disabled={publishLocked} onChange={update('scheduledAt')} />{fieldError('scheduledAt')}{publishLocked && <div className="field-note">Already published — the schedule can no longer be changed.</div>}</div>
-              <div className="form-group"><label htmlFor="announcement-expiry">Expires At (Optional)</label><input id="announcement-expiry" type="datetime-local" className={`input ${fieldErrors.expiresAt ? 'invalid' : ''}`} value={form.expiresAt} min={new Date().toISOString().slice(0, 16)} onChange={update('expiresAt')} />{fieldError('expiresAt')}<div className="field-note">Leave blank to keep this announcement active until it is cancelled.</div></div>
-              {isEditing && <div className="form-group"><label htmlFor="announcement-status">Status <span className="required-mark">*</span></label><select id="announcement-status" className={`input ${fieldErrors.status ? 'invalid' : ''}`} value={form.status} onChange={update('status')}><option value="active">Active</option><option value="draft">Draft</option><option value="cancelled">Cancelled</option></select>{fieldError('status')}</div>}
+              <div className="form-group"><label htmlFor="announcement-expiry">Expires At (Optional)</label><input id="announcement-expiry" type="datetime-local" className={`input ${fieldErrors.expiresAt ? 'invalid' : ''}`} value={form.expiresAt} min={new Date().toISOString().slice(0, 16)} onChange={update('expiresAt')} />{fieldError('expiresAt')}<div className="field-note">Leave blank to keep this announcement active until it expires or is deleted.</div></div>
             </div>
             <div className="form-group"><label htmlFor="message-en">Message Content (English) <span className="required-mark">*</span></label><textarea id="message-en" className={`input ${fieldErrors.messageEn ? 'invalid' : ''}`} rows={5} value={form.messageEn} onChange={update('messageEn')} maxLength={2000} placeholder="Type the official announcement in English..." />{fieldError('messageEn')}</div>
 

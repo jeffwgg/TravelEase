@@ -71,7 +71,11 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   bool _matching = false;
   String? _locationStatus;
   String? _locationError;
-  List<VenueSearchResult> _detectedVenues = const [];
+
+  /// Location-based results retain their service-area match, so selecting an
+  /// overlapping area can go straight to the normal session confirmation.
+  List<VenueLocationMatch> _detectedVenues = const [];
+  List<VenueLocationMatch> _manualServiceAreaOptions = const [];
 
   // Kept separate so captured speech never appears as an official broadcast.
   List<Announcement> _recentSpokenAnnouncements = [];
@@ -225,6 +229,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     if (query.isEmpty) {
       setState(() {
         _searchResults = const [];
+        _manualServiceAreaOptions = const [];
         _searchError = null;
         _searching = false;
       });
@@ -246,6 +251,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       if (!mounted || _searchController.text.trim() != query) return;
       setState(() {
         _searchResults = results;
+        _manualServiceAreaOptions = const [];
         _searching = false;
       });
     } catch (_) {
@@ -268,6 +274,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       _locationStatus = 'Detecting your location…';
       _locationError = null;
       _detectedVenues = const [];
+      _manualServiceAreaOptions = const [];
     });
     try {
       LocationPermission permission = await Geolocator.checkPermission();
@@ -318,6 +325,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       _locating = false;
       _matching = true;
       _searchResults = const [];
+      _searchController.clear();
+      _manualServiceAreaOptions = const [];
       _searchError = null;
     });
     try {
@@ -330,16 +339,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         setState(() {
           _matching = false;
           _locationStatus = null;
+          _detectedVenues = matches;
         });
-        final match = matches.length == 1
-            ? matches.single
-            : await _chooseLocationMatch(matches);
-        if (match == null || !mounted) return;
-        await _confirmAndEstablish(
-          match.venue,
-          serviceArea: match.serviceArea,
-          autoSuggested: true,
-        );
         return;
       }
       final nearby = await _venueRepository.nearby(
@@ -350,7 +351,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       setState(() {
         _matching = false;
         _locationStatus = null;
-        _detectedVenues = nearby;
+        _detectedVenues = nearby
+            .map((venue) => VenueLocationMatch(venue: venue))
+            .toList();
         _locationError = nearby.isEmpty
             ? 'No registered institution was found near this location. '
                   'Search for your institution manually instead.'
@@ -366,62 +369,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     }
   }
 
-  Future<VenueLocationMatch?> _chooseLocationMatch(
-    List<VenueLocationMatch> matches,
-  ) {
-    return showDialog<VenueLocationMatch>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Choose your location'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'More than one service area matches your location. Choose the one you are currently in.',
-              ),
-              const SizedBox(height: 8),
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: matches.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (_, index) {
-                    final match = matches[index];
-                    final area = match.serviceArea;
-                    final distance = match.venue.distanceLabel;
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.location_on_outlined),
-                      title: Text(match.venue.name),
-                      subtitle: Text(
-                        [
-                          area?.name ?? match.venue.branch,
-                          if (distance.isNotEmpty) distance,
-                        ].join(' • '),
-                      ),
-                      onTap: () => Navigator.pop(dialogContext, match),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// A manual institution selection asks for the current service area when
-  /// the institution has configured one or more active areas.
+  /// A manual institution selection expands service-area choices directly in
+  /// the location card instead of opening a second selection dialog.
   Future<void> _selectInstitution(VenueSearchResult venue) async {
     if (_matching) return;
     setState(() {
@@ -447,57 +396,11 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       await _confirmAndEstablish(venue);
       return;
     }
-    final serviceArea = await _chooseServiceArea(venue, serviceAreas);
-    if (serviceArea == null || !mounted) return;
-    await _confirmAndEstablish(venue, serviceArea: serviceArea);
-  }
-
-  Future<VenueServiceArea?> _chooseServiceArea(
-    VenueSearchResult venue,
-    List<VenueServiceArea> serviceAreas,
-  ) {
-    return showDialog<VenueServiceArea>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Choose your service area'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Where are you currently at ${venue.name}?'),
-              const SizedBox(height: 8),
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: serviceAreas.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (_, index) {
-                    final area = serviceAreas[index];
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.location_on_outlined),
-                      title: Text(area.name),
-                      subtitle: area.address == null || area.address!.isEmpty
-                          ? null
-                          : Text(area.address!),
-                      onTap: () => Navigator.pop(dialogContext, area),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
+    setState(() {
+      _manualServiceAreaOptions = serviceAreas
+          .map((area) => VenueLocationMatch(venue: venue, serviceArea: area))
+          .toList();
+    });
   }
 
   /// Requires the traveller to confirm the resolved session before it starts.
@@ -941,6 +844,20 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
               else
                 ..._searchResults.map(_buildVenueOption),
             ],
+            if (_manualServiceAreaOptions.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Divider(height: 1),
+              ),
+              const Text(
+                'Choose your service area.',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              ..._manualServiceAreaOptions.map(
+                (match) => _buildLocationMatchOption(match),
+              ),
+            ],
             if (_detectedVenues.isNotEmpty) ...[
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 10),
@@ -951,7 +868,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                 style: TextStyle(color: AppColors.textMuted, fontSize: 12),
               ),
               const SizedBox(height: 4),
-              ..._detectedVenues.map(_buildVenueOption),
+              ..._detectedVenues.map(
+                (match) =>
+                    _buildLocationMatchOption(match, autoSuggested: true),
+              ),
             ],
           ],
         ),
@@ -971,8 +891,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         serviceArea?.radiusMeters ?? information?.radiusMeters ?? 500;
     final coverageName =
         serviceArea?.name ??
-            session.serviceAreaName ??
-            'Institution service area';
+        session.serviceAreaName ??
+        'Institution service area';
     final address = serviceArea?.address ?? information?.address;
     final hotline = information?.hotline;
 
@@ -1022,7 +942,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                         const SizedBox(width: 6),
                         Text(
                           'Venue session active since $startedLabel',
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
@@ -1035,7 +958,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                       ),
                     ),
                     Text(
-                    coverageName,
+                      coverageName,
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 13,
@@ -1050,73 +973,76 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
             padding: const EdgeInsets.all(8),
             child: _loadingVenueInformation
                 ? const SizedBox(
-              height: 72,
-              child: Center(child: CircularProgressIndicator()),
-            )
+                    height: 72,
+                    child: Center(child: CircularProgressIndicator()),
+                  )
                 : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (latitude != null && longitude != null) ...[
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: SizedBox(
-                      height: 180,
-                      child: GoogleMap(
-                        initialCameraPosition: CameraPosition(
-                          target: LatLng(latitude, longitude),
-                          zoom: _zoomForRadius(radiusMeters),
-                        ),
-                        markers: {
-                          Marker(
-                            markerId: const MarkerId('service-area'),
-                            position: LatLng(latitude, longitude),
-                            infoWindow: InfoWindow(title: coverageName),
-                          ),
-                        },
-                        circles: {
-                          Circle(
-                            circleId: const CircleId('service-coverage'),
-                            center: LatLng(latitude, longitude),
-                            radius: radiusMeters,
-                            fillColor: AppColors.primary.withValues(
-                              alpha: 0.16,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (latitude != null && longitude != null) ...[
+                        const SizedBox(height: 12),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: SizedBox(
+                            height: 180,
+                            child: GoogleMap(
+                              initialCameraPosition: CameraPosition(
+                                target: LatLng(latitude, longitude),
+                                zoom: _zoomForRadius(radiusMeters),
+                              ),
+                              markers: {
+                                Marker(
+                                  markerId: const MarkerId('service-area'),
+                                  position: LatLng(latitude, longitude),
+                                  infoWindow: InfoWindow(title: coverageName),
+                                ),
+                              },
+                              circles: {
+                                Circle(
+                                  circleId: const CircleId('service-coverage'),
+                                  center: LatLng(latitude, longitude),
+                                  radius: radiusMeters,
+                                  fillColor: AppColors.primary.withValues(
+                                    alpha: 0.16,
+                                  ),
+                                  strokeColor: AppColors.primary,
+                                  strokeWidth: 2,
+                                ),
+                              },
+                              zoomControlsEnabled: false,
+                              myLocationButtonEnabled: false,
+                              mapToolbarEnabled: false,
                             ),
-                            strokeColor: AppColors.primary,
-                            strokeWidth: 2,
                           ),
-                        },
-                        zoomControlsEnabled: false,
-                        myLocationButtonEnabled: false,
-                        mapToolbarEnabled: false,
-                      ),
-                    ),
+                        ),
+                      ] else ...[
+                        const SizedBox(height: 10),
+                        const Text(
+                          'This institution has not provided map coverage yet.',
+                          style: TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      if (address != null && address.trim().isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        _buildVenueDetail(
+                          Icons.location_on_outlined,
+                          'Address',
+                          address.trim(),
+                        ),
+                      ],
+                      if (hotline != null && hotline.trim().isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        _buildVenueDetail(
+                          Icons.support_agent_outlined,
+                          'Support hotline',
+                          hotline.trim(),
+                        ),
+                      ],
+                    ],
                   ),
-                ] else ...[
-                  const SizedBox(height: 10),
-                  const Text(
-                    'This institution has not provided map coverage yet.',
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-                  ),
-                ],
-                if (address != null && address.trim().isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  _buildVenueDetail(
-                    Icons.location_on_outlined,
-                    'Address',
-                    address.trim(),
-                  ),
-                ],
-                if (hotline != null && hotline.trim().isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  _buildVenueDetail(
-                    Icons.support_agent_outlined,
-                    'Support hotline',
-                    hotline.trim(),
-                  ),
-                ],
-              ],
-            ),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -1159,7 +1085,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
               ),
             ),
             const SizedBox(height: 2),
-            Text(value, style: const TextStyle(color: Colors.white, fontSize: 13)),
+            Text(
+              value,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
           ],
         ),
       ),
@@ -1195,11 +1124,41 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     ],
   );
 
-  Widget _buildVenueOption(VenueSearchResult venue) {
+  Widget _buildVenueOption(VenueSearchResult venue) =>
+      _buildVenueListItem(venue, onTap: () => _selectInstitution(venue));
+
+  Widget _buildLocationMatchOption(
+    VenueLocationMatch match, {
+    bool autoSuggested = false,
+  }) {
+    final area = match.serviceArea;
+    final detail = <String>[
+      area?.name ?? match.venue.branch,
+      if (area?.address?.trim().isNotEmpty ?? false) area!.address!.trim(),
+      if (match.venue.distanceLabel.isNotEmpty) match.venue.distanceLabel,
+    ].join(' • ');
+    return _buildVenueListItem(
+      match.venue,
+      icon: Icons.location_on_outlined,
+      subtitle: detail,
+      onTap: () => _confirmAndEstablish(
+        match.venue,
+        serviceArea: area,
+        autoSuggested: autoSuggested,
+      ),
+    );
+  }
+
+  Widget _buildVenueListItem(
+    VenueSearchResult venue, {
+    required VoidCallback onTap,
+    String? subtitle,
+    IconData icon = Icons.account_balance_outlined,
+  }) {
     final distance = venue.distanceLabel;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: () => _selectInstitution(venue),
+      onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
         child: Row(
@@ -1211,11 +1170,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                 color: AppColors.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(
-                Icons.account_balance_outlined,
-                color: AppColors.primary,
-                size: 20,
-              ),
+              child: Icon(icon, color: AppColors.primary, size: 20),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -1233,9 +1188,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    distance.isEmpty
-                        ? venue.branch
-                        : '${venue.branch} • $distance',
+                    subtitle ??
+                        (distance.isEmpty
+                            ? venue.branch
+                            : '${venue.branch} • $distance'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,

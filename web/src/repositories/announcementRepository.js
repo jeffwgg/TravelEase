@@ -96,16 +96,15 @@ export const announcementRepository = {
     return data.translations
   },
 
-  async cancelAnnouncement(id) {
-    const { data, error } = await supabase
+  async deleteAnnouncement(id) {
+    // `cancelled` is the database-compatible tombstone value. The web UI
+    // presents it as Deleted and lets staff restore it by changing status.
+    const { error } = await supabase
       .from('announcements')
       .update({ status: 'cancelled' })
       .eq('id', id)
-      .select()
-      .single()
 
     if (error) throw error
-    return data
   },
 
   subscribeToAnnouncements(institutionId, callback) {

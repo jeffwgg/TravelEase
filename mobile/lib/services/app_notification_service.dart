@@ -318,6 +318,30 @@ class AppNotificationService {
     }
   }
 
+  /// Removes one in-app history record and its linked phone notification.
+  Future<void> deleteHistoryEntry(NotificationHistoryEntry entry) async {
+    await NotificationHistoryStore.instance.delete(entry.id);
+    final notificationId = entry.notificationId;
+    if (notificationId != null) {
+      await _plugin.cancel(id: notificationId);
+      _entryIdByNotificationId.remove(notificationId);
+    }
+  }
+
+  /// Clears all in-app history records and linked phone notifications.
+  Future<void> clearNotificationHistory() async {
+    final entries = await NotificationHistoryStore.instance.entries();
+    await NotificationHistoryStore.instance.clear();
+    for (final notificationId
+        in entries
+            .map((entry) => entry.notificationId)
+            .whereType<int>()
+            .toSet()) {
+      await _plugin.cancel(id: notificationId);
+      _entryIdByNotificationId.remove(notificationId);
+    }
+  }
+
   Future<void> requestPermission() async {
     await _plugin
         .resolvePlatformSpecificImplementation<
@@ -380,9 +404,11 @@ class AppNotificationService {
   Future<void> showQueueCalled({
     required String number,
     required String counter,
+    String? notificationEventId,
   }) async {
-    final entryId = 'queue-called-$number';
-    final notificationId = number.hashCode & 0x7fffffff;
+    final suffix = notificationEventId == null ? '' : '-$notificationEventId';
+    final entryId = 'queue-called-$number$suffix';
+    final notificationId = entryId.hashCode & 0x7fffffff;
     await _recordHistory(
       entryId: entryId,
       notificationId: notificationId,

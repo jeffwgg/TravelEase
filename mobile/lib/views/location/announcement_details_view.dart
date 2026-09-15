@@ -194,7 +194,7 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
                                 child: Text(
                                   captured
                                       ? 'CAPTURED • ${((announcement.confidence ?? 0) * 100).round()}%'
-                                      : announcement.priority.toUpperCase(),
+                                      : announcement.priorityLabel,
                                   style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.w700,

@@ -26,7 +26,7 @@ class _AnnouncementViewState extends State<AnnouncementView> {
   List<Announcement> _announcements = [];
   RealtimeChannel? _channel;
   bool _loading = true;
-  bool _urgentOnly = false;
+  final bool _urgentOnly = false;
   String _language = 'en';
   String? _error;
   String? _institutionId;
@@ -166,12 +166,6 @@ class _AnnouncementViewState extends State<AnnouncementView> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          if (isSpokenFeed)
-            IconButton(
-              tooltip: 'Spoken announcement settings',
-              icon: const Icon(Icons.settings_outlined),
-              onPressed: () => context.push('/environment-sound-alert'),
-            ),
           PopupMenuButton<String>(
             tooltip: 'Announcement language',
             icon: const Icon(Icons.translate),
@@ -183,17 +177,6 @@ class _AnnouncementViewState extends State<AnnouncementView> {
               PopupMenuItem(value: 'zh', child: Text('Chinese (Simplified)')),
             ],
           ),
-          if (!isSpokenFeed)
-            IconButton(
-              tooltip: _urgentOnly
-                  ? 'Show all announcements'
-                  : 'Show urgent only',
-              icon: Icon(
-                _urgentOnly ? Icons.filter_alt : Icons.filter_list,
-                color: _urgentOnly ? AppColors.primary : null,
-              ),
-              onPressed: () => setState(() => _urgentOnly = !_urgentOnly),
-            ),
         ],
       ),
       body: RefreshIndicator(
@@ -428,7 +411,7 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                                     ),
                                   ),
                                 )
-                              else if (announcement.isUrgent)
+                              else
                                 Container(
                                   margin: const EdgeInsets.only(right: 8),
                                   padding: const EdgeInsets.symmetric(
@@ -436,17 +419,15 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                                     vertical: 2,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: AppColors.emergency.withValues(
-                                      alpha: 0.1,
-                                    ),
+                                    color: color.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
-                                    announcement.priority.toUpperCase(),
-                                    style: const TextStyle(
+                                    announcement.priorityLabel,
+                                    style: TextStyle(
                                       fontSize: 9,
                                       fontWeight: FontWeight.w700,
-                                      color: AppColors.emergency,
+                                      color: color,
                                     ),
                                   ),
                                 ),

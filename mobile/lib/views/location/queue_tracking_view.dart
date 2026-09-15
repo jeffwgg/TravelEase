@@ -24,7 +24,15 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
   QueueTrackingData? _tracking;
   RealtimeChannel? _channel;
   String? _selectedLineId;
+
+  /// Validation and queue-number lookup errors. These must not hide the
+  /// tracking form or a previously loaded queue status.
   String? _error;
+
+  /// A transport/load error. When prior data exists, it is displayed as a
+  /// banner while retaining that data; only an initial failure uses the
+  /// dedicated retry page.
+  String? _loadError;
   bool _loadingLines = true;
   bool _trackingNumber = false;
 
@@ -75,9 +83,17 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
           _selectedLineId = null;
           _loadingLines = false;
           _error = null;
+          _loadError = null;
         });
       }
       return;
+    }
+    final needsInitialLoad = _lines.isEmpty && _tracking == null;
+    if (needsInitialLoad && mounted) {
+      setState(() {
+        _loadingLines = true;
+        _loadError = null;
+      });
     }
     try {
       // Queue lines are intentionally institution-wide: the selected service
@@ -88,7 +104,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
       if (!mounted) return;
       setState(() {
         _lines = lines;
-        _error = null;
+        _loadError = null;
         _loadingLines = false;
         if (!lines.any((line) => line.id == _selectedLineId)) {
           _tracking = null;
@@ -112,7 +128,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = 'Unable to load queue lines. Please sign in and try again.';
+        _loadError = 'Unable to load queue lines. Please try again.';
         _loadingLines = false;
       });
     }
@@ -156,7 +172,6 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
       if (!mounted) return;
       if (result == null) {
         setState(() {
-          _tracking = null;
           _error = 'Queue number not found. Check the number and queue line.';
         });
         return;
@@ -196,9 +211,23 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
         queuePrefix: current.line.prefix,
         institutionId: institutionId,
       );
-      if (mounted && result != null) setState(() => _tracking = result);
+      if (!mounted) return;
+      if (result != null) {
+        setState(() {
+          _tracking = result;
+          _loadError = null;
+        });
+      } else {
+        setState(
+          () => _loadError = 'Unable to refresh this queue number. Showing the last known status.',
+        );
+      }
     } catch (_) {
-      // Keep the last known state during transient realtime refresh failures.
+      if (mounted) {
+        setState(
+          () => _loadError = 'Unable to refresh this queue number. Showing the last known status.',
+        );
+      }
     }
   }
 
@@ -206,7 +235,16 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
   Widget build(BuildContext context) {
     final session = VenueSessionService.instance.session;
     final serviceUnavailable =
-        session != null && !_loadingLines && _lines.isEmpty && _error == null;
+        session != null &&
+        !_loadingLines &&
+        _lines.isEmpty &&
+        _loadError == null;
+    final initialLoadFailure =
+        session != null &&
+        !_loadingLines &&
+        _lines.isEmpty &&
+        _tracking == null &&
+        _loadError != null;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Queue Number Tracking'),
@@ -215,56 +253,108 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: RefreshIndicator(
-        onRefresh: _tracking == null ? _loadLines : _refreshTracking,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (_loadingLines)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (session == null)
-              const AppMessageBanner(
-                message: 'Identify your current institution on the Home page before tracking a queue number.',
-                type: AppMessageType.information,
-              )
-            else if (serviceUnavailable)
-              AppMessageBanner(
-                message:
-                    '${session.institutionName} is not currently providing a queue tracking service.',
-                type: AppMessageType.information,
-              )
-            else if (_error == null)
-              _buildTrackingForm(context),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              AppMessageBanner(message: _error!, type: AppMessageType.error),
-            ],
-            if (!_loadingLines &&
-                session != null &&
-                !serviceUnavailable &&
-                _error == null) ...[
-              const SizedBox(height: 20),
-              if (_tracking == null)
-                _buildEmptyState()
-              else ...[
-                _buildStatusCard(_tracking!),
-                const SizedBox(height: 24),
-                Text(
-                  'Queue Line Information',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                _buildLineInformation(_tracking!.line),
-              ],
-            ],
-          ],
-        ),
-      ),
+      body: initialLoadFailure
+          ? _buildInitialLoadFailure()
+          : RefreshIndicator(
+              onRefresh: _tracking == null ? _loadLines : _refreshTracking,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (_loadingLines)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 40),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (session == null)
+                    const AppMessageBanner(
+                      message: 'Identify your current institution on the Home page before tracking a queue number.',
+                      type: AppMessageType.information,
+                    )
+                  else if (serviceUnavailable)
+                    AppMessageBanner(
+                      message:
+                          '${session.institutionName} is not currently providing a queue tracking service.',
+                      type: AppMessageType.information,
+                    )
+                  else ...[
+                    if (_loadError != null) ...[
+                      AppMessageBanner(
+                        message: _loadError!,
+                        type: AppMessageType.error,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_error != null) ...[
+                      AppMessageBanner(
+                        message: _error!,
+                        type: AppMessageType.error,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    _buildTrackingForm(context),
+                  ],
+                  if (!_loadingLines &&
+                      session != null &&
+                      !serviceUnavailable &&
+                      !initialLoadFailure) ...[
+                    const SizedBox(height: 20),
+                    if (_tracking == null)
+                      _buildEmptyState()
+                    else ...[
+                      _buildStatusCard(_tracking!),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Queue Line Information',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      _buildLineInformation(_tracking!.line),
+                    ],
+                  ],
+                ],
+              ),
+            ),
     );
   }
+
+  Widget _buildInitialLoadFailure() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off_outlined,
+                color: AppColors.emergency,
+                size: 44,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Queue tracking is temporarily unavailable',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _loadError ?? 'Unable to load queue lines. Please try again.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.textMuted),
+              ),
+              const SizedBox(height: 18),
+              ElevatedButton.icon(
+                onPressed: _loadLines,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Try Again'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 
   Widget _buildTrackingForm(BuildContext context) {
     return Card(
@@ -362,8 +452,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
   Widget _buildStatusCard(QueueTrackingData tracking) {
     final statusColor = _statusColor(tracking.status);
     final statusMessage = switch (tracking.status) {
-      'called' ||
-      'serving' => 'Please proceed to ${tracking.line.counterLabel}',
+      'called' => 'Please proceed to ${tracking.line.counterLabel}',
       'cancelled' => 'This queue number was cancelled',
       'completed' => 'Service for this queue number is complete',
       _ => 'You will be notified when it is your turn',
@@ -522,7 +611,6 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
   Color _statusColor(String status) => switch (status) {
     'waiting' => AppColors.secondary,
     'called' => AppColors.accent,
-    'serving' => AppColors.primary,
     'completed' => AppColors.success,
     'cancelled' => AppColors.emergency,
     _ => AppColors.textMuted,

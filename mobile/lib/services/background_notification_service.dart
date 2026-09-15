@@ -239,4 +239,32 @@ Future<void> _pollQueue() async {
     rows.first as Map<String, dynamic>,
   );
   await QueueNotificationService.instance.evaluateAlerts(tracking);
+
+  // Repeated staff calls are stored as status-neutral queue events. Poll them
+  // here too, because the app's realtime subscription is not active while the
+  // background isolate is running on its own.
+  final eventRows = await _restGet('queue_events', {
+    'select': 'id,event_number',
+    'queue_line_id': 'eq.$lineId',
+    'event_type': 'eq.notified',
+    'order': 'created_at.desc',
+    'limit': '20',
+  });
+  final trackedCandidates = QueueRepository.numberCandidates(
+    tracking.number,
+    tracking.line.prefix,
+  );
+  for (final row in eventRows.reversed) {
+    final event = row as Map<String, dynamic>;
+    final eventId = event['id']?.toString();
+    final eventNumber = event['event_number']?.toString().trim().toUpperCase();
+    if (eventId == null || eventNumber == null ||
+        !trackedCandidates.contains(eventNumber)) {
+      continue;
+    }
+    await QueueNotificationService.instance.deliverManualNotification(
+      tracking,
+      eventId,
+    );
+  }
 }

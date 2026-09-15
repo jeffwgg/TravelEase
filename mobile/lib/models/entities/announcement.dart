@@ -81,6 +81,15 @@ class Announcement {
   }
 
   bool get isUrgent => priority == 'urgent' || priority == 'high';
+
+  /// Human-readable priority used consistently by list and detail views.
+  String get priorityLabel => switch (priority) {
+    'high' => 'High priority',
+    'urgent' => 'Urgent',
+    'normal' => 'Normal',
+    'low' => 'Low',
+    _ => priority,
+  };
 }
 
 class AnnouncementTranslation {

@@ -3,8 +3,9 @@ import { Link, useParams } from 'react-router-dom'
 import { CalendarClock, Globe2, MapPin } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { announcementRepository } from '../repositories/announcementRepository'
+import { announcementPriorityClass, announcementPriorityLabel } from '../lib/announcementPresentation'
 
-const statusClass = { active: 'success', scheduled: 'secondary', draft: 'muted', cancelled: 'emergency', expired: 'muted' }
+const statusClass = { active: 'success', scheduled: 'secondary', deleted: 'emergency', expired: 'muted' }
 
 function formatDate(value) {
   if (!value) return 'Not set'
@@ -14,6 +15,7 @@ function formatDate(value) {
 function displayStatus(item) {
   if (item.status === 'active' && item.expires_at && new Date(item.expires_at) <= new Date()) return 'expired'
   if (item.status === 'active' && item.published_at && new Date(item.published_at) > new Date()) return 'scheduled'
+  if (item.status === 'cancelled') return 'deleted'
   return item.status
 }
 
@@ -48,7 +50,7 @@ export default function AnnouncementDetailsPage() {
       <div className="page-body">
         <article className="card announcement-detail-card">
           <div className="announcement-detail-heading">
-            <div><div className="announcement-badges"><span className={`badge ${statusClass[status] || 'muted'}`}>{status}</span><span className={`badge ${announcement.priority === 'urgent' ? 'emergency' : announcement.priority === 'high' ? 'secondary' : announcement.priority === 'normal' ? 'primary' : 'muted'}`}>{announcement.priority}</span></div><h3>{announcement.title}</h3></div>
+            <div><div className="announcement-badges"><span className={`badge ${statusClass[status] || 'muted'}`}>{status}</span><span className={`badge ${announcementPriorityClass[announcement.priority] || 'muted'}`}>{announcementPriorityLabel(announcement.priority)}</span></div><h3>{announcement.title}</h3></div>
           </div>
           <div className="announcement-detail-meta">
             <span><MapPin size={15} />{announcement.service_areas?.name || 'All service areas'}</span>
