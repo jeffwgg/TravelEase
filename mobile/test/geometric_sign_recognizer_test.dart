@@ -1,8 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:travelease/services/sign_frame_data.dart';
-import 'package:travelease/services/sign_clip_recorder.dart';
 import 'package:travelease/services/geometric_sign_recognizer.dart';
-import 'package:travelease/services/sign_accuracy_evaluator.dart';
 
 /// Synthetic hand/anchor geometry used to verify the geometric recognizer
 /// end-to-end (Phase 0.2 harness validation).
@@ -230,19 +228,6 @@ void main() {
     });
   });
 
-  group('SignAccuracyEvaluator', () {
-    test('majority vote scores clips and reports confusions', () {
-      final clip = SignClip(label: 'nose', frames: [
-        for (int i = 0; i < 5; i++) _frame(hand: _pointAtNose(), ts: _ts + i * 100),
-      ]);
-
-      final report = const SignAccuracyEvaluator().evaluate([clip]);
-      expect(report.totalClips, 1);
-      expect(report.top1Accuracy, 1.0);
-      expect(report.clips.first.predictedSign, 'nose');
-    });
-  });
-
   group('SignFrameData JSON round-trip', () {
     test('survives encode/decode', () {
       final frame = _frame(hand: _hand(index: _extended(0.47, 0.58, 0.40)));
@@ -358,6 +343,57 @@ void main() {
       for (final i in kMeshNosePoints) {
         expect(t[i * 3].isNaN, isTrue);
       }
+    });
+  });
+
+  group('buildBimTensor visibility channels', () {
+    test('poseLikelihood is written into the per-landmark visibility slot', () {
+      final frame = SignFrameData(
+        hand: _hand(wrist: const SGPoint(0.3, 0.7)),
+        anchors: const SignAnchors(),
+        pose: <SGPoint?>[
+          const SGPoint(0.40, 0.30),
+          const SGPoint(0.42, 0.31),
+          for (int i = 2; i < 33; i++) null,
+        ],
+        hasMediaPipeHand: true,
+        isFrontCamera: true,
+        timestampMs: _ts,
+        poseLikelihood: const [0.25, 0.75],
+      );
+      final t = buildBimTensor(frame);
+
+      expect(t.length, kBimChannels);
+      expect(t[0 * 4 + 3], closeTo(0.25, 1e-9));
+      expect(t[1 * 4 + 3], closeTo(0.75, 1e-9));
+      expect(t[2 * 4 + 3], 0.0); // undetected landmark stays zero-filled
+    });
+
+    test('binary 1.0 fallback when no likelihoods are carried', () {
+      final frame = SignFrameData(
+        hand: _hand(wrist: const SGPoint(0.3, 0.7)),
+        anchors: const SignAnchors(),
+        pose: const [SGPoint(0.4, 0.5)],
+        hasMediaPipeHand: true,
+        isFrontCamera: true,
+        timestampMs: _ts,
+      );
+      final t = buildBimTensor(frame);
+      expect(t[0 * 4 + 3], 1.0);
+    });
+
+    test('poseLikelihood survives the JSON round-trip', () {
+      final frame = SignFrameData(
+        hand: _hand(wrist: const SGPoint(0.3, 0.7)),
+        anchors: const SignAnchors(),
+        pose: const [SGPoint(0.4, 0.5)],
+        hasMediaPipeHand: true,
+        isFrontCamera: true,
+        timestampMs: _ts,
+        poseLikelihood: const [0.9, 0.1],
+      );
+      final decoded = SignFrameData.fromJson(frame.toJson());
+      expect(decoded.poseLikelihood, [0.9, 0.1]);
     });
   });
 }

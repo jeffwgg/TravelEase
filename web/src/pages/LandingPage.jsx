@@ -95,7 +95,7 @@ const VENUE_DEMOS = {
     announcement: {
       title: 'Platform 3 Track Maintenance',
       detail: 'Intercity Regional 44 arriving on Platform 9.',
-      priority: 'High',
+      priority: 'High priority',
       lang: 'EN / MS'
     }
   },

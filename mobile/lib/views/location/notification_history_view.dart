@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
-import '../../models/repositories/notification_history_store.dart';
+import '../../models/repositories/notification_repository.dart';
 import '../../services/app_notification_service.dart';
+
+enum _NotificationFilter { announcement, alert, queue, message }
 
 /// Device-local history of raised notifications. Tapping an announcement or
 /// queue entry deep-links into its screen; entries survive quitting the
@@ -24,6 +26,7 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
   StreamSubscription<void>? _changes;
   List<NotificationHistoryEntry> _entries = [];
   bool _loading = true;
+  _NotificationFilter? _filter;
 
   @override
   void initState() {
@@ -93,17 +96,84 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
     _ => AppColors.secondary,
   };
 
+  List<NotificationHistoryEntry> get _visibleEntries {
+    final filter = _filter;
+    if (filter == null) return _entries;
+    return _entries.where((entry) {
+      return switch (filter) {
+        _NotificationFilter.announcement =>
+          entry.kind == 'announcement' || entry.kind == 'captured',
+        _NotificationFilter.alert => entry.kind == 'sound',
+        _NotificationFilter.queue => entry.kind == 'queue',
+        _NotificationFilter.message => entry.kind == 'request',
+      };
+    }).toList();
+  }
+
+  String get _filterLabel => switch (_filter) {
+    _NotificationFilter.announcement => 'announcement',
+    _NotificationFilter.alert => 'alert',
+    _NotificationFilter.queue => 'queue',
+    _NotificationFilter.message => 'message',
+    null => 'notification',
+  };
+
+  Future<bool> _confirmDeletion({required bool all}) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(all ? 'Delete all notifications?' : 'Delete notification?'),
+        content: Text(
+          all
+              ? 'This removes all notification records from this device.'
+              : 'This removes this notification record from this device.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.emergency,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _deleteEntry(NotificationHistoryEntry entry) async {
+    if (!await _confirmDeletion(all: false)) return;
+    await AppNotificationService.instance.deleteHistoryEntry(entry);
+  }
+
+  Future<void> _deleteAll() async {
+    if (!await _confirmDeletion(all: true)) return;
+    await AppNotificationService.instance.clearNotificationHistory();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
         actions: [
-          TextButton(
+          IconButton(
+            tooltip: 'Delete all notifications',
+            onPressed: _entries.isEmpty ? null : _deleteAll,
+            icon: const Icon(Icons.delete_outline),
+          ),
+          IconButton(
+            tooltip: 'Mark all as read',
             onPressed: _entries.isEmpty
                 ? null
                 : () => AppNotificationService.instance.markAllAsRead(),
-            child: const Text('Mark All Read'),
+            icon: const Icon(Icons.done_all_outlined),
           ),
         ],
       ),
@@ -124,14 +194,6 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
                     'No notifications yet',
                     style: Theme.of(context).textTheme.bodyLarge,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Announcements and queue alerts you receive will appear here.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
-                  ),
                 ],
               ),
             )
@@ -139,16 +201,74 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
               onRefresh: _load,
               child: ListView(
                 padding: const EdgeInsets.all(16),
-                children: _buildSections(),
+                children: [
+                  _buildFilters(),
+                  const SizedBox(height: 10),
+                  if (_visibleEntries.isEmpty)
+                    _buildFilteredEmptyState()
+                  else
+                    ..._buildSections(_visibleEntries),
+                ],
               ),
             ),
     );
   }
 
-  List<Widget> _buildSections() {
+  Widget _buildFilters() => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      children: [
+        _buildFilterButton(_NotificationFilter.announcement, 'Announcement'),
+        const SizedBox(width: 8),
+        _buildFilterButton(_NotificationFilter.alert, 'Alerts'),
+        const SizedBox(width: 8),
+        _buildFilterButton(_NotificationFilter.queue, 'Queue'),
+        const SizedBox(width: 8),
+        _buildFilterButton(_NotificationFilter.message, 'Message'),
+      ],
+    ),
+  );
+
+  Widget _buildFilterButton(_NotificationFilter filter, String label) {
+    final selected = _filter == filter;
+    return FilterChip(
+      label: Text(label),
+      labelStyle: TextStyle(color: AppColors.primaryDark),
+      selectedColor: AppColors.background,
+      disabledColor: AppColors.accentLight,
+      selected: selected,
+      onSelected: (_) => setState(() => _filter = selected ? null : filter),
+    );
+  }
+
+  Widget _buildFilteredEmptyState() => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 48),
+    child: Column(
+      children: [
+        const Icon(
+          Icons.filter_list_off_outlined,
+          size: 42,
+          color: AppColors.textMuted,
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'No $_filterLabel notifications',
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Choose the selected filter again to show all notifications.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppColors.textMuted),
+        ),
+      ],
+    ),
+  );
+
+  List<Widget> _buildSections(List<NotificationHistoryEntry> entries) {
     final widgets = <Widget>[];
     var currentLabel = '';
-    for (final entry in _entries) {
+    for (final entry in entries) {
       final label = _dayLabel(entry.createdAt);
       if (label != currentLabel) {
         currentLabel = label;
@@ -157,9 +277,8 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
             padding: const EdgeInsets.only(bottom: 8, top: 8),
             child: Text(
               label,
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(color: AppColors.textMuted),
+              style: Theme.of(context).textTheme.labelLarge
+                  ?.copyWith(color: AppColors.textMuted),
             ),
           ),
         );
@@ -254,14 +373,17 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ),
-                          if (tappable) ...[
-                            const SizedBox(width: 8),
-                            Icon(
-                              Icons.chevron_right,
-                              size: 16,
+                          const SizedBox(width: 4),
+                          IconButton(
+                            tooltip: 'Delete notification',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _deleteEntry(entry),
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              size: 19,
                               color: AppColors.textMuted,
                             ),
-                          ],
+                          ),
                         ],
                       ),
                     ],

@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/entities/queue_tracking.dart';
 import '../models/repositories/queue_repository.dart';
 import 'app_notification_service.dart';
@@ -21,6 +22,8 @@ class QueueNotificationService {
   static const _numberKey = 'tracked_queue_number';
   static const _calledNotifiedKey = 'queue_called_notified_for';
   static const _waitNotifiedKey = 'queue_wait_notified_for';
+  static const _manualNotificationEventIdsKey =
+      'queue_manual_notification_event_ids';
 
   /// Estimated wait under which the traveller gets a single heads-up alert.
   static const int almostUpThresholdMinutes = 10;
@@ -66,7 +69,7 @@ class QueueNotificationService {
     // Pre-mark the alert state for whatever is already true at track time so
     // entering an almost-due or called number never fires the corresponding
     // alert; the background poller shares these keys.
-    if (tracking.status == 'called' || tracking.status == 'serving') {
+    if (tracking.status == 'called') {
       await preferences.setString(_calledNotifiedKey, tracking.number);
     }
     final wait = tracking.estimatedWaitMinutes;
@@ -87,6 +90,48 @@ class QueueNotificationService {
       lineId,
       _refresh,
       channelTag: 'service',
+      onNotification: _handleManualNotification,
+    );
+  }
+
+  Future<void> _handleManualNotification(Map<String, dynamic> event) async {
+    final tracked = _current;
+    final eventId = event['id']?.toString();
+    final eventNumber = event['event_number']?.toString();
+    if (tracked == null || eventId == null || eventNumber == null) return;
+    final candidates = QueueRepository.numberCandidates(
+      tracked.number,
+      tracked.line.prefix,
+    );
+    if (!candidates.contains(eventNumber.trim().toUpperCase())) return;
+    await deliverManualNotification(tracked, eventId);
+  }
+
+  /// Delivers a staff "call again" notification. This intentionally bypasses
+  /// the status-transition dedupe used by [evaluateAlerts]: the event itself
+  /// is the new information, while the queue number remains unchanged.
+  Future<void> deliverManualNotification(
+    QueueTrackingData tracking,
+    String eventId,
+  ) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.reload();
+    if (preferences.getString('venue_session_institution_id') == null) return;
+    final seen = (preferences.getStringList(_manualNotificationEventIdsKey) ??
+            const <String>[])
+        .toSet();
+    if (seen.contains(eventId)) return;
+    seen.add(eventId);
+    final ids = seen.toList();
+    await preferences.setStringList(
+      _manualNotificationEventIdsKey,
+      ids.length > 100 ? ids.sublist(ids.length - 100) : ids,
+    );
+    await FlashAlertService.instance.blinkTwice();
+    await AppNotificationService.instance.showQueueCalled(
+      number: tracking.number,
+      counter: tracking.line.counterLabel,
+      notificationEventId: eventId,
     );
   }
 
@@ -115,8 +160,7 @@ class QueueNotificationService {
     if (preferences.getString('venue_session_institution_id') == null) return;
     final number = tracking.number;
 
-    final isCalled =
-        tracking.status == 'called' || tracking.status == 'serving';
+    final isCalled = tracking.status == 'called';
     if (isCalled) {
       final notifiedFor = preferences.getString(_calledNotifiedKey);
       if (notifiedFor != number) {
@@ -152,6 +196,7 @@ class QueueNotificationService {
     await preferences.remove(_numberKey);
     await preferences.remove(_calledNotifiedKey);
     await preferences.remove(_waitNotifiedKey);
+    await preferences.remove(_manualNotificationEventIdsKey);
     final previous = _channel;
     _channel = null;
     if (previous != null) await _repository.removeSubscription(previous);

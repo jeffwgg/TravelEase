@@ -1,9 +1,12 @@
 import 'package:flutter/foundation.dart';
 import '../models/entities/sign_language_entity.dart';
 import '../services/asl_tflite_service.dart';
+import '../services/bim_tflite_service.dart';
+import '../services/travel_phrase_assembler.dart';
 import '../services/sign_frame_data.dart';
 import '../models/repositories/communication_repository.dart';
 import '../core/hardware_services.dart';
+import '../core/supabase_client.dart';
 import '../services/translation_service.dart';
 
 /// ViewModel for Camera Sign Translation (Alphabet Fingerspelling & Words)
@@ -11,6 +14,7 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   final CommunicationRepository _repository;
   final HardwareServices _hardware;
   final AslTfliteService _aslTflite = AslTfliteService();
+  final BimTfliteService _bimTflite = BimTfliteService();
 
   SignTranslationCameraViewModel({
     CommunicationRepository? repository,
@@ -54,9 +58,23 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   /// Auto-speak toggle
   bool _isAutoSpeakEnabled = false;
 
-  final bool _isLoading = false;
+  bool _isLoading = false; // ignore: prefer_final_fields — kept mutable for future async flows
   String? _errorMessage;
+
+  // Shared word→sentence pipeline (both dialects): recognized glosses
+  // accumulate in [recognizedWords]; the assembler turns them into a
+  // complete travel phrase shown in the sentence box and spoken by TTS.
+  static const int _maxWords = 8;
+  final TravelPhraseAssembler _phrases = TravelPhraseAssembler();
+  List<String> _words = const [];
+  AssembledPhrase _phrase = AssembledPhrase.empty;
   DateTime _lastPredictionTime = DateTime.now();
+
+  // Session log buffer: finished phrase segments are appended here (on Clear,
+  // on the 8-word rollover, and at save time) so Save stores the whole signing
+  // session as one multi-sentence conversation log, like the dialogue flow.
+  final List<Map<String, dynamic>> _sessionEntries = [];
+  int get sessionEntryCount => _sessionEntries.length;
 
   // Getters
   bool get isDetecting => _isDetecting;
@@ -72,13 +90,24 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   String get targetOutputLang => _targetOutputLang;
   bool get hasContent => _predictedText.trim().isNotEmpty;
   bool get isAslModelLoaded => _aslTflite.isModelLoaded;
+  bool get isBimRecognitionActive => _selectedLanguage == SignLanguageType.bim;
+
+  /// Recognized gloss words accumulated for the current phrase (both
+  /// dialects) — shown in the words box.
+  List<String> get recognizedWords => List.unmodifiable(_words);
+  String get wordsText => _words.join(' ');
+
+  /// The assembled travel phrase — shown in the sentence box and spoken.
+  AssembledPhrase get phrase => _phrase;
+  bool get phraseMatched => _phrase.matched;
   String get trackingSource => _trackingSource;
   List<SGPoint> get handPoints => _handPoints;
   SignAnchors? get handAnchors => _handAnchors;
   bool get handFromMediaPipe => _handFromMediaPipe;
 
   bool get isHighConfidence => _confidenceScore >= 0.80;
-  bool get isMediumConfidence => _confidenceScore >= 0.50 && _confidenceScore < 0.80;
+  bool get isMediumConfidence =>
+      _confidenceScore >= 0.50 && _confidenceScore < 0.80;
   bool get isLowConfidence => _confidenceScore < 0.50;
 
   /// Real machine translation (same Google web endpoint as the dialogue
@@ -88,7 +117,10 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   final Map<String, String> _translationCache = {};
   int _translationSeq = 0;
 
-  /// Returns the active translated text or alphabet string.
+  /// The sentence-box text, in the active output language. Matched phrases
+  /// carry their own MS/EN/ZH translations (template table — no network);
+  /// an unmatched word list falls back to machine translation, cached as
+  /// before. Single fingerspelled letters pass through directly.
   String get currentTranslatedText {
     if (_predictedText.trim().isEmpty) {
       return '';
@@ -98,33 +130,43 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
       return _customTranslations[_targetOutputLang]!;
     }
 
-    final word = _predictedText.trim();
-    // Single letters (alphabet/fingerspelling) pass through directly.
-    if (word.length == 1) {
-      return word.toUpperCase();
+    if (_words.isEmpty && _predictedText.trim().length == 1) {
+      return _predictedText.trim().toUpperCase();
     }
-    if (_targetOutputLang == 'en') {
-      return word;
+
+    final phrase = _phrase;
+    if (phrase.matched) {
+      return phrase.forLang(_targetOutputLang);
     }
-    // Show the source word until the real translation lands.
-    return _translationCache['$_targetOutputLang|${word.toLowerCase()}'] ?? word;
+    final sourceText = phrase.words.join(' ');
+    if (_targetOutputLang == phrase.sourceLang) {
+      return sourceText;
+    }
+    // Show the source words until the real translation lands.
+    return _translationCache[
+            '${phrase.sourceLang}|$_targetOutputLang|$sourceText'] ??
+        sourceText;
   }
 
-  /// Kicks off a real translation of the recognized word into the current
-  /// target language (no-op for English and single letters).
-  void _requestTranslation(String word) {
-    final w = word.trim();
-    if (w.isEmpty || w.length == 1 || _targetOutputLang == 'en') return;
+  /// Translate the accumulated word list when no template matched
+  /// (matched templates already include every language).
+  void _requestPhraseTranslation() {
+    if (_phrase.matched) return;
+    final source = _phrase.sourceLang;
     final lang = _targetOutputLang;
-    final key = '$lang|${w.toLowerCase()}';
+    if (lang == source) return;
+    final text = _phrase.words.join(' ');
+    if (text.isEmpty) return;
+    final key = '$source|$lang|$text';
     if (_translationCache.containsKey(key)) return;
     final seq = ++_translationSeq;
-    _translation.translateText(text: w, fromLang: 'en', toLang: lang).then((translated) {
+    _translation
+        .translateText(text: text, fromLang: source, toLang: lang)
+        .then((translated) {
       _translationCache[key] = translated;
-      // Only repaint while this exact word+language is still what's shown.
       if (seq == _translationSeq &&
           _targetOutputLang == lang &&
-          _predictedText.trim().toLowerCase() == w.toLowerCase()) {
+          _phrase.words.join(' ') == text) {
         notifyListeners();
       }
     });
@@ -157,8 +199,22 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
         _confidenceScore = confidence;
         _customTranslations.clear();
         _isConfirmed = false;
+        // Both dialects accumulate words; the shared assembler turns the
+        // set into the sentence shown below the words box.
+        if (isNewSign) {
+          final all = [..._words, newText.toLowerCase()];
+          // The word buffer is full: the on-screen phrase is superseded, so
+          // keep it as a finished segment before the oldest word drops off.
+          if (all.length > _maxWords) _captureCurrentPhrase();
+          _words = all.length > _maxWords
+              ? List.unmodifiable(all.sublist(all.length - _maxWords))
+              : List.unmodifiable(all);
+          _phrase = _phrases.assemble(
+              _selectedLanguage == SignLanguageType.bim ? 'bim' : 'asl',
+              _words);
+        }
         notifyListeners();
-        if (isNewSign) _requestTranslation(newText);
+        if (isNewSign) _requestPhraseTranslation();
 
         if (_isAutoSpeakEnabled && hasContent) {
           speakAloud();
@@ -188,23 +244,65 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
 
   /// Clear current recognized text
   void clearText() {
+    // The phrase being cleared counts as finished — keep it for the session log.
+    _captureCurrentPhrase();
     _predictedText = '';
     _confidenceScore = 0.0;
     _customTranslations.clear();
+    _words = const [];
+    _phrase = AssembledPhrase.empty;
+    _errorMessage = null;
     notifyListeners();
+  }
+
+  /// Buffer the phrase currently on screen as one transcript entry. Skipped
+  /// when there is nothing recognized or when it duplicates the last entry.
+  void _captureCurrentPhrase() {
+    if (!hasContent) return;
+    final entry = {
+      'original_text': _words.isNotEmpty ? wordsText : _predictedText,
+      'translated_text': currentTranslatedText,
+      'input_modality': 'sign_to_text',
+      'source_language': _selectedLanguage.code,
+      'target_language': _targetOutputLang,
+      'confidence_score': _confidenceScore,
+      'created_at': DateTime.now().toIso8601String(),
+    };
+    final last = _sessionEntries.isEmpty ? null : _sessionEntries.last;
+    if (last != null &&
+        last['original_text'] == entry['original_text'] &&
+        last['translated_text'] == entry['translated_text']) {
+      return;
+    }
+    _sessionEntries.add(entry);
   }
 
   // Actions
   void switchDialect(SignLanguageType newDialect) {
+    final changed = newDialect != _selectedLanguage;
     _selectedLanguage = newDialect;
     _customTranslations.clear();
+    if (changed) {
+      // Words/sentence are per-dialect: BIM glosses are Malay, ASL words
+      // English — never carry a half-built phrase across the switch.
+      _predictedText = '';
+      _confidenceScore = 0;
+      _isConfirmed = false;
+      _words = const [];
+      _phrase = AssembledPhrase.empty;
+    }
+    if (newDialect == SignLanguageType.bim) {
+      // Warm the on-device model while the user hasn't tapped yet;
+      // initialize() is idempotent and cheap on subsequent calls.
+      _bimTflite.initialize();
+    }
     notifyListeners();
   }
 
   /// Switch target output text language (e.g. 'en', 'ms', 'zh')
   void switchTargetOutputLang(String langCode) {
     _targetOutputLang = langCode;
-    _requestTranslation(_predictedText);
+    _requestPhraseTranslation();
     notifyListeners();
 
     if (_isAutoSpeakEnabled && hasContent) {
@@ -287,9 +385,71 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     }
   }
 
+  String get currentUserId =>
+      SupabaseClientHelper.client.auth.currentUser?.id ?? 'local_user';
+
+  /// Save the signing session as one conversation log (FR-M3-17/18, UC301):
+  /// every finished phrase since the last save — buffered on Clear, on the
+  /// 8-word rollover, or captured now — goes into a single multi-sentence
+  /// transcript. Local device storage first, then best-effort cloud sync so
+  /// the log also shows up in Communication History (UC303). Returns false
+  /// when nothing was recognized since the last save.
+  Future<bool> saveTranslationLog() async {
+    _captureCurrentPhrase();
+    if (_sessionEntries.isEmpty) return false;
+
+    final now = DateTime.now();
+    final title =
+        'Sign to Text (${now.hour}:${now.minute.toString().padLeft(2, '0')})';
+    final summary =
+        'Signing session saved with ${_sessionEntries.length} sentence(s).';
+
+    await _repository.saveConversationLogLocally(
+      userId: currentUserId,
+      logTitle: title,
+      translationType: 'sign_to_text',
+      summary: summary,
+      fullTranscript: List.of(_sessionEntries),
+    );
+
+    // Best-effort cloud sync; the local copy stays authoritative on failure.
+    try {
+      await _repository.saveConversationLog(
+        userId: currentUserId,
+        logTitle: title,
+        translationType: 'sign_to_text',
+        summary: summary,
+        fullTranscript: List.of(_sessionEntries),
+      );
+    } catch (_) {}
+
+    // The saved log now owns these sentences; start a fresh session buffer.
+    _sessionEntries.clear();
+    return true;
+  }
+
+  /// Optional simulation method for testing/fallback gesture triggering
+  Future<void> simulateGestureRecognition({String? keyPhrase}) async {
+    _isHandDetected = true;
+    _predictedText = keyPhrase ?? 'HELLO';
+    _confidenceScore = 0.95;
+    _customTranslations.clear();
+    _isConfirmed = false;
+    notifyListeners();
+
+    if (_isAutoSpeakEnabled && hasContent) {
+      await speakAloud();
+    }
+  }
+
   @override
   void dispose() {
     _aslTflite.dispose();
+    _bimTflite.dispose();
     super.dispose();
   }
+
+  // The legacy HTTP BIM path (recognizeBimVideo) and the BIM-only
+  // clearBimPhrase are retired: recognition is live and on-device for both
+  // dialects, and clearText() resets the shared words + sentence state.
 }

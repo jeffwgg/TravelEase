@@ -48,7 +48,8 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-    }   
+
+    }
 
     /// Reports the raw OS-level speech environment so Flutter can decide
     /// between system TTS/ASR and HMS ML Kit. No assumptions are made:

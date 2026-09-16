@@ -5,6 +5,8 @@ class VenueSession {
   final String institutionId;
   final String institutionName;
   final String? branch;
+  final String? serviceAreaId;
+  final String? serviceAreaName;
   final DateTime startedAt;
 
   const VenueSession({
@@ -12,5 +14,9 @@ class VenueSession {
     required this.institutionName,
     required this.startedAt,
     this.branch,
+    this.serviceAreaId,
+    this.serviceAreaName,
   });
+
+  bool get isServiceAreaSession => serviceAreaId != null;
 }

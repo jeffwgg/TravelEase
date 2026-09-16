@@ -1,10 +1,12 @@
 import { supabase } from '../lib/supabase'
 
+const announcementSelect = '*, service_areas(id, name)'
+
 export const announcementRepository = {
   async getAnnouncements(institutionId) {
     const { data, error } = await supabase
       .from('announcements')
-      .select('*, venue_zones(id, name, code)')
+      .select(announcementSelect)
       .eq('institution_id', institutionId)
       .order('created_at', { ascending: false })
 
@@ -12,6 +14,20 @@ export const announcementRepository = {
     return data ?? []
   },
 
+  async getServiceAreas(institutionId) {
+    const { data, error } = await supabase
+      .from('service_areas')
+      .select('id, name, address, active')
+      .eq('institution_id', institutionId)
+      .eq('active', true)
+      .order('name')
+
+    if (error) throw error
+    return data ?? []
+  },
+
+  // Accessibility analytics still uses the legacy venue-layout zones; venue
+  // session targeting and announcement delivery use getServiceAreas above.
   async getZones(institutionId) {
     const { data, error } = await supabase
       .from('venue_zones')
@@ -27,7 +43,7 @@ export const announcementRepository = {
   async getAnnouncement(id, institutionId) {
     const { data, error } = await supabase
       .from('announcements')
-      .select('*, venue_zones(id, name, code)')
+      .select(announcementSelect)
       .eq('id', id)
       .eq('institution_id', institutionId)
       .single()
@@ -40,7 +56,7 @@ export const announcementRepository = {
     const { data, error } = await supabase
       .from('announcements')
       .insert(payload)
-      .select('*, venue_zones(id, name, code)')
+      .select(announcementSelect)
       .single()
 
     if (error) throw error
@@ -52,7 +68,7 @@ export const announcementRepository = {
       .from('announcements')
       .update(payload)
       .eq('id', id)
-      .select('*, venue_zones(id, name, code)')
+      .select(announcementSelect)
       .single()
 
     if (error) throw error
@@ -80,16 +96,15 @@ export const announcementRepository = {
     return data.translations
   },
 
-  async cancelAnnouncement(id) {
-    const { data, error } = await supabase
+  async deleteAnnouncement(id) {
+    // `cancelled` is the database-compatible tombstone value. The web UI
+    // presents it as Withdrawn; the underlying database status stays unchanged.
+    const { error } = await supabase
       .from('announcements')
       .update({ status: 'cancelled' })
       .eq('id', id)
-      .select()
-      .single()
 
     if (error) throw error
-    return data
   },
 
   subscribeToAnnouncements(institutionId, callback) {

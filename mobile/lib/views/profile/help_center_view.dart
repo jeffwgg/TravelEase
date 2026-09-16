@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../services/app_tour_controller.dart';
 
 class HelpCenterView extends StatelessWidget {
   const HelpCenterView({super.key});
@@ -70,6 +71,28 @@ class HelpCenterView extends StatelessWidget {
               ),
             ),
           ),
+          // const SizedBox(height: 20),
+          // const _SectionTitle('How to use TravelEase'),
+          // _GuideCard(
+          //   icon: Icons.home_outlined,
+          //   title: 'Home & Announcements',
+          //   onTap: () =>
+          //       AppTourController.instance.startHomeAnnouncementsGuide(context),
+          // ),
+          // const SizedBox(height: 12),
+          // _GuideCard(
+          //   icon: Icons.forum_outlined,
+          //   title: 'Communication',
+          //   onTap: () =>
+          //       AppTourController.instance.startCommunicationGuide(context),
+          // ),
+          // const SizedBox(height: 12),
+          // _GuideCard(
+          //   icon: Icons.health_and_safety_outlined,
+          //   title: 'Assistance & Safety',
+          //   onTap: () =>
+          //       AppTourController.instance.startAssistanceSafetyGuide(context),
+          // ),
           const SizedBox(height: 20),
           const _SectionTitle('Frequently Asked Questions'),
           const Card(
@@ -78,26 +101,22 @@ class HelpCenterView extends StatelessWidget {
               children: [
                 _FaqItem(
                   question: 'How do I set up an emergency contact?',
-                  answer:
-                      'Open Profile, choose Emergency Contacts, then add and verify a contact. Only verified contacts can be made primary.',
+                  answer: 'Open Profile, choose Emergency Contacts, then add and verify a contact. Only verified contacts can be made primary.',
                 ),
                 Divider(height: 1),
                 _FaqItem(
                   question: 'How do I share my emergency card?',
-                  answer:
-                      'Open Emergency Card from Profile, confirm the saved details, and tap Share Card to use your phone\'s sharing options.',
+                  answer: 'Open Emergency Card from Profile, confirm the saved details, and tap Share Card to use your phone\'s sharing options.',
                 ),
                 Divider(height: 1),
                 _FaqItem(
                   question: 'How do accessible alerts work?',
-                  answer:
-                      'In Accessibility Preferences, enable visual, vibration, or flash alerts and use each test control to confirm it works on your device.',
+                  answer: 'In Accessibility Preferences, enable visual, vibration, or flash alerts and use each test control to confirm it works on your device.',
                 ),
                 Divider(height: 1),
                 _FaqItem(
                   question: 'Can I change my communication preference?',
-                  answer:
-                      'Yes. Open Edit Profile and select the communication method that works best for you.',
+                  answer: 'Yes. Open Edit Profile and select the communication method that works best for you.',
                 ),
               ],
             ),
@@ -107,24 +126,21 @@ class HelpCenterView extends StatelessWidget {
           const _HelpCard(
             icon: Icons.manage_accounts_outlined,
             title: 'Manage your account',
-            description:
-                'Update personal details, change your password, or replace your profile photo from the Profile page.',
+            description: 'Update personal details, change your password, or replace your profile photo from the Profile page.',
           ),
           const SizedBox(height: 12),
           const _SectionTitle('Accessibility Features'),
           const _HelpCard(
             icon: Icons.accessibility_new,
             title: 'Personalise your experience',
-            description:
-                'Adjust caption size and contrast, and configure full-screen, vibration, and flash alerts for your needs.',
+            description: 'Adjust caption size and contrast, and configure full-screen, vibration, and flash alerts for your needs.',
           ),
           const SizedBox(height: 12),
           const _SectionTitle('Contact Support'),
           const _HelpCard(
             icon: Icons.contact_support_outlined,
             title: 'Need more help?',
-            description:
-                'Contact your TravelEase support administrator and include what you were doing, your device model, and any error message shown.',
+            description: 'Contact your TravelEase support administrator and include what you were doing, your device model, and any error message shown.',
           ),
           const SizedBox(height: 24),
         ],
@@ -142,9 +158,8 @@ class _SectionTitle extends StatelessWidget {
     padding: const EdgeInsets.only(left: 4, bottom: 10),
     child: Text(
       text,
-      style: Theme.of(
-        context,
-      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+      style: Theme.of(context).textTheme.titleMedium
+          ?.copyWith(fontWeight: FontWeight.w600),
     ),
   );
 }
@@ -164,6 +179,29 @@ class _FaqItem extends StatelessWidget {
     childrenPadding: const EdgeInsets.fromLTRB(56, 0, 16, 16),
     expandedCrossAxisAlignment: CrossAxisAlignment.start,
     children: [Text(answer)],
+  );
+}
+
+class _GuideCard extends StatelessWidget {
+  const _GuideCard({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: ListTile(
+      leading: Icon(icon, color: AppColors.primary),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+      subtitle: const Text('Start guide'),
+      trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+      onTap: onTap,
+    ),
   );
 }
 

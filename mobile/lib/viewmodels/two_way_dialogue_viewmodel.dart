@@ -289,20 +289,33 @@ class TwoWayDialogueViewModel extends ChangeNotifier {
     required String correctedText,
   }) async {
     if (correctedText.trim().isEmpty) return;
+    final index = _messages.indexWhere((m) => m.id == messageId);
+    if (index == -1) return;
+    final msg = _messages[index];
+
+    // Re-translate the corrected sentence so the translation always matches
+    // the fixed text instead of keeping the stale original translation.
+    var updated =
+        msg.copyWith(isCorrected: true, correctedText: correctedText.trim());
+    try {
+      final retranslated = await _translator.translateText(
+        text: correctedText.trim(),
+        fromLang: msg.sourceLanguage,
+        toLang: msg.targetLanguage,
+      );
+      updated = updated.copyWith(translatedText: retranslated);
+    } catch (e) {
+      debugPrint('Re-translate corrected text failed: $e');
+    }
 
     await _repository.correctDialogueMessage(
       messageId: messageId,
       correctedText: correctedText.trim(),
+      correctedTranslation: updated.translatedText,
     );
 
-    final index = _messages.indexWhere((m) => m.id == messageId);
-    if (index != -1) {
-      _messages[index] = _messages[index].copyWith(
-        isCorrected: true,
-        correctedText: correctedText.trim(),
-      );
-      notifyListeners();
-    }
+    _messages[index] = updated;
+    notifyListeners();
   }
 
   // --------------------------------------------------------------------------

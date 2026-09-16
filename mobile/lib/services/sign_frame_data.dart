@@ -14,7 +14,13 @@ class SGPoint {
 
   double dist2D(SGPoint o) => math.sqrt((x - o.x) * (x - o.x) + (y - o.y) * (y - o.y));
 
-  Map<String, num> toJson() => {'x': x, 'y': y, 'z': z};
+  Map<String, num> toJson() => {
+        // 4 decimals keeps the debug "Copy Clips JSON" clipboard export
+        // small enough to share; far finer than detector noise.
+        'x': (x * 1e4).roundToDouble() / 1e4,
+        'y': (y * 1e4).roundToDouble() / 1e4,
+        'z': (z * 1e4).roundToDouble() / 1e4,
+      };
 
   static SGPoint fromJson(Map<String, dynamic> j) => SGPoint(
         (j['x'] as num).toDouble(),
@@ -102,6 +108,12 @@ class SignFrameData {
   final bool isFrontCamera;
   final int timestampMs;
 
+  /// Per-landmark ML Kit likelihood (0..1), parallel to [pose]; empty when
+  /// unavailable. The BIM tensor writes these into its visibility channels to
+  /// mirror the continuous MediaPipe Holistic visibility values the model was
+  /// trained on — the GISLR/ASL path ignores this field entirely.
+  final List<double> poseLikelihood;
+
   const SignFrameData({
     required this.hand,
     this.hand2,
@@ -110,6 +122,7 @@ class SignFrameData {
     required this.hasMediaPipeHand,
     required this.isFrontCamera,
     required this.timestampMs,
+    this.poseLikelihood = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -120,6 +133,7 @@ class SignFrameData {
         'hasMediaPipeHand': hasMediaPipeHand,
         'isFrontCamera': isFrontCamera,
         'timestampMs': timestampMs,
+        'poseLikelihood': poseLikelihood,
       };
 
   static SignFrameData fromJson(Map<String, dynamic> j) => SignFrameData(
@@ -138,6 +152,10 @@ class SignFrameData {
         hasMediaPipeHand: j['hasMediaPipeHand'] as bool? ?? false,
         isFrontCamera: j['isFrontCamera'] as bool? ?? true,
         timestampMs: j['timestampMs'] as int? ?? 0,
+        poseLikelihood: (j['poseLikelihood'] as List?)
+                ?.map((v) => (v as num).toDouble())
+                .toList(growable: false) ??
+            const [],
       );
 }
 
@@ -257,6 +275,78 @@ List<double> buildGislrTensor(SignFrameData frame) {
     }
   }
 
+  return tensor;
+}
+
+/// Channel count of the BIM-SIGN Pose layout: 33 pose landmarks with
+/// visibility (33*4) plus two hands with x/y/z (2*21*3).
+const int kBimChannels = 258;
+
+/// ML Kit reports pose z in metres while MediaPipe Holistic (the training
+/// data) uses roughly normalized-image units; calibration over harness
+/// clips measured the dataset/app std ratio at 0.225/0.592 (pose) and
+/// 0.022/0.279 (hands). Without this the standardization sees z values
+/// 3.5-13x outside anything the model was trained on.
+const double kBimPoseZScale = 0.38;
+const double kBimHandZScale = 0.08;
+
+/// Half-margin (frame units) beyond which a landmark counts as out of frame.
+const double _kBimFrameMargin = 0.005;
+
+/// Builds one frame of the BIM-SIGN Pose `(T, 258)` tensor layout:
+///
+///   pose 0-131 as (x, y, z, visibility) per landmark,
+///   left hand 132-194 as (x, y, z), right hand 195-257 as (x, y, z).
+///
+/// MediaPipe Holistic produced the training data, so undetected pose points
+/// keep visibility 0 (zeros elsewhere) and undetected hands stay zero-filled.
+/// ML Kit additionally *extrapolates* landmarks outside the frame (hips and
+/// knees below a selfie crop were measured at y up to 2.7 with likelihood
+/// still above the 0.2 threshold), so anything outside [-margin, 1+margin]
+/// is treated as missing here — the phantom positions are worse than zeros
+/// and match nothing the classifier ever saw. Coordinates are raw
+/// screen-normalized values — the classifier applies its own shoulder-center
+/// normalization afterwards, exactly like `dataset.py`.
+List<double> buildBimTensor(SignFrameData frame) {
+  final tensor = List<double>.filled(kBimChannels, 0.0);
+
+  bool inFrame(SGPoint p) =>
+      p.x >= -_kBimFrameMargin &&
+      p.x <= 1 + _kBimFrameMargin &&
+      p.y >= -_kBimFrameMargin &&
+      p.y <= 1 + _kBimFrameMargin;
+
+  for (int i = 0; i < 33; i++) {
+    final p = i < frame.pose.length ? frame.pose[i] : null;
+    if (p == null || !inFrame(p)) continue;
+    final idx = i * 4;
+    tensor[idx] = p.x;
+    tensor[idx + 1] = p.y;
+    tensor[idx + 2] = p.z * kBimPoseZScale;
+    // Training data (MediaPipe Holistic) stores CONTINUOUS visibility here;
+    // feed ML Kit's likelihood so the standardization statistics line up.
+    // Fall back to the old binary value for payloads without it.
+    tensor[idx + 3] = i < frame.poseLikelihood.length
+        ? frame.poseLikelihood[i]
+        : 1.0;
+  }
+
+  final (primaryIsLeft, secondaryIsLeft) = _assignHandSides(frame);
+  void writeHand(List<SGPoint>? hand, bool left) {
+    if (hand == null) return;
+    final base = left ? 132 : 195;
+    for (int i = 0; i < hand.length && i < 21; i++) {
+      final p = hand[i];
+      if (!inFrame(p)) continue;
+      final idx = base + i * 3;
+      tensor[idx] = p.x;
+      tensor[idx + 1] = p.y;
+      tensor[idx + 2] = p.z * kBimHandZScale;
+    }
+  }
+
+  writeHand(frame.hand, primaryIsLeft);
+  writeHand(frame.hand2, secondaryIsLeft);
   return tensor;
 }
 

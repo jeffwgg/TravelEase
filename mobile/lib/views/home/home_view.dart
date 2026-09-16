@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../core/theme.dart';
+import '../../services/app_tour_controller.dart';
+import '../../widgets/app_tour_coachmark.dart';
 
 class HomeView extends StatefulWidget {
   final Widget child;
@@ -14,6 +17,10 @@ class HomeView extends StatefulWidget {
 
 class _HomeViewState extends State<HomeView> {
   int _currentIndex = 0;
+  final _sosTourKey = GlobalKey();
+  final _communicateTourKey = GlobalKey();
+  final _assistanceTourKey = GlobalKey();
+  final _profileTourKey = GlobalKey();
 
   static const _tabs = [
     '/home',
@@ -33,44 +40,107 @@ class _HomeViewState extends State<HomeView> {
       }
     }
 
-    return Scaffold(
-      body: widget.child,
-      floatingActionButton: const _SosFloatingButton(),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 16,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildNavItem(Icons.explore_rounded, 'Explore', 0),
-                _buildNavItem(Icons.forum_outlined, 'Communicate', 1),
-                // Middle Sign Language Camera Translation Button
-                _buildSignTranslateButton(context),
-                _buildNavItem(Icons.support_agent_rounded, 'Assistance', 2),
-                _buildNavItem(Icons.person_rounded, 'Profile', 3),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Scaffold(
+          body: widget.child,
+          floatingActionButton: _SosFloatingButton(key: _sosTourKey),
+          floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+          bottomNavigationBar: Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 16,
+                  offset: const Offset(0, -4),
+                ),
               ],
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildNavItem(Icons.explore_rounded, 'Explore', 0),
+                    _buildNavItem(
+                      Icons.forum_outlined,
+                      'Communicate',
+                      1,
+                      tourKey: _communicateTourKey,
+                    ),
+                    // Middle Sign Language Camera Translation Button
+                    _buildSignTranslateButton(context),
+                    _buildNavItem(
+                      Icons.support_agent_rounded,
+                      'Assistance',
+                      2,
+                      tourKey: _assistanceTourKey,
+                    ),
+                    _buildNavItem(
+                      Icons.person_rounded,
+                      'Profile',
+                      3,
+                      tourKey: _profileTourKey,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
-      ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.sos,
+            targetKey: _sosTourKey,
+            title: AppTourController.instance.sosStep == 0
+                ? 'Emergency SOS'
+                : 'Emergency alert',
+            message: AppTourController.instance.sosStep == 0
+                ? 'Hold here to start the SOS countdown.'
+                : 'After the countdown, your emergency alert is sent.',
+            onNext: () => AppTourController.instance.advanceSos(context),
+          ),
+        ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.communicationNavigation,
+            targetKey: _communicateTourKey,
+            title: 'Open Communication',
+            message: 'Use Communicate in the bottom menu.',
+          ),
+        ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.assistanceNavigation,
+            targetKey: _assistanceTourKey,
+            title: 'Open Assistance',
+            message: 'Use Assistance in the bottom menu.',
+          ),
+        ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.profileNavigation,
+            targetKey: _profileTourKey,
+            title: 'Open Profile',
+            message: 'Use Profile in the bottom menu for alert settings.',
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, int index) {
+  Widget _buildNavItem(
+    IconData icon,
+    String label,
+    int index, {
+    GlobalKey? tourKey,
+  }) {
     final isSelected = _currentIndex == index;
     return GestureDetector(
+      key: tourKey,
       onTap: () {
         setState(() => _currentIndex = index);
         context.go(_tabs[index]);
@@ -152,7 +222,7 @@ class _HomeViewState extends State<HomeView> {
 }
 
 class _SosFloatingButton extends StatefulWidget {
-  const _SosFloatingButton();
+  const _SosFloatingButton({super.key});
 
   @override
   State<_SosFloatingButton> createState() => _SosFloatingButtonState();

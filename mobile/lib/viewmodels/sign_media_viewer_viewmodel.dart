@@ -9,7 +9,7 @@ import '../core/hardware_services.dart';
 import '../models/entities/sign_language_entity.dart';
 import '../models/entities/sign_phrase_entity.dart';
 import '../models/repositories/sign_reference_repository.dart';
-import '../models/sign_word_video_library.dart';
+import '../services/sign_word_video_library.dart';
 
 /// ViewModel for Sign Media Video playback (FR-M4-01, FR-M4-05 to FR-M4-12, UC402).
 ///
@@ -39,10 +39,9 @@ class SignMediaViewerViewModel extends ChangeNotifier {
   bool _isLooping = true;
   double _playbackSpeed = 1.0;
   bool _isFullScreen = false;
-  bool _isSubmitting = false;
   bool _isSpeaking = false;
   String? _speakingLang;
-  String? _feedbackStatus;
+  bool _isFavorite = false;
 
   // Getters
   SignPhrase? get phrase => _phrase;
@@ -60,10 +59,11 @@ class SignMediaViewerViewModel extends ChangeNotifier {
   bool get isLooping => _isLooping;
   double get playbackSpeed => _playbackSpeed;
   bool get isFullScreen => _isFullScreen;
-  bool get isSubmitting => _isSubmitting;
-  String? get feedbackStatus => _feedbackStatus;
   bool get isSpeaking => _isSpeaking;
   String? get speakingLang => _speakingLang;
+
+  /// Whether the current phrase is starred by the signed-in account.
+  bool get isFavorite => _isFavorite;
 
   Duration get position => _controller?.value.position ?? Duration.zero;
   Duration get clipDuration => _controller?.value.duration ?? Duration.zero;
@@ -79,10 +79,12 @@ class SignMediaViewerViewModel extends ChangeNotifier {
 
   Future<void> initPhrase({required SignPhrase phrase, SignLanguageType? initialDialect}) async {
     _phrase = phrase;
+    _isFavorite = false;
     if (initialDialect != null) {
       _currentDialect = initialDialect;
     }
     notifyListeners();
+    unawaited(_refreshFavorite());
     await _rebuildPlaylist();
   }
 
@@ -471,31 +473,36 @@ class SignMediaViewerViewModel extends ChangeNotifier {
     }
   }
 
-  Future<bool> submitFeedback({
-    required String issueType,
-    required String description,
-  }) async {
-    _isSubmitting = true;
-    notifyListeners();
-
+  /// Re-check the account's favorites so the star reflects reality when the
+  /// page opens (the repository mirrors the last successful server read, so
+  /// this also works offline after a prior load).
+  Future<void> _refreshFavorite() async {
+    final p = _phrase;
+    if (p == null) return;
     try {
-      await _repository.submitAssetFeedback(
-        userId: 'demo_user',
-        phraseId: _phrase?.id ?? 'unknown',
-        signLanguageId: _currentDialect.code,
-        issueType: issueType,
-        description: description,
-      );
-      _isSubmitting = false;
-      _feedbackStatus = 'Feedback submitted for moderation.';
+      final favorites =
+          await _repository.getFavoritePhrases(_repository.currentUserId);
+      _isFavorite = favorites.any((f) => f.phraseId == p.id);
       notifyListeners();
-      return true;
-    } catch (e) {
-      _isSubmitting = false;
-      _feedbackStatus = 'Saved locally.';
-      notifyListeners();
-      return true;
+    } catch (_) {
+      // Star stays off; a failed favorites load must not break playback.
     }
+  }
+
+  /// Toggle the current phrase's star for the signed-in account — the same
+  /// data the Favorites page and the dictionary star read/write.
+  Future<bool> toggleFavorite() async {
+    final p = _phrase;
+    if (p == null) return false;
+    final userId = _repository.currentUserId;
+    _isFavorite = !_isFavorite;
+    notifyListeners();
+    if (_isFavorite) {
+      await _repository.addFavoritePhrase(userId, p.id);
+    } else {
+      await _repository.removeFavoritePhrase(userId, p.id);
+    }
+    return _isFavorite;
   }
 
   @override

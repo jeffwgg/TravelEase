@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/repositories/announcement_repository.dart';
 import 'app_notification_service.dart';
 import 'flash_alert_service.dart';
@@ -23,6 +24,7 @@ class AnnouncementNotificationService {
   final AnnouncementRepository _repository = AnnouncementRepository();
   RealtimeChannel? _channel;
   String? _institutionId;
+  String? _serviceAreaId;
 
   void start() {
     VenueSessionService.instance.addListener(_onSessionChanged);
@@ -34,10 +36,16 @@ class AnnouncementNotificationService {
   Future<void> _sync() async {
     final session = VenueSessionService.instance.session;
     final institutionId = session?.institutionId;
-    if (institutionId == _institutionId && _channel != null) return;
+    final serviceAreaId = session?.serviceAreaId;
+    if (institutionId == _institutionId &&
+        serviceAreaId == _serviceAreaId &&
+        _channel != null) {
+      return;
+    }
     final previous = _channel;
     _channel = null;
     _institutionId = institutionId;
+    _serviceAreaId = serviceAreaId;
     if (previous != null) await _repository.removeSubscription(previous);
     if (institutionId == null) return;
     _channel = _repository.subscribeToAnnouncements(
@@ -53,8 +61,9 @@ class AnnouncementNotificationService {
     try {
       final items = await _repository.getActiveAnnouncements(
         institutionId: institutionId,
+        serviceAreaId: _serviceAreaId,
       );
-      final seen = await _loadSeen(institutionId);
+      final seen = await _loadSeen(_announcementScopeKey());
       final cutoff = DateTime.now().subtract(_freshWindow);
       final fresh = items
           .where(
@@ -66,7 +75,7 @@ class AnnouncementNotificationService {
       seen
         ..clear()
         ..addAll(items.map((announcement) => announcement.id));
-      await _saveSeen(institutionId, seen);
+      await _saveSeen(_announcementScopeKey(), seen);
       if (fresh.isEmpty) return;
       await FlashAlertService.instance.blinkTwice();
       for (final announcement in fresh) {
@@ -81,20 +90,19 @@ class AnnouncementNotificationService {
     }
   }
 
-  Future<Set<String>> _loadSeen(String institutionId) async {
+  String _announcementScopeKey() =>
+      '$_institutionId:${_serviceAreaId ?? 'institution'}';
+
+  Future<Set<String>> _loadSeen(String scopeKey) async {
     final preferences = await SharedPreferences.getInstance();
-    return (preferences.getStringList('$_seenKeyPrefix$institutionId') ??
-            const [])
+    return (preferences.getStringList('$_seenKeyPrefix$scopeKey') ?? const [])
         .toSet();
   }
 
-  Future<void> _saveSeen(String institutionId, Set<String> seen) async {
+  Future<void> _saveSeen(String scopeKey, Set<String> seen) async {
     final preferences = await SharedPreferences.getInstance();
     final all = seen.toList();
     final limited = all.length > 100 ? all.sublist(all.length - 100) : all;
-    await preferences.setStringList(
-      '$_seenKeyPrefix$institutionId',
-      limited,
-    );
+    await preferences.setStringList('$_seenKeyPrefix$scopeKey', limited);
   }
 }

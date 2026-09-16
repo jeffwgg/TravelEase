@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../core/theme.dart';
+import '../../services/app_tour_controller.dart';
+import '../../widgets/app_tour_coachmark.dart';
 
 class AssistanceMenuView extends StatelessWidget {
   const AssistanceMenuView({super.key});
+
+  static final _requestTourKey = GlobalKey();
 
   void _showGuidanceInfo(BuildContext context) {
     showModalBottomSheet(
@@ -61,20 +66,54 @@ class AssistanceMenuView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Assistance'),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'How can we help you today?',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Scaffold(
+          appBar: AppBar(title: const Text('Assistance')),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'How can we help you today?',
+                  style: Theme.of(context).textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Select an option below to get assistance from our staff.',
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 32),
+                _buildMenuCard(
+                  context,
+                  tourKey: _requestTourKey,
+                  icon: Icons.add_circle_outline,
+                  title: 'Make Request',
+                  subtitle:
+                      'Request help from staff (e.g. navigation, luggage)',
+                  onTap: () => context.push('/assistance-request/new'),
+                ),
+                const SizedBox(height: 16),
+                _buildMenuCard(
+                  context,
+                  icon: Icons.track_changes_outlined,
+                  title: 'View / Track Request',
+                  subtitle: 'Check the status of your current requests',
+                  onTap: () => context.push('/request-tracking'),
+                ),
+                const SizedBox(height: 16),
+                _buildMenuCard(
+                  context,
+                  icon: Icons.help_outline,
+                  title: 'Guidance Info',
+                  subtitle: 'Learn how the assistance feature works',
+                  onTap: () => _showGuidanceInfo(context),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
@@ -117,18 +156,28 @@ class AssistanceMenuView extends StatelessWidget {
             ),
           ],
         ),
-      ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.assistanceRequestMenu,
+            targetKey: _requestTourKey,
+            title: 'Make a request',
+            message: 'Choose Make Request to ask staff for help.',
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildMenuCard(
     BuildContext context, {
+    Key? tourKey,
     required IconData icon,
     required String title,
     required String subtitle,
     required VoidCallback onTap,
   }) {
     return InkWell(
+      key: tourKey,
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(

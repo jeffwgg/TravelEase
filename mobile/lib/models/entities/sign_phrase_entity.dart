@@ -1,5 +1,4 @@
 import 'sign_language_entity.dart';
-import 'sign_media_asset_entity.dart';
 
 /// Step-by-step physical hand and body movement instruction
 class SignMovementStep {
@@ -45,7 +44,6 @@ class SignPhrase {
   final List<String> relatedPhraseIds;
   final bool isVerified;
   final int viewCount;
-  final List<SignMediaAsset> mediaAssets;
 
   const SignPhrase({
     required this.id,
@@ -61,7 +59,6 @@ class SignPhrase {
     this.relatedPhraseIds = const [],
     this.isVerified = true,
     this.viewCount = 0,
-    this.mediaAssets = const [],
   });
 
   /// Get text based on target spoken language code ('en', 'ms', 'zh')
@@ -106,40 +103,12 @@ class SignPhrase {
     }
   }
 
-  /// Find media asset for a given sign language and perspective.
-  /// Never falls back to a different sign language silently.
-  SignMediaAsset? getMediaAsset(SignLanguageType type, {String perspective = 'front'}) {
-    try {
-      return mediaAssets.firstWhere(
-        (a) =>
-            a.signLanguageId.toUpperCase() == type.code &&
-            a.perspective.toLowerCase() == perspective.toLowerCase(),
-      );
-    } catch (_) {
-      try {
-        return mediaAssets.firstWhere(
-          (a) => a.signLanguageId.toUpperCase() == type.code,
-        );
-      } catch (_) {
-        return null;
-      }
-    }
-  }
-
   factory SignPhrase.fromJson(Map<String, dynamic> json) {
     var rawSteps = json['step_instructions'];
     List<SignMovementStep> steps = [];
     if (rawSteps is List) {
       steps = rawSteps
           .map((s) => SignMovementStep.fromJson(Map<String, dynamic>.from(s as Map)))
-          .toList();
-    }
-
-    var rawMedia = json['media_assets'] ?? json['sign_media_assets'];
-    List<SignMediaAsset> media = [];
-    if (rawMedia is List) {
-      media = rawMedia
-          .map((m) => SignMediaAsset.fromJson(Map<String, dynamic>.from(m as Map)))
           .toList();
     }
 
@@ -162,7 +131,6 @@ class SignPhrase {
       relatedPhraseIds: related,
       isVerified: json['is_verified'] as bool? ?? true,
       viewCount: (json['view_count'] as num?)?.toInt() ?? 0,
-      mediaAssets: media,
     );
   }
 
@@ -198,7 +166,6 @@ class SignPhrase {
     List<String>? relatedPhraseIds,
     bool? isVerified,
     int? viewCount,
-    List<SignMediaAsset>? mediaAssets,
   }) {
     return SignPhrase(
       id: id ?? this.id,
@@ -214,7 +181,6 @@ class SignPhrase {
       relatedPhraseIds: relatedPhraseIds ?? this.relatedPhraseIds,
       isVerified: isVerified ?? this.isVerified,
       viewCount: viewCount ?? this.viewCount,
-      mediaAssets: mediaAssets ?? this.mediaAssets,
     );
   }
 }

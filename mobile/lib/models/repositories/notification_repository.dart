@@ -141,4 +141,25 @@ class NotificationHistoryStore {
     );
     _changes.add(null);
   }
+
+  /// Removes one device-local notification history entry.
+  Future<void> delete(String id) async {
+    final entries = await this.entries();
+    final preferences = await _preferences();
+    await preferences.setStringList(
+      _key,
+      entries
+          .where((entry) => entry.id != id)
+          .map((entry) => jsonEncode(entry.toJson()))
+          .toList(),
+    );
+    _changes.add(null);
+  }
+
+  /// Clears the complete device-local notification history.
+  Future<void> clear() async {
+    final preferences = await _preferences();
+    await preferences.remove(_key);
+    _changes.add(null);
+  }
 }

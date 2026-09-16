@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../core/supabase_client.dart';
 import '../entities/sign_language_entity.dart';
 import '../entities/sign_phrase_entity.dart';
@@ -136,7 +138,62 @@ class SignReferenceRepository {
     ),
   ];
 
-  static final List<FavoritePhrase> _inMemoryFavorites = [];
+  // Favorites: per-user offline mirror. The demo bucket keeps the seeded
+  // sample list for signed-out guests; signed-in accounts get their own
+  // bucket backed by user_favorite_phrases (never shared with the demo).
+  static final Map<String, List<FavoritePhrase>> _favoritesByUser = {};
+
+  /// Supabase id of the signed-in account, or the demo key for guests.
+  String get currentUserId => _client.auth.currentUser?.id ?? 'demo_user';
+
+  /// Email of the signed-in account (null for guests).
+  String? get signedInEmail => _client.auth.currentUser?.email;
+
+  bool get isSignedIn => _client.auth.currentUser != null;
+
+  static final RegExp _uuidPattern = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');
+  static bool _isUuid(String value) => _uuidPattern.hasMatch(value);
+
+  List<FavoritePhrase> _favoritesBucket(String userId) {
+    return _favoritesByUser.putIfAbsent(userId, () {
+      if (userId != 'demo_user') return <FavoritePhrase>[];
+      return [
+        FavoritePhrase(
+          id: 'fav_1',
+          userId: userId,
+          phraseId: _inMemoryPhrases[0].id,
+          orderIndex: 0,
+          createdAt: DateTime.now(),
+          phrase: _inMemoryPhrases[0],
+        ),
+        FavoritePhrase(
+          id: 'fav_2',
+          userId: userId,
+          phraseId: _inMemoryPhrases[1].id,
+          orderIndex: 1,
+          createdAt: DateTime.now(),
+          phrase: _inMemoryPhrases[1],
+        ),
+        FavoritePhrase(
+          id: 'fav_3',
+          userId: userId,
+          phraseId: _inMemoryPhrases[5].id,
+          orderIndex: 2,
+          createdAt: DateTime.now(),
+          phrase: _inMemoryPhrases[5],
+        ),
+        FavoritePhrase(
+          id: 'fav_4',
+          userId: userId,
+          phraseId: _inMemoryPhrases[6].id,
+          orderIndex: 3,
+          createdAt: DateTime.now(),
+          phrase: _inMemoryPhrases[6],
+        ),
+      ];
+    });
+  }
 
   // --------------------------------------------------------------------------
   // 1. Browse & Search Sign Dictionary (FR-M4-01, FR-M4-04, FR-M4-13, FR-M4-14)
@@ -214,131 +271,121 @@ class SignReferenceRepository {
 
   // --------------------------------------------------------------------------
   // 2. Favorites List & Bookmarks (FR-M4-17, FR-M4-18, FR-M4-19)
+  //    Scoped to the signed-in Supabase account (user_id = auth uuid);
+  //    guests keep the local demo bucket. An empty list for a signed-in
+  //    user is their real state — it never falls back to dummy rows.
   // --------------------------------------------------------------------------
   Future<List<FavoritePhrase>> getFavoritePhrases(String userId) async {
-    try {
-      final response = await _client
-          .from('user_favorite_phrases')
-          .select('*, sign_dictionary_phrases(*, sign_media_assets(*))')
-          .eq('user_id', userId)
-          .order('order_index', ascending: true);
-      final list = (response as List).map((f) => FavoritePhrase.fromJson(f)).toList();
-      if (list.isNotEmpty) return list;
-    } catch (e) {
-      // ignore
+    if (_isUuid(userId)) {
+      try {
+        final response = await _client
+            .from('user_favorite_phrases')
+            .select('*, sign_dictionary_phrases(*, sign_media_assets(*))')
+            .eq('user_id', userId)
+            .order('order_index', ascending: true);
+        final list =
+            (response as List).map((f) => FavoritePhrase.fromJson(f)).toList();
+        _favoritesByUser[userId] = list; // mirror for offline reads
+        return list;
+      } catch (e) {
+        debugPrint(
+            '[SignReferenceRepository] favorites fetch failed for $userId: $e');
+      }
     }
-
-    if (_inMemoryFavorites.isEmpty) {
-      _inMemoryFavorites.addAll([
-        FavoritePhrase(
-          id: 'fav_1',
-          userId: userId,
-          phraseId: _inMemoryPhrases[0].id,
-          orderIndex: 0,
-          createdAt: DateTime.now(),
-          phrase: _inMemoryPhrases[0],
-        ),
-        FavoritePhrase(
-          id: 'fav_2',
-          userId: userId,
-          phraseId: _inMemoryPhrases[1].id,
-          orderIndex: 1,
-          createdAt: DateTime.now(),
-          phrase: _inMemoryPhrases[1],
-        ),
-        FavoritePhrase(
-          id: 'fav_3',
-          userId: userId,
-          phraseId: _inMemoryPhrases[5].id,
-          orderIndex: 2,
-          createdAt: DateTime.now(),
-          phrase: _inMemoryPhrases[5],
-        ),
-        FavoritePhrase(
-          id: 'fav_4',
-          userId: userId,
-          phraseId: _inMemoryPhrases[6].id,
-          orderIndex: 3,
-          createdAt: DateTime.now(),
-          phrase: _inMemoryPhrases[6],
-        ),
-      ]);
-    }
-    return _inMemoryFavorites.where((f) => f.userId == userId || f.userId == 'demo_user').toList();
+    return List.of(_favoritesBucket(userId));
   }
 
   Future<bool> addFavoritePhrase(String userId, String phraseId) async {
-    try {
-      await _client.from('user_favorite_phrases').insert({
-        'user_id': userId,
-        'phrase_id': phraseId,
-        'order_index': _inMemoryFavorites.length,
-      });
-    } catch (_) {}
+    final bucket = _favoritesBucket(userId);
+    if (bucket.any((f) => f.phraseId == phraseId)) return true;
 
-    final phrase = _inMemoryPhrases.firstWhere((p) => p.id == phraseId, orElse: () => _inMemoryPhrases.first);
-    if (!_inMemoryFavorites.any((f) => f.phraseId == phraseId)) {
-      _inMemoryFavorites.add(
-        FavoritePhrase(
-          id: 'fav_${DateTime.now().millisecondsSinceEpoch}',
-          userId: userId,
-          phraseId: phraseId,
-          orderIndex: _inMemoryFavorites.length,
-          createdAt: DateTime.now(),
-          phrase: phrase,
-        ),
-      );
+    var persisted = !_isUuid(userId);
+    if (_isUuid(userId)) {
+      try {
+        await _client.from('user_favorite_phrases').upsert({
+          'user_id': userId,
+          'phrase_id': phraseId,
+          'order_index': bucket.length,
+        }, onConflict: 'user_id,phrase_id');
+        persisted = true;
+      } catch (e) {
+        debugPrint(
+            '[SignReferenceRepository] favorite add failed for $userId: $e');
+        // Keep the optimistic local copy so the UI stays consistent
+        // offline; the next successful load re-syncs from the server.
+      }
     }
+    final idx = _inMemoryPhrases.indexWhere((p) => p.id == phraseId);
+    bucket.add(
+      FavoritePhrase(
+        id: persisted
+            ? 'fav_${DateTime.now().millisecondsSinceEpoch}'
+            : 'fav_local_${DateTime.now().millisecondsSinceEpoch}',
+        userId: userId,
+        phraseId: phraseId,
+        orderIndex: bucket.length,
+        createdAt: DateTime.now(),
+        phrase: idx >= 0 ? _inMemoryPhrases[idx] : null,
+      ),
+    );
     return true;
   }
 
   Future<bool> removeFavoritePhrase(String userId, String phraseId) async {
-    try {
-      await _client
-          .from('user_favorite_phrases')
-          .delete()
-          .eq('user_id', userId)
-          .eq('phrase_id', phraseId);
-    } catch (_) {}
-
-    _inMemoryFavorites.removeWhere((f) => f.phraseId == phraseId);
+    if (_isUuid(userId)) {
+      try {
+        await _client
+            .from('user_favorite_phrases')
+            .delete()
+            .eq('user_id', userId)
+            .eq('phrase_id', phraseId);
+      } catch (e) {
+        debugPrint(
+            '[SignReferenceRepository] favorite remove failed for $userId: $e');
+      }
+    }
+    _favoritesBucket(userId)
+        .removeWhere((f) => f.userId == userId && f.phraseId == phraseId);
     return true;
   }
 
   Future<bool> isFavorite(String userId, String phraseId) async {
-    return _inMemoryFavorites.any((f) => f.phraseId == phraseId && (f.userId == userId || f.userId == 'demo_user'));
+    return _favoritesBucket(userId)
+        .any((f) => f.userId == userId && f.phraseId == phraseId);
   }
 
   Future<void> reorderFavorites(String userId, int oldIndex, int newIndex) async {
     if (oldIndex < newIndex) {
       newIndex -= 1;
     }
-    final item = _inMemoryFavorites.removeAt(oldIndex);
-    _inMemoryFavorites.insert(newIndex, item);
+    final bucket = _favoritesBucket(userId);
+    if (oldIndex < 0 ||
+        oldIndex >= bucket.length ||
+        newIndex < 0 ||
+        newIndex >= bucket.length) {
+      return;
+    }
+    bucket.insert(newIndex, bucket.removeAt(oldIndex));
+
+    if (!_isUuid(userId)) return;
+    try {
+      // Persist the new position of each row whose order actually moved.
+      for (var i = 0; i < bucket.length; i++) {
+        if (bucket[i].orderIndex != i) {
+          await _client
+              .from('user_favorite_phrases')
+              .update({'order_index': i})
+              .eq('id', bucket[i].id);
+        }
+      }
+    } catch (e) {
+      debugPrint(
+          '[SignReferenceRepository] favorite reorder failed for $userId: $e');
+    }
   }
 
   // --------------------------------------------------------------------------
-  // 4. Submit Moderation Feedback (UC402 Alt A3)
+  // 4. (Removed) Moderation feedback — the Report button was retired from
+  // the media viewer in favour of the favorites star; no callers remain.
   // --------------------------------------------------------------------------
-  Future<bool> submitAssetFeedback({
-    required String userId,
-    required String phraseId,
-    required String signLanguageId,
-    required String issueType,
-    required String description,
-  }) async {
-    try {
-      await _client.from('sign_asset_feedback').insert({
-        'user_id': userId,
-        'phrase_id': phraseId,
-        'sign_language_id': signLanguageId,
-        'issue_type': issueType,
-        'description': description,
-        'status': 'pending',
-      });
-      return true;
-    } catch (e) {
-      return true;
-    }
-  }
 }

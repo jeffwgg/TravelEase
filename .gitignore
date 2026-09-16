@@ -74,5 +74,10 @@ mobile/.cursorrules
 
 # Browser automation artifacts
 .playwright-mcp/
+
+# Dev-only folders: training tooling + parked code, never shipped
+training_resources/
+future_work/
 /mobile/sign_test_videos
 /mockups
+mobile/nul

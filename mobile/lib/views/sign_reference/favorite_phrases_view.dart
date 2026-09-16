@@ -28,9 +28,18 @@ class _FavoritePhrasesViewState extends State<FavoritePhrasesView> {
 
   void _onRemove(FavoritePhrase fav) {
     _viewModel.removeFavorite(fav);
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    // Drop any leftover bar first: without this, back-to-back removals
+    // queue up and the message looks like it never goes away.
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
       SnackBar(
         content: Text('Removed "${fav.phrase?.phraseEn ?? 'Phrase'}" from favorites'),
+        duration: const Duration(seconds: 3),
+        // Flutter >=3.35: a SnackBar with an action defaults to `persist`
+        // (never auto-dismisses) unless told otherwise — the Undo action was
+        // making this bar stick forever.
+        persist: false,
         action: SnackBarAction(
           label: 'Undo',
           onPressed: () => _viewModel.restoreFavorite(fav),
@@ -46,7 +55,22 @@ class _FavoritePhrasesViewState extends State<FavoritePhrasesView> {
       builder: (context, _) {
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Bookmarked Favorites'),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Bookmarked Favorites'),
+                // Whose list this is: the signed-in account, or the local
+                // demo bucket while signed out.
+                Text(
+                  _viewModel.accountLabel,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
             leading: IconButton(
               icon: const Icon(Icons.arrow_back),
               onPressed: () => Navigator.pop(context),
@@ -123,15 +147,16 @@ class _FavoritePhrasesViewState extends State<FavoritePhrasesView> {
                                       IconButton(
                                         icon: const Icon(Icons.play_circle_fill, color: AppColors.primary, size: 28),
                                         tooltip: 'Watch Sign Video',
-                                        onPressed: () {
-                                          if (phrase != null) {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (ctx) => SignMediaViewerView(phrase: phrase),
-                                              ),
-                                            );
-                                          }
+                                        onPressed: () async {
+                                          if (phrase == null) return;
+                                          await Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (ctx) => SignMediaViewerView(phrase: phrase),
+                                            ),
+                                          );
+                                          // The viewer can un-star this phrase.
+                                          _viewModel.loadFavorites();
                                         },
                                       ),
                                       IconButton(

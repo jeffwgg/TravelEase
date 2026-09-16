@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/entities/venue_session.dart';
 
 /// Holds the traveller's venue session (FR-M2-04, FR-M2-06). The session
@@ -13,6 +14,8 @@ class VenueSessionService extends ChangeNotifier {
   static const _idKey = 'venue_session_institution_id';
   static const _nameKey = 'venue_session_institution_name';
   static const _branchKey = 'venue_session_institution_branch';
+  static const _serviceAreaIdKey = 'venue_session_service_area_id';
+  static const _serviceAreaNameKey = 'venue_session_service_area_name';
   static const _startedAtKey = 'venue_session_started_at';
 
   VenueSession? _session;
@@ -33,7 +36,19 @@ class VenueSessionService extends ChangeNotifier {
     } else {
       await preferences.setString(_branchKey, branch);
     }
-    await preferences.setString(_startedAtKey, session.startedAt.toIso8601String());
+    final serviceAreaId = session.serviceAreaId;
+    final serviceAreaName = session.serviceAreaName;
+    if (serviceAreaId == null || serviceAreaName == null) {
+      await preferences.remove(_serviceAreaIdKey);
+      await preferences.remove(_serviceAreaNameKey);
+    } else {
+      await preferences.setString(_serviceAreaIdKey, serviceAreaId);
+      await preferences.setString(_serviceAreaNameKey, serviceAreaName);
+    }
+    await preferences.setString(
+      _startedAtKey,
+      session.startedAt.toIso8601String(),
+    );
     notifyListeners();
   }
 
@@ -44,6 +59,8 @@ class VenueSessionService extends ChangeNotifier {
     await preferences.remove(_idKey);
     await preferences.remove(_nameKey);
     await preferences.remove(_branchKey);
+    await preferences.remove(_serviceAreaIdKey);
+    await preferences.remove(_serviceAreaNameKey);
     await preferences.remove(_startedAtKey);
     notifyListeners();
   }
@@ -58,6 +75,8 @@ class VenueSessionService extends ChangeNotifier {
       institutionId: institutionId,
       institutionName: preferences.getString(_nameKey) ?? 'Connected venue',
       branch: preferences.getString(_branchKey),
+      serviceAreaId: preferences.getString(_serviceAreaIdKey),
+      serviceAreaName: preferences.getString(_serviceAreaNameKey),
       startedAt:
           DateTime.tryParse(preferences.getString(_startedAtKey) ?? '') ??
           DateTime.now(),
