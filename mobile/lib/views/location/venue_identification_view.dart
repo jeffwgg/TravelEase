@@ -15,7 +15,7 @@ import '../../models/entities/venue_service_area.dart';
 import '../../models/repositories/announcement_repository.dart';
 import '../../models/repositories/captured_announcement_store.dart';
 import '../../models/repositories/feature_usage_repository.dart';
-import '../../models/repositories/home_guidance_repository.dart';
+import '../../services/app_tour_controller.dart';
 import '../../models/repositories/venue_repository.dart';
 import '../../services/venue_session_service.dart';
 import '../../widgets/app_message_banner.dart';
@@ -24,7 +24,9 @@ import '../widgets/notification_bell_button.dart';
 
 enum _HomeTourStep {
   quickActions,
-  locationChoice,
+  locationSearch,
+  locationGps,
+  // locationResults,
   spokenAnnouncements,
   officialAnnouncements,
   queueTracking,
@@ -33,8 +35,8 @@ enum _HomeTourStep {
 class VenueIdentificationView extends StatefulWidget {
   const VenueIdentificationView({super.key, this.forceTour = false});
 
-  /// Used only by the Help Center's replay action. Normal first-login checks
-  /// still decide whether the tour opens on its own.
+  /// Supports an explicit complete-tour entry point. Normal first-login
+  /// checks still decide whether the tour opens on its own.
   final bool forceTour;
 
   @override
@@ -48,13 +50,14 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   final _scrollController = ScrollController();
   final _venueRepository = VenueRepository();
   final _announcementRepository = AnnouncementRepository();
-  final _homeGuidanceRepository = HomeGuidanceRepository();
 
   final _quickActionsKey = GlobalKey();
-  final _queueTrackingKey = GlobalKey();
   final _locationCardKey = GlobalKey();
+  final _locationSearchKey = GlobalKey();
+  final _locationGpsKey = GlobalKey();
   final _spokenAnnouncementsKey = GlobalKey();
   final _officialAnnouncementsKey = GlobalKey();
+  final _queueTrackingKey = GlobalKey();
 
   Timer? _searchDebounce;
 
@@ -479,11 +482,23 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   Future<void> _loadHomeTour() async {
     if (_tourCheckStarted) return;
     _tourCheckStarted = true;
-    final shouldShow =
-        widget.forceTour || await _homeGuidanceRepository.shouldShowHomeTour();
+    final shouldShow = await AppTourController.instance.start(
+      force: widget.forceTour,
+    );
     if (!mounted || !shouldShow) return;
-    _setTourStep(_HomeTourStep.quickActions);
+    _setTourStep(_initialTourStep());
   }
+
+  _HomeTourStep _initialTourStep() =>
+      switch (AppTourController.instance.homeSection) {
+        HomeGuideSection.location => _HomeTourStep.locationSearch,
+        HomeGuideSection.spokenAnnouncements =>
+          _HomeTourStep.spokenAnnouncements,
+        HomeGuideSection.officialAnnouncements =>
+          _HomeTourStep.officialAnnouncements,
+        HomeGuideSection.queueTracking => _HomeTourStep.queueTracking,
+        HomeGuideSection.quickActions || null => _HomeTourStep.quickActions,
+      };
 
   void _setTourStep(_HomeTourStep step) {
     if (!mounted) return;
@@ -502,38 +517,39 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
 
   GlobalKey _targetKeyFor(_HomeTourStep step) => switch (step) {
     _HomeTourStep.quickActions => _quickActionsKey,
-    _HomeTourStep.locationChoice => _locationCardKey,
+    _HomeTourStep.locationSearch => _locationSearchKey,
+    _HomeTourStep.locationGps => _locationGpsKey,
+    // _HomeTourStep.locationResults => _locationCardKey,
     _HomeTourStep.spokenAnnouncements => _spokenAnnouncementsKey,
     _HomeTourStep.officialAnnouncements => _officialAnnouncementsKey,
     _HomeTourStep.queueTracking => _queueTrackingKey,
   };
 
   void _advanceHomeTour() {
+    if (AppTourController.instance.homeSection != null) {
+      _leaveHomeTour();
+      return;
+    }
     final nextStep = switch (_tourStep) {
-      _HomeTourStep.quickActions => _HomeTourStep.locationChoice,
-      _HomeTourStep.locationChoice => _HomeTourStep.spokenAnnouncements,
+      _HomeTourStep.quickActions => _HomeTourStep.locationSearch,
+      _HomeTourStep.locationSearch => _HomeTourStep.locationGps,
+      _HomeTourStep.locationGps => _HomeTourStep.spokenAnnouncements,
+      // _HomeTourStep.locationResults => _HomeTourStep.spokenAnnouncements,
       _HomeTourStep.spokenAnnouncements => _HomeTourStep.officialAnnouncements,
       _HomeTourStep.officialAnnouncements => _HomeTourStep.queueTracking,
       _HomeTourStep.queueTracking || null => null,
     };
     if (nextStep == null) {
-      unawaited(_finishTour());
+      _leaveHomeTour();
     } else {
       _setTourStep(nextStep);
     }
   }
 
-  Future<void> _finishTour() async {
+  void _leaveHomeTour() {
     if (!mounted) return;
-    setState(() {
-      _tourStep = null;
-    });
-    try {
-      await _homeGuidanceRepository.markHomeTourComplete();
-    } catch (_) {
-      // The local/home-account persistence layer already has its own recovery
-      // path. Never keep the traveller trapped in a tour due to a storage issue.
-    }
+    setState(() => _tourStep = null);
+    AppTourController.instance.leaveHome(context);
   }
 
   Widget _buildHomeGuidanceOverlay() {
@@ -546,16 +562,25 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
           targetKey: _quickActionsKey,
           title: 'Quick Actions',
           message: 'Your key tools are here.',
-          showSwipeHint: true,
         );
-      case _HomeTourStep.locationChoice:
+      case _HomeTourStep.locationSearch:
         return _buildTourStepOverlay(
-          targetKey: _locationCardKey,
-          title: 'Your Location',
-          message: _session == null
-              ? 'Find your venue with search or GPS.'
-              : 'Your active venue is shown here.',
+          targetKey: _locationSearchKey,
+          title: 'Search location',
+          message: 'Type your venue or destination here.',
         );
+      case _HomeTourStep.locationGps:
+        return _buildTourStepOverlay(
+          targetKey: _locationGpsKey,
+          title: 'Use GPS',
+          message: 'Or use your current location to find nearby venues.',
+        );
+      // case _HomeTourStep.locationResults:
+      //   return _buildTourStepOverlay(
+      //     targetKey: _locationCardKey,
+      //     title: 'Choose a result',
+      //     message: 'Matching venues appear here. Select one to connect.',
+      //   );
       case _HomeTourStep.spokenAnnouncements:
         return _buildTourStepOverlay(
           targetKey: _spokenAnnouncementsKey,
@@ -572,7 +597,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         return _buildTourStepOverlay(
           targetKey: _queueTrackingKey,
           title: 'Queue Tracking',
-          message: 'Track your queue number here.',
+          message: 'In queue? Track your queue number here.',
         );
     }
   }
@@ -581,14 +606,12 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     required GlobalKey targetKey,
     required String title,
     required String message,
-    bool showSwipeHint = false,
   }) => HomeGuidanceOverlay(
     targetKey: targetKey,
     scrollController: _scrollController,
     title: title,
     message: message,
-    showSwipeHint: showSwipeHint,
-    onSkip: _advanceHomeTour,
+    onSkip: _skipTour,
     skipLabel: 'Skip',
     actions: [
       HomeGuidanceAction(
@@ -599,9 +622,15 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     ],
   );
 
+  Future<void> _skipTour() async {
+    final skipped = await AppTourController.instance.confirmAndSkip(context);
+    if (skipped && mounted) setState(() => _tourStep = null);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
+      fit: StackFit.expand,
       children: [
         Scaffold(
           body: SafeArea(
@@ -783,6 +812,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
             ),
             const SizedBox(height: 14),
             TextField(
+              key: _locationSearchKey,
               controller: _searchController,
               onChanged: _onSearchChanged,
               decoration: const InputDecoration(
@@ -792,6 +822,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
             ),
             const SizedBox(height: 10),
             SizedBox(
+              key: _locationGpsKey,
               width: double.infinity,
               child: OutlinedButton(
                 style: _venueActionStyle(),

@@ -629,7 +629,7 @@ a.btn:focus { text-decoration: none; }
 .announcement-table-row td:first-child::before { position: absolute; top: 13px; bottom: 13px; left: 0; width: 3px; border-radius: 3px; background: var(--primary-light); content: ''; }
 .announcement-table-row.status-active td:first-child::before { background: var(--success); }
 .announcement-table-row.status-scheduled td:first-child::before { background: var(--secondary); }
-.announcement-table-row.status-deleted td:first-child::before { background: var(--emergency); }
+.announcement-table-row.status-withdrawn td:first-child::before { background: var(--emergency); }
 .announcement-table-row.status-expired td:first-child::before { background: var(--text-muted); }
 .announcement-table-title { display: block; color: var(--text-primary); font-weight: 700; text-decoration: none; }
 .announcement-table-title:hover { color: var(--primary); text-decoration: underline; }

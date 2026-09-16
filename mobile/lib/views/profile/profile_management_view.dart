@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/theme.dart';
+import '../../services/app_tour_controller.dart';
 import '../../viewmodels/auth_viewmodel.dart';
 import '../../viewmodels/profile_viewmodel.dart';
 
@@ -262,6 +263,27 @@ class _ProfileManagementViewState extends State<ProfileManagementView> {
                         Icons.graphic_eq,
                         'Environment Sound Detection',
                         () => context.push('/environment-sound-alert'),
+                      ),
+                    ]),
+                    const SizedBox(height: 16),
+                    _buildMenuSection(context, 'How to use TravelEase', [
+                      _MenuItem(
+                        Icons.home_outlined,
+                        'Home & Announcements',
+                        () =>
+                            AppTourController.instance.startHomeAnnouncementsGuide(context),
+                      ),
+                      _MenuItem(
+                        Icons.forum_outlined,
+                        'Communication',
+                            () =>
+                            AppTourController.instance.startCommunicationGuide(context),
+                      ),
+                      _MenuItem(
+                        Icons.health_and_safety_outlined,
+                        'Assistance & Safety',
+                            () =>
+                            AppTourController.instance.startAssistanceSafetyGuide(context),
                       ),
                     ]),
                     const SizedBox(height: 16),

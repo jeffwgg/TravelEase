@@ -6,7 +6,7 @@ import { announcementRepository } from '../repositories/announcementRepository'
 import { useAutoDismiss } from '../hooks/useAutoDismiss'
 import { announcementPriorityClass, announcementPriorityLabel } from '../lib/announcementPresentation'
 
-const statusClass = { active: 'success', scheduled: 'secondary', deleted: 'emergency', expired: 'muted' }
+const statusClass = { active: 'success', scheduled: 'secondary', withdrawn: 'emergency', expired: 'muted' }
 
 function formatDate(value) {
   if (!value) return 'Not published'
@@ -25,7 +25,7 @@ function isExpired(item) {
 function displayStatus(item) {
   if (isExpired(item)) return 'expired'
   if (isScheduled(item)) return 'scheduled'
-  if (item.status === 'cancelled') return 'deleted'
+  if (item.status === 'cancelled') return 'withdrawn'
   return item.status
 }
 
@@ -91,7 +91,7 @@ export default function AnnouncementPage() {
 
   const deleteAnnouncement = async (id, title) => {
     const confirmed = window.confirm(
-      `Delete "${title}"? It will be removed from active announcements.`,
+      `Withdraw "${title}"? It will be removed from active announcements.`,
     )
     if (!confirmed) return
     setDeletingId(id)
@@ -100,7 +100,7 @@ export default function AnnouncementPage() {
       await announcementRepository.deleteAnnouncement(id)
       await loadAnnouncements()
     } catch (deleteError) {
-      setError(deleteError.message || 'Unable to delete this announcement.')
+      setError(deleteError.message || 'Unable to withdraw this announcement.')
     } finally {
       setDeletingId(null)
     }
@@ -130,7 +130,7 @@ export default function AnnouncementPage() {
             <div><h3>Official Announcements</h3><p>Review, edit and manage broadcasts sent to travellers.</p></div>
             <div className="announcement-filters">
               <label className="announcement-search"><Search size={17} /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search announcements…" aria-label="Search announcements" /></label>
-              <select className="input announcement-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status"><option value="current">Active &amp; scheduled</option><option value="all">All statuses</option><option value="active">Active</option><option value="scheduled">Scheduled</option><option value="expired">Expired</option><option value="deleted">Deleted</option></select>
+              <select className="input announcement-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status"><option value="current">Active &amp; scheduled</option><option value="all">All statuses</option><option value="active">Active</option><option value="scheduled">Scheduled</option><option value="expired">Expired</option><option value="withdrawn">Withdrawn</option></select>
               <select className="input announcement-priority-filter" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} aria-label="Filter by priority"><option value="all">All priorities</option><option value="low">Low</option><option value="normal">Normal</option><option value="high">High priority</option><option value="urgent">Urgent</option></select>
               <label className="announcement-date-filter">From<input className="input" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="Published from" /></label>
               <label className="announcement-date-filter">To<input className="input" type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} aria-label="Published to" /></label>
@@ -150,7 +150,7 @@ export default function AnnouncementPage() {
                 <td><span className="announcement-table-meta"><MapPin size={14} />{item.service_areas?.name || 'All service areas'}</span></td>
                 <td><span className="announcement-table-meta"><Globe2 size={14} />{translationCount ? `${translationCount + 1} languages` : 'English only'}</span></td>
                 <td>{status === 'scheduled' ? <span className="badge secondary">Scheduled — {formatDate(item.published_at)}</span> : formatDate(item.published_at || item.created_at)}</td>
-                <td><div className="table-actions"><Link className="btn btn-outline btn-sm" to={`/announcements/${item.id}`}><Eye size={14} /> View</Link><Link className="btn btn-outline btn-sm" to={`/announcements/${item.id}/edit`}><Pencil size={14} /> Edit</Link>{status !== 'deleted' && <button className="btn btn-danger btn-sm" disabled={deletingId === item.id} onClick={() => deleteAnnouncement(item.id, item.title)}>{deletingId === item.id ? 'Deleting…' : 'Delete'}</button>}</div></td>
+                <td><div className="table-actions"><Link className="btn btn-outline btn-sm" to={`/announcements/${item.id}`}><Eye size={14} /> View</Link><Link className="btn btn-outline btn-sm" to={`/announcements/${item.id}/edit`}><Pencil size={14} /> Edit</Link>{status !== 'withdrawn' && <button className="btn btn-danger btn-sm" disabled={deletingId === item.id} onClick={() => deleteAnnouncement(item.id, item.title)}>{deletingId === item.id ? 'Withdrawing…' : 'Withdraw'}</button>}</div></td>
               </tr>
             })}</tbody>
           </table></div>}

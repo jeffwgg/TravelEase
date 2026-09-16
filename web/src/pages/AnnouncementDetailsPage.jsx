@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { announcementRepository } from '../repositories/announcementRepository'
 import { announcementPriorityClass, announcementPriorityLabel } from '../lib/announcementPresentation'
 
-const statusClass = { active: 'success', scheduled: 'secondary', deleted: 'emergency', expired: 'muted' }
+const statusClass = { active: 'success', scheduled: 'secondary', withdrawn: 'emergency', expired: 'muted' }
 
 function formatDate(value) {
   if (!value) return 'Not set'
@@ -15,7 +15,7 @@ function formatDate(value) {
 function displayStatus(item) {
   if (item.status === 'active' && item.expires_at && new Date(item.expires_at) <= new Date()) return 'expired'
   if (item.status === 'active' && item.published_at && new Date(item.published_at) > new Date()) return 'scheduled'
-  if (item.status === 'cancelled') return 'deleted'
+  if (item.status === 'cancelled') return 'withdrawn'
   return item.status
 }
 

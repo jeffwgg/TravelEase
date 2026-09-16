@@ -4,7 +4,9 @@ import '../../core/theme.dart';
 import '../../models/entities/sign_language_entity.dart';
 import '../../models/entities/sign_phrase_entity.dart';
 import '../../models/repositories/feature_usage_repository.dart';
+import '../../services/app_tour_controller.dart';
 import '../../viewmodels/sign_dictionary_viewmodel.dart';
+import '../../widgets/app_tour_coachmark.dart';
 import 'sign_media_viewer_view.dart';
 import 'favorite_phrases_view.dart';
 
@@ -18,6 +20,10 @@ class SignDictionaryView extends StatefulWidget {
 class _SignDictionaryViewState extends State<SignDictionaryView> {
   late final SignDictionaryViewModel _viewModel;
   final _searchController = TextEditingController();
+  final _tourTargetKey = GlobalKey();
+  final _categoryTourKey = GlobalKey();
+  final _resultsTourKey = GlobalKey();
+  int _tourStep = 0;
 
   final _categories = const [
     _CategoryItem('all', 'All', Icons.grid_view),
@@ -50,223 +56,272 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
     return ListenableBuilder(
       listenable: _viewModel,
       builder: (context, _) {
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Sign Dictionary'),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => Navigator.pop(context),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(
-                  Icons.star_rounded,
-                  color: AppColors.secondary,
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Scaffold(
+              appBar: AppBar(
+                title: const Text('Sign Dictionary'),
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.pop(context),
                 ),
-                tooltip: 'Bookmarked Favorites',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (ctx) => const FavoritePhrasesView(),
+                actions: [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.star_rounded,
+                      color: AppColors.secondary,
                     ),
-                  ).then((_) => _viewModel.loadDictionary());
-                },
-              ),
-            ],
-          ),
-          body: Column(
-            children: [
-              // Search Bar (FR-M4-13)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: 'Search sign phrases, gloss, or keywords...',
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: AppColors.textMuted,
+                    tooltip: 'Bookmarked Favorites',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (ctx) => const FavoritePhrasesView(),
                         ),
-                        suffixIcon: _searchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear, size: 18),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  _viewModel.search('');
-                                },
-                              )
-                            : null,
-                        filled: true,
-                        fillColor: AppColors.surfaceVariant,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                      onSubmitted: (q) => _viewModel.search(q),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Categories Horizontal Selector (FR-M4-14)
-              SizedBox(
-                height: 52,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+                      ).then((_) => _viewModel.loadDictionary());
+                    },
                   ),
-                  itemCount: _categories.length,
-                  itemBuilder: (context, i) {
-                    final cat = _categories[i];
-                    final selected = cat.id == _viewModel.selectedCategory;
-                    return GestureDetector(
-                      onTap: () => _viewModel.selectCategory(cat.id),
-                      child: Container(
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? AppColors.primary
-                              : AppColors.surfaceVariant,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              cat.icon,
-                              size: 16,
-                              color: selected
-                                  ? Colors.white
-                                  : AppColors.textSecondary,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              cat.name,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: selected
-                                    ? Colors.white
-                                    : AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                ],
               ),
-
-              // Sign Dialect Selector Tabs - FR-M4-01: toggle between BIM / ASL visual assets
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 4,
-                ),
-                child: Row(
-                  children: [
-                    ...const [SignLanguageType.bim, SignLanguageType.asl].map((
-                      lang,
-                    ) {
-                      final isSelected = _viewModel.selectedDialect == lang;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: GestureDetector(
-                          onTap: () => _viewModel.switchDialect(lang),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
+              body: Column(
+                children: [
+                  // Search Bar (FR-M4-13)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Column(
+                      children: [
+                        TextField(
+                          key: _tourTargetKey,
+                          controller: _searchController,
+                          decoration: InputDecoration(
+                            hintText:
+                                'Search sign phrases, gloss, or keywords...',
+                            prefixIcon: const Icon(
+                              Icons.search,
+                              color: AppColors.textMuted,
                             ),
+                            suffixIcon: _searchController.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear, size: 18),
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      _viewModel.search('');
+                                    },
+                                  )
+                                : null,
+                            filled: true,
+                            fillColor: AppColors.surfaceVariant,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                          onSubmitted: (q) => _viewModel.search(q),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Categories Horizontal Selector (FR-M4-14)
+                  SizedBox(
+                    key: _categoryTourKey,
+                    height: 52,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      itemCount: _categories.length,
+                      itemBuilder: (context, i) {
+                        final cat = _categories[i];
+                        final selected = cat.id == _viewModel.selectedCategory;
+                        return GestureDetector(
+                          onTap: () => _viewModel.selectCategory(cat.id),
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
                             decoration: BoxDecoration(
-                              color: isSelected
-                                  ? AppColors.primary.withValues(alpha: 0.12)
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: isSelected
-                                    ? AppColors.primary
-                                    : AppColors.cardBorder,
-                              ),
+                              color: selected
+                                  ? AppColors.primary
+                                  : AppColors.surfaceVariant,
+                              borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  lang.flagEmoji,
-                                  style: const TextStyle(fontSize: 14),
+                                Icon(
+                                  cat.icon,
+                                  size: 16,
+                                  color: selected
+                                      ? Colors.white
+                                      : AppColors.textSecondary,
                                 ),
-                                const SizedBox(width: 4),
+                                const SizedBox(width: 6),
                                 Text(
-                                  '${lang.code} (${lang.countryCode})',
+                                  cat.name,
                                   style: TextStyle(
                                     fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: isSelected
-                                        ? AppColors.primary
+                                    fontWeight: FontWeight.w600,
+                                    color: selected
+                                        ? Colors.white
                                         : AppColors.textSecondary,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        ),
-                      );
-                    }),
-                    const Spacer(),
-                    Text(
-                      '${_viewModel.phrases.length} signs',
-                      style: Theme.of(context).textTheme.bodySmall,
+                        );
+                      },
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 6),
+                  ),
 
-              // Phrases List with Gloss Notations (FR-M4-02, FR-M4-04)
-              Expanded(
-                child: _viewModel.isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _viewModel.phrases.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.search_off_rounded,
-                              size: 54,
-                              color: AppColors.textMuted.withValues(alpha: 0.4),
+                  // Sign Dialect Selector Tabs - FR-M4-01: toggle between BIM / ASL visual assets
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    child: Row(
+                      children: [
+                        ...const [
+                          SignLanguageType.bim,
+                          SignLanguageType.asl,
+                        ].map((lang) {
+                          final isSelected = _viewModel.selectedDialect == lang;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: GestureDetector(
+                              onTap: () => _viewModel.switchDialect(lang),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? AppColors.primary.withValues(
+                                          alpha: 0.12,
+                                        )
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : AppColors.cardBorder,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      lang.flagEmoji,
+                                      style: const TextStyle(fontSize: 14),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${lang.code} (${lang.countryCode})',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: isSelected
+                                            ? AppColors.primary
+                                            : AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                            const SizedBox(height: 12),
-                            const Text('No matching sign phrases found'),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Try another keyword or category filter',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
+                          );
+                        }),
+                        const Spacer(),
+                        Text(
+                          '${_viewModel.phrases.length} signs',
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: _viewModel.phrases.length,
-                        itemBuilder: (context, i) =>
-                            _buildPhraseCard(_viewModel.phrases[i]),
-                      ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Phrases List with Gloss Notations (FR-M4-02, FR-M4-04)
+                  Expanded(
+                    child: KeyedSubtree(
+                      key: _resultsTourKey,
+                      child: _viewModel.isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _viewModel.phrases.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.search_off_rounded,
+                                    size: 54,
+                                    color: AppColors.textMuted.withValues(
+                                      alpha: 0.4,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text('No matching sign phrases found'),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Try another keyword or category filter',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              itemCount: _viewModel.phrases.length,
+                              itemBuilder: (context, i) =>
+                                  _buildPhraseCard(_viewModel.phrases[i]),
+                            ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            Positioned.fill(
+              child: AppTourCoachmark(
+                feature: AppTourFeature.signDictionary,
+                targetKey: switch (_tourStep) {
+                  0 => _tourTargetKey,
+                  1 => _categoryTourKey,
+                  _ => _resultsTourKey,
+                },
+                title: switch (_tourStep) {
+                  0 => 'Search signs',
+                  1 => 'Choose a method',
+                  _ => 'View results',
+                },
+                message: switch (_tourStep) {
+                  0 => 'Enter a phrase, gloss, or keyword here.',
+                  1 => 'Filter by category, then choose BIM or ASL.',
+                  _ => 'Matching signs and phrases appear here.',
+                },
+                onNext: _advanceTour,
+              ),
+            ),
+          ],
         );
       },
     );
+  }
+
+  void _advanceTour() {
+    if (_tourStep < 2) {
+      setState(() => _tourStep++);
+    } else {
+      AppTourController.instance.advance(context);
+    }
   }
 
   Widget _buildPhraseCard(SignPhrase phrase) {

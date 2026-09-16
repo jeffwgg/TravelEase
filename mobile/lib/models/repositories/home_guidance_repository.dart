@@ -5,7 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/supabase_client.dart';
 
-/// Stores completion of the home tour against the signed-in account.
+/// Stores completion of the complete TravelEase tour against the signed-in
+/// account.
 ///
 /// User metadata is used deliberately instead of a device-only preference, so
 /// finishing the tour on one device also prevents it from appearing again on
@@ -15,7 +16,9 @@ class HomeGuidanceRepository {
   HomeGuidanceRepository({SupabaseClient? client})
     : _client = client ?? SupabaseClientHelper.client;
 
-  static const homeTourVersion = 1;
+  // Version 1 covered only Home. Version 2 adds the feature-by-feature tour,
+  // so people who completed the original guide can see the new one once.
+  static const homeTourVersion = 2;
   static const _metadataKey = 'travelease_home_tour_version';
   static const _localKeyPrefix = 'travelease.home_tour_version';
 

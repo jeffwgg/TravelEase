@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../core/theme.dart';
 
@@ -18,9 +17,8 @@ class HomeGuidanceAction {
   final bool isPrimary;
 }
 
-/// Dims a screen while leaving one target visible and, when requested,
-/// interactive. It is intentionally dependency-free so the tour can match the
-/// TravelEase theme and support real text-field, list, and button actions.
+/// Dims a screen while highlighting one target. It is intentionally
+/// dependency-free so the tour can match the TravelEase theme.
 class HomeGuidanceOverlay extends StatefulWidget {
   const HomeGuidanceOverlay({
     super.key,
@@ -30,8 +28,6 @@ class HomeGuidanceOverlay extends StatefulWidget {
     required this.onSkip,
     this.actions = const [],
     this.scrollController,
-    this.allowTargetInteraction = false,
-    this.showSwipeHint = false,
     this.skipLabel = 'Skip tour',
   });
 
@@ -41,42 +37,23 @@ class HomeGuidanceOverlay extends StatefulWidget {
   final VoidCallback onSkip;
   final List<HomeGuidanceAction> actions;
   final ScrollController? scrollController;
-  final bool allowTargetInteraction;
-  final bool showSwipeHint;
   final String skipLabel;
 
   @override
   State<HomeGuidanceOverlay> createState() => _HomeGuidanceOverlayState();
 }
 
-class _HomeGuidanceOverlayState extends State<HomeGuidanceOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _swipeController;
+class _HomeGuidanceOverlayState extends State<HomeGuidanceOverlay> {
+  Rect? _target;
+  Rect? _candidateTarget;
+  bool _targetReady = false;
+  int _measurementAttempts = 0;
 
   @override
   void initState() {
     super.initState();
     widget.scrollController?.addListener(_refreshTargetPosition);
-    _swipeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _updateSwipeAnimation();
-  }
-
-  void _updateSwipeAnimation() {
-    final reducedMotion = MediaQuery.of(context).disableAnimations;
-    if (widget.showSwipeHint && !reducedMotion) {
-      _swipeController.repeat(reverse: true);
-    } else {
-      _swipeController.stop();
-      _swipeController.value = 0;
-    }
+    _scheduleTargetMeasurement();
   }
 
   @override
@@ -86,20 +63,53 @@ class _HomeGuidanceOverlayState extends State<HomeGuidanceOverlay>
       oldWidget.scrollController?.removeListener(_refreshTargetPosition);
       widget.scrollController?.addListener(_refreshTargetPosition);
     }
-    if (oldWidget.showSwipeHint != widget.showSwipeHint) {
-      _updateSwipeAnimation();
+    if (oldWidget.targetKey != widget.targetKey) {
+      _target = null;
+      _candidateTarget = null;
+      _targetReady = false;
+      _measurementAttempts = 0;
+      _scheduleTargetMeasurement();
     }
   }
 
   @override
   void dispose() {
     widget.scrollController?.removeListener(_refreshTargetPosition);
-    _swipeController.dispose();
     super.dispose();
   }
 
   void _refreshTargetPosition() {
-    if (mounted) setState(() {});
+    _scheduleTargetMeasurement();
+  }
+
+  /// Measures only after a frame has been laid out. Two identical frame
+  /// measurements avoid displaying a spotlight at an intermediate page-route
+  /// position and then moving it once an animation settles.
+  void _scheduleTargetMeasurement() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final measured = _targetRect(context);
+      if (measured == null) {
+        _candidateTarget = null;
+        if (_measurementAttempts++ < 90) _scheduleTargetMeasurement();
+        return;
+      }
+
+      if (!_targetReady) {
+        if (_candidateTarget == measured) {
+          setState(() {
+            _target = measured;
+            _targetReady = true;
+          });
+          return;
+        }
+        _candidateTarget = measured;
+        if (_measurementAttempts++ < 90) _scheduleTargetMeasurement();
+        return;
+      }
+
+      if (_target != measured) setState(() => _target = measured);
+    });
   }
 
   Rect? _targetRect(BuildContext overlayContext) {
@@ -108,7 +118,15 @@ class _HomeGuidanceOverlayState extends State<HomeGuidanceOverlay>
     if (targetBox is! RenderBox ||
         overlayBox is! RenderBox ||
         !targetBox.attached ||
-        !overlayBox.attached) {
+        !overlayBox.attached ||
+        !targetBox.hasSize ||
+        !overlayBox.hasSize) {
+      return null;
+    }
+    // A target may itself be laid out while one of its animated ancestors is
+    // not (notably RenderFractionalTranslation during a route transition).
+    // localToGlobal walks that ancestor chain and would assert in that case.
+    if (!_hasLaidOutAncestors(targetBox) || !_hasLaidOutAncestors(overlayBox)) {
       return null;
     }
     // The target is a child of the screen's Scaffold while this overlay is a
@@ -120,17 +138,30 @@ class _HomeGuidanceOverlayState extends State<HomeGuidanceOverlay>
     return origin & targetBox.size;
   }
 
+  bool _hasLaidOutAncestors(RenderObject object) {
+    RenderObject? current = object;
+    while (current != null) {
+      if (current is RenderBox && !current.hasSize) return false;
+      current = current.parent;
+    }
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Do not show a transient, misplaced highlight while a screen or its
+    // target is still entering. The next settled frame will reveal it.
+    if (!_targetReady || _target == null) return const SizedBox.expand();
+
     return LayoutBuilder(
       builder: (overlayContext, constraints) {
         final size = constraints.biggest;
-        final target = _targetRect(overlayContext);
+        final target = _target;
         final spotlight = target?.inflate(8).intersect(Offset.zero & size);
 
         return Semantics(
           container: true,
-          label: 'Home page guidance',
+          label: 'TravelEase guidance',
           child: Stack(
             children: [
               Positioned.fill(
@@ -141,13 +172,10 @@ class _HomeGuidanceOverlayState extends State<HomeGuidanceOverlay>
                 ),
               ),
               Positioned.fill(
-                child: _PassThroughSpotlight(
-                  passThrough: widget.allowTargetInteraction ? spotlight : null,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {},
-                    child: const SizedBox.expand(),
-                  ),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {},
+                  child: const SizedBox.expand(),
                 ),
               ),
               _buildGuidanceCard(size, target),
@@ -210,83 +238,49 @@ class _HomeGuidanceOverlayState extends State<HomeGuidanceOverlay>
                     height: 1.35,
                   ),
                 ),
-                if (widget.showSwipeHint) ...[
-                  const SizedBox(height: 12),
-                  _SwipeHint(controller: _swipeController),
-                ],
                 const SizedBox(height: 14),
-                ...widget.actions.map(
-                  (action) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: action.isPrimary
-                          ? ElevatedButton(
-                              onPressed: action.onPressed,
-                              child: Text(action.label),
-                            )
-                          : OutlinedButton(
-                              onPressed: action.onPressed,
-                              child: Text(action.label),
-                            ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final action in widget.actions)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: action.isPrimary
+                            ? ElevatedButton(
+                                onPressed: action.onPressed,
+                                style: ElevatedButton.styleFrom(
+                                  minimumSize: const Size(0, 40),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: Text(action.label),
+                              )
+                            : OutlinedButton(
+                                onPressed: action.onPressed,
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(0, 40),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: Text(action.label),
+                              ),
+                      ),
+                    TextButton(
+                      onPressed: widget.onSkip,
+                      child: Text(widget.skipLabel),
                     ),
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: widget.onSkip,
-                    child: Text(widget.skipLabel),
-                  ),
+                  ],
                 ),
               ],
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _SwipeHint extends StatelessWidget {
-  const _SwipeHint({required this.controller});
-
-  final Animation<double> controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          AnimatedBuilder(
-            animation: controller,
-            builder: (context, child) => Transform.translate(
-              offset: Offset(-14 * controller.value, 0),
-              child: child,
-            ),
-            child: const Icon(
-              Icons.swipe_left_rounded,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text(
-              'Swipe for more.',
-              style: TextStyle(
-                color: AppColors.primaryDark,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -325,45 +319,4 @@ class _SpotlightPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SpotlightPainter oldDelegate) =>
       oldDelegate.spotlight != spotlight;
-}
-
-/// Lets pointer events pass only through the spotlight to the real control
-/// below it while the rest of the darkened screen behaves as a modal barrier.
-class _PassThroughSpotlight extends SingleChildRenderObjectWidget {
-  const _PassThroughSpotlight({
-    required this.passThrough,
-    required super.child,
-  });
-
-  final Rect? passThrough;
-
-  @override
-  RenderObject createRenderObject(BuildContext context) =>
-      _PassThroughSpotlightRenderBox(passThrough);
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    covariant _PassThroughSpotlightRenderBox renderObject,
-  ) {
-    renderObject.passThrough = passThrough;
-  }
-}
-
-class _PassThroughSpotlightRenderBox extends RenderProxyBox {
-  _PassThroughSpotlightRenderBox(this._passThrough);
-
-  Rect? _passThrough;
-
-  set passThrough(Rect? value) {
-    if (_passThrough == value) return;
-    _passThrough = value;
-    markNeedsPaint();
-  }
-
-  @override
-  bool hitTest(BoxHitTestResult result, {required Offset position}) {
-    if (_passThrough?.contains(position) ?? false) return false;
-    return super.hitTest(result, position: position);
-  }
 }

@@ -4,7 +4,9 @@ import '../../core/theme.dart';
 import '../../core/hardware_services.dart';
 import '../../models/entities/dialogue_message_entity.dart';
 import '../../models/repositories/feature_usage_repository.dart';
+import '../../services/app_tour_controller.dart';
 import '../../viewmodels/two_way_dialogue_viewmodel.dart';
+import '../../widgets/app_tour_coachmark.dart';
 import 'communication_history_view.dart';
 
 /// Google Translate-style conversation view (FR-M3-08 to FR-M3-16, UC303, UC304)
@@ -24,6 +26,7 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
   late final AnimationController _pulseController;
   final TextEditingController _inputController = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
+  final _tourTargetKey = GlobalKey();
   bool _showInputBar = false;
   int _lastMessageCount = 0;
 
@@ -528,155 +531,173 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
           });
         }
 
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('2-Way Dialogue'),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => Navigator.pop(context),
-            ),
-            actions: [
-              // Communication History (FR-M3-17/18, UC304)
-              IconButton(
-                icon: const Icon(Icons.history_rounded),
-                tooltip: 'Communication History',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          CommunicationHistoryView(viewModel: _viewModel),
-                    ),
-                  );
-                },
-              ),
-              // Auto-TTS Toggle Action
-              IconButton(
-                icon: Icon(
-                  _viewModel.isAutoTtsEnabled
-                      ? Icons.volume_up_rounded
-                      : Icons.volume_off_rounded,
-                  color: _viewModel.isAutoTtsEnabled
-                      ? AppColors.secondary
-                      : AppColors.textMuted,
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Scaffold(
+              appBar: AppBar(
+                title: const Text('2-Way Dialogue'),
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.pop(context),
                 ),
-                tooltip: _viewModel.isAutoTtsEnabled
-                    ? 'Auto-Speak: ON'
-                    : 'Auto-Speak: OFF',
-                onPressed: () {
-                  _viewModel.toggleAutoTts();
-                  _showSnackBar(
-                    _viewModel.isAutoTtsEnabled
-                        ? 'Auto-Speak Enabled: Translations will be spoken aloud.'
-                        : 'Auto-Speak Disabled.',
-                  );
-                },
+                actions: [
+                  // Communication History (FR-M3-17/18, UC304)
+                  IconButton(
+                    icon: const Icon(Icons.history_rounded),
+                    tooltip: 'Communication History',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              CommunicationHistoryView(viewModel: _viewModel),
+                        ),
+                      );
+                    },
+                  ),
+                  // Auto-TTS Toggle Action
+                  IconButton(
+                    icon: Icon(
+                      _viewModel.isAutoTtsEnabled
+                          ? Icons.volume_up_rounded
+                          : Icons.volume_off_rounded,
+                      color: _viewModel.isAutoTtsEnabled
+                          ? AppColors.secondary
+                          : AppColors.textMuted,
+                    ),
+                    tooltip: _viewModel.isAutoTtsEnabled
+                        ? 'Auto-Speak: ON'
+                        : 'Auto-Speak: OFF',
+                    onPressed: () {
+                      _viewModel.toggleAutoTts();
+                      _showSnackBar(
+                        _viewModel.isAutoTtsEnabled
+                            ? 'Auto-Speak Enabled: Translations will be spoken aloud.'
+                            : 'Auto-Speak Disabled.',
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.tune_rounded),
+                    tooltip: 'Speech Settings',
+                    onPressed: _openSpeechSettings,
+                  ),
+                  IconButton(
+                    icon: _viewModel.isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_alt_rounded),
+                    tooltip: 'Save Conversation Log to Device',
+                    onPressed: _viewModel.isSaving
+                        ? null
+                        : () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            final ok = await _viewModel.endAndSaveSession();
+                            if (!mounted) return;
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  _viewModel.statusMessage ??
+                                      (ok ? 'Saved!' : 'Nothing to save.'),
+                                ),
+                                backgroundColor: ok
+                                    ? AppColors.success
+                                    : AppColors.emergency,
+                              ),
+                            );
+                            if (ok) _viewModel.clearStatus();
+                          },
+                  ),
+                ],
               ),
-              IconButton(
-                icon: const Icon(Icons.tune_rounded),
-                tooltip: 'Speech Settings',
-                onPressed: _openSpeechSettings,
-              ),
-              IconButton(
-                icon: _viewModel.isSaving
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save_alt_rounded),
-                tooltip: 'Save Conversation Log to Device',
-                onPressed: _viewModel.isSaving
-                    ? null
-                    : () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        final ok = await _viewModel.endAndSaveSession();
-                        if (!mounted) return;
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              _viewModel.statusMessage ??
-                                  (ok ? 'Saved!' : 'Nothing to save.'),
+              body: Column(
+                children: [
+                  // ── Language pair header, Google Translate style ──
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 10, 24, 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            _langName(_viewModel.sourceLang),
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
                             ),
-                            backgroundColor: ok
-                                ? AppColors.success
-                                : AppColors.emergency,
                           ),
-                        );
-                        if (ok) _viewModel.clearStatus();
-                      },
-              ),
-            ],
-          ),
-          body: Column(
-            children: [
-              // ── Language pair header, Google Translate style ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 10, 24, 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        _langName(_viewModel.sourceLang),
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
                         ),
-                      ),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 8),
-                      child: Icon(
-                        Icons.arrow_forward_rounded,
-                        size: 14,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    Flexible(
-                      child: Text(
-                        _langName(_viewModel.targetLang),
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          child: Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 14,
+                            color: AppColors.primary,
+                          ),
                         ),
-                      ),
+                        Flexible(
+                          child: Text(
+                            _langName(_viewModel.targetLang),
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+
+                  if (_viewModel.isTranslating || _viewModel.isProcessingSpeech)
+                    const LinearProgressIndicator(minHeight: 2),
+
+                  // ── Unified sentence-by-sentence transcript ──
+                  Expanded(
+                    child: _viewModel.isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.only(top: 4, bottom: 12),
+                            itemCount: _viewModel.messages.length + 1,
+                            itemBuilder: (context, i) {
+                              if (i == _viewModel.messages.length) {
+                                return _buildLiveTranscriptSlot();
+                              }
+                              return _buildSentenceBlock(
+                                _viewModel.messages[i],
+                              );
+                            },
+                          ),
+                  ),
+
+                  // ── Inline typing bar (shown when keyboard mode is on) ──
+                  if (_showInputBar) _buildInlineInputBar(),
+
+                  // ── Bottom controls: language pills + big mic ──
+                  KeyedSubtree(
+                    key: _tourTargetKey,
+                    child: _buildBottomControls(),
+                  ),
+                ],
               ),
-
-              if (_viewModel.isTranslating || _viewModel.isProcessingSpeech)
-                const LinearProgressIndicator(minHeight: 2),
-
-              // ── Unified sentence-by-sentence transcript ──
-              Expanded(
-                child: _viewModel.isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.only(top: 4, bottom: 12),
-                        itemCount: _viewModel.messages.length + 1,
-                        itemBuilder: (context, i) {
-                          if (i == _viewModel.messages.length) {
-                            return _buildLiveTranscriptSlot();
-                          }
-                          return _buildSentenceBlock(_viewModel.messages[i]);
-                        },
-                      ),
+            ),
+            Positioned.fill(
+              child: AppTourCoachmark(
+                feature: AppTourFeature.twoWayDialogue,
+                targetKey: _tourTargetKey,
+                title: 'Two-Way Dialogue',
+                message: 'Speak or type for a live conversation.',
               ),
-
-              // ── Inline typing bar (shown when keyboard mode is on) ──
-              if (_showInputBar) _buildInlineInputBar(),
-
-              // ── Bottom controls: language pills + big mic ──
-              _buildBottomControls(),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );

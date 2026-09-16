@@ -11,8 +11,10 @@ import '../../models/entities/sign_language_entity.dart';
 import '../../models/repositories/feature_usage_repository.dart';
 import '../../services/camera_landmark_extractor_service.dart';
 import '../../services/sign_frame_data.dart';
+import '../../services/app_tour_controller.dart';
 import '../../viewmodels/sign_translation_camera_viewmodel.dart';
 import '../../viewmodels/speech_to_sign_viewmodel.dart';
+import '../../widgets/app_tour_coachmark.dart';
 
 enum SignTranslationMode {
   signToText, // Sign Language (Camera) -> Text & Voice
@@ -37,6 +39,8 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
   late final SignTranslationCameraViewModel _cameraViewModel;
   late final SpeechToSignViewModel _speechViewModel;
   final TextEditingController _speechInputController = TextEditingController();
+  final _signTourTargetKey = GlobalKey();
+  final _speechTourTargetKey = GlobalKey();
   final CameraLandmarkExtractorService _landmarkExtractor =
       CameraLandmarkExtractorService();
 
@@ -408,186 +412,210 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
       builder: (context, _) {
         final isSignToText = _currentMode == SignTranslationMode.signToText;
 
-        return Scaffold(
-          backgroundColor: Colors.white,
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 0.5,
-            iconTheme: const IconThemeData(color: AppColors.textPrimary),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-              onPressed: () {
-                if (Navigator.canPop(context)) {
-                  Navigator.pop(context);
-                } else {
-                  context.go('/home');
-                }
-              },
-            ),
-            // Swapping 2-way position switcher: [ Sign ⇄ Speech ] <-> [ Speech ⇄ Sign ]
-            title: InkWell(
-              onTap: _toggleTranslationMode,
-              borderRadius: BorderRadius.circular(14),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceVariant,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.35),
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Scaffold(
+              backgroundColor: Colors.white,
+              appBar: AppBar(
+                backgroundColor: Colors.white,
+                elevation: 0.5,
+                iconTheme: const IconThemeData(color: AppColors.textPrimary),
+                leading: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back,
+                    color: AppColors.textPrimary,
                   ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          isSignToText
-                              ? Icons.sign_language_rounded
-                              : Icons.mic_rounded,
-                          size: 16,
-                          color: AppColors.primary,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          isSignToText ? 'Sign' : 'Speech',
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.swap_horiz_rounded,
-                        color: AppColors.primary,
-                        size: 15,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          isSignToText
-                              ? Icons.mic_rounded
-                              : Icons.sign_language_rounded,
-                          size: 16,
-                          color: AppColors.textSecondary,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          isSignToText ? 'Speech' : 'Sign',
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              if (isSignToText) ...[
-                // Auto-Speak Toggle Icon
-                IconButton(
-                  icon: Icon(
-                    _cameraViewModel.isAutoSpeakEnabled
-                        ? Icons.volume_up_rounded
-                        : Icons.volume_off_rounded,
-                    color: _cameraViewModel.isAutoSpeakEnabled
-                        ? AppColors.primary
-                        : AppColors.textMuted,
-                    size: 24,
-                  ),
-                  tooltip: _cameraViewModel.isAutoSpeakEnabled
-                      ? 'Auto-Speak: ON'
-                      : 'Tap to Enable Auto-Speak',
                   onPressed: () {
-                    if (!_cameraViewModel.isAutoSpeakEnabled) {
-                      _cameraViewModel.speakAloud();
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    } else {
+                      context.go('/home');
                     }
-                    _cameraViewModel.toggleAutoSpeak();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          _cameraViewModel.isAutoSpeakEnabled
-                              ? 'Auto-Speak Enabled: Automatically speaks translated signs aloud!'
-                              : 'Auto-Speak Disabled.',
-                        ),
-                        duration: const Duration(seconds: 2),
-                      ),
-                    );
                   },
                 ),
-                // Flip Camera Button
-                if (_canFlipCamera)
-                  IconButton(
-                    icon: const Icon(
-                      Icons.flip_camera_ios_rounded,
-                      color: AppColors.textPrimary,
-                      size: 22,
+                // Swapping 2-way position switcher: [ Sign ⇄ Speech ] <-> [ Speech ⇄ Sign ]
+                title: InkWell(
+                  onTap: _toggleTranslationMode,
+                  borderRadius: BorderRadius.circular(14),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
                     ),
-                    tooltip: _currentLensDirection == CameraLensDirection.front
-                        ? 'Switch to Back Camera'
-                        : 'Switch to Front Camera',
-                    onPressed: _flipCamera,
-                  ),
-              ] else ...[
-                Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<SignLanguageType>(
-                      value: _speechViewModel.selectedSignLang,
-                      icon: const Icon(
-                        Icons.arrow_drop_down,
-                        color: AppColors.primary,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceVariant,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.35),
                       ),
-                      items: SignLanguageType.values.map((lang) {
-                        return DropdownMenuItem(
-                          value: lang,
-                          child: Text(
-                            '${lang.flagEmoji} ${lang.code}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isSignToText
+                                  ? Icons.sign_language_rounded
+                                  : Icons.mic_rounded,
+                              size: 16,
+                              color: AppColors.primary,
                             ),
+                            const SizedBox(width: 4),
+                            Text(
+                              isSignToText ? 'Sign' : 'Speech',
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
                           ),
-                        );
-                      }).toList(),
-                      onChanged: (v) {
-                        if (v != null) _speechViewModel.switchSignDialect(v);
-                      },
+                          child: const Icon(
+                            Icons.swap_horiz_rounded,
+                            color: AppColors.primary,
+                            size: 15,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isSignToText
+                                  ? Icons.mic_rounded
+                                  : Icons.sign_language_rounded,
+                              size: 16,
+                              color: AppColors.textSecondary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              isSignToText ? 'Speech' : 'Sign',
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
-              const SizedBox(width: 4),
-            ],
-          ),
-          body: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
-            child: isSignToText
-                ? _buildSignToTextView()
-                : _buildSpeechToSignView(),
-          ),
+                actions: [
+                  if (isSignToText) ...[
+                    // Auto-Speak Toggle Icon
+                    IconButton(
+                      icon: Icon(
+                        _cameraViewModel.isAutoSpeakEnabled
+                            ? Icons.volume_up_rounded
+                            : Icons.volume_off_rounded,
+                        color: _cameraViewModel.isAutoSpeakEnabled
+                            ? AppColors.primary
+                            : AppColors.textMuted,
+                        size: 24,
+                      ),
+                      tooltip: _cameraViewModel.isAutoSpeakEnabled
+                          ? 'Auto-Speak: ON'
+                          : 'Tap to Enable Auto-Speak',
+                      onPressed: () {
+                        if (!_cameraViewModel.isAutoSpeakEnabled) {
+                          _cameraViewModel.speakAloud();
+                        }
+                        _cameraViewModel.toggleAutoSpeak();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              _cameraViewModel.isAutoSpeakEnabled
+                                  ? 'Auto-Speak Enabled: Automatically speaks translated signs aloud!'
+                                  : 'Auto-Speak Disabled.',
+                            ),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                    ),
+                    // Flip Camera Button
+                    if (_canFlipCamera)
+                      IconButton(
+                        icon: const Icon(
+                          Icons.flip_camera_ios_rounded,
+                          color: AppColors.textPrimary,
+                          size: 22,
+                        ),
+                        tooltip:
+                            _currentLensDirection == CameraLensDirection.front
+                            ? 'Switch to Back Camera'
+                            : 'Switch to Front Camera',
+                        onPressed: _flipCamera,
+                      ),
+                  ] else ...[
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<SignLanguageType>(
+                          value: _speechViewModel.selectedSignLang,
+                          icon: const Icon(
+                            Icons.arrow_drop_down,
+                            color: AppColors.primary,
+                          ),
+                          items: SignLanguageType.values.map((lang) {
+                            return DropdownMenuItem(
+                              value: lang,
+                              child: Text(
+                                '${lang.flagEmoji} ${lang.code}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (v) {
+                            if (v != null)
+                              _speechViewModel.switchSignDialect(v);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 4),
+                ],
+              ),
+              body: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child: isSignToText
+                    ? _buildSignToTextView()
+                    : _buildSpeechToSignView(),
+              ),
+            ),
+            Positioned.fill(
+              child: AppTourCoachmark(
+                feature: widget.initialMode == SignTranslationMode.signToText
+                    ? AppTourFeature.signTranslate
+                    : AppTourFeature.speechToSign,
+                targetKey: isSignToText
+                    ? _signTourTargetKey
+                    : _speechTourTargetKey,
+                title: isSignToText ? 'Sign Translate' : 'Speech to Sign',
+                message: isSignToText
+                    ? 'Show your sign to the camera.'
+                    : 'Speak or type to see the sign.',
+              ),
+            ),
+          ],
         );
       },
     );
@@ -692,6 +720,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
         Expanded(
           flex: 7,
           child: Container(
+            key: _signTourTargetKey,
             width: double.infinity,
             color: Colors.black,
             child: ClipRect(
@@ -1742,6 +1771,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
             children: [
               // Real-Time Synchronized Text Entry Field
               TextField(
+                key: _speechTourTargetKey,
                 controller: _speechInputController,
                 maxLines: 2,
                 style: const TextStyle(

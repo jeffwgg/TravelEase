@@ -15,6 +15,7 @@ import '../views/profile/profile_management_view.dart';
 import '../views/profile/edit_profile_view.dart';
 import '../views/profile/preferences_view.dart';
 import '../views/profile/help_center_view.dart';
+import '../views/profile/tour_complete_view.dart';
 import '../views/profile/about_travelease_view.dart';
 import '../views/emergency/emergency_contact_settings_view.dart';
 import '../views/emergency/emergency_communication_card_view.dart';
@@ -106,6 +107,10 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/help-center',
       builder: (context, state) => const HelpCenterView(),
+    ),
+    GoRoute(
+      path: '/tour-complete',
+      builder: (context, state) => const TourCompleteView(),
     ),
     GoRoute(
       path: '/about',

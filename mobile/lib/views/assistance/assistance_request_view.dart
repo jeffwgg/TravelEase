@@ -7,7 +7,9 @@ import 'dart:convert';
 
 import '../../core/theme.dart';
 import '../../models/repositories/feature_usage_repository.dart';
+import '../../services/app_tour_controller.dart';
 import '../../viewmodels/assistance_request_viewmodel.dart';
+import '../../widgets/app_tour_coachmark.dart';
 
 class AssistanceRequestView extends StatefulWidget {
   const AssistanceRequestView({super.key});
@@ -19,6 +21,7 @@ class AssistanceRequestView extends StatefulWidget {
 class _AssistanceRequestViewState extends State<AssistanceRequestView> {
   final _viewModel = AssistanceRequestViewModel();
   final _venueController = TextEditingController();
+  final _tourTargetKey = GlobalKey();
 
   @override
   void initState() {
@@ -63,61 +66,87 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Request Assistance'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Location section ──
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.2),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            title: const Text('Request Assistance'),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Location section ──
+                Container(
+                  key: _tourTargetKey,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        Icons.location_on,
-                        color: AppColors.primary,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Requesting help from:',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            if (_viewModel.isFetchingLocation)
-                              Row(
-                                children: [
-                                  const SizedBox(
-                                    width: 12,
-                                    height: 12,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on,
+                            color: AppColors.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Requesting help from:',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                if (_viewModel.isFetchingLocation)
+                                  Row(
+                                    children: [
+                                      const SizedBox(
+                                        width: 12,
+                                        height: 12,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Detecting location...',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 14,
+                                          color: AppColors.textMuted,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else if (_viewModel.venueName.isNotEmpty)
                                   Text(
-                                    'Detecting location...',
+                                    _viewModel.venueName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 15,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  )
+                                else
+                                  Text(
+                                    'No location selected',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w500,
                                       fontSize: 14,
@@ -125,303 +154,307 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                                       fontStyle: FontStyle.italic,
                                     ),
                                   ),
-                                ],
-                              )
-                            else if (_viewModel.venueName.isNotEmpty)
-                              Text(
-                                _viewModel.venueName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              )
-                            else
-                              Text(
-                                'No location selected',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 14,
-                                  color: AppColors.textMuted,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                          ],
-                        ),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _showLocationOptions,
+                            child: Text(
+                              _viewModel.venueName.isNotEmpty
+                                  ? 'Change'
+                                  : 'Select',
+                            ),
+                          ),
+                        ],
                       ),
-                      TextButton(
-                        onPressed: _showLocationOptions,
-                        child: Text(
-                          _viewModel.venueName.isNotEmpty ? 'Change' : 'Select',
+                      const SizedBox(height: 10),
+                      // Editable venue name field
+                      TextField(
+                        controller: _venueController,
+                        onChanged: (value) => _viewModel.setVenue(value),
+                        decoration: InputDecoration(
+                          hintText: 'Or type venue name here...',
+                          prefixIcon: const Icon(
+                            Icons.edit_location_alt_outlined,
+                            size: 20,
+                            color: AppColors.textMuted,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          isDense: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: AppColors.cardBorder),
+                          ),
                         ),
+                        style: const TextStyle(fontSize: 14),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  // Editable venue name field
-                  TextField(
-                    controller: _venueController,
-                    onChanged: (value) => _viewModel.setVenue(value),
-                    decoration: InputDecoration(
-                      hintText: 'Or type venue name here...',
-                      prefixIcon: const Icon(
-                        Icons.edit_location_alt_outlined,
-                        size: 20,
-                        color: AppColors.textMuted,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      isDense: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: AppColors.cardBorder),
-                      ),
-                    ),
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
+                ),
+                const SizedBox(height: 24),
 
-            // ── Request type ──
-            Text(
-              'What do you need help with?',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildTypeChip(
-                  'Communication',
-                  Icons.chat_bubble_outline,
-                  'communication',
+                // ── Request type ──
+                Text(
+                  'What do you need help with?',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-                _buildTypeChip(
-                  'Finding Location',
-                  Icons.location_on_outlined,
-                  'location',
-                ),
-                _buildTypeChip(
-                  'Check-in / Boarding',
-                  Icons.confirmation_number_outlined,
-                  'checkin',
-                ),
-                _buildTypeChip(
-                  'Luggage Issue',
-                  Icons.luggage_outlined,
-                  'luggage',
-                ),
-                _buildTypeChip(
-                  'Accessibility',
-                  Icons.accessible_outlined,
-                  'accessibility',
-                ),
-                _buildTypeChip(
-                  'Emergency Info',
-                  Icons.warning_amber_outlined,
-                  'emergency',
-                ),
-                _buildTypeChip('General Help', Icons.help_outline, 'general'),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // ── Description ──
-            Text(
-              'Describe your situation',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _viewModel.descriptionController,
-              maxLines: 4,
-              decoration: InputDecoration(
-                hintText: 'Tell us what you need help with...',
-                alignLabelWithHint: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // ── Urgency ──
-            Text(
-              'Urgency Level',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _buildUrgencyOption(0, 'Low', AppColors.success),
-                const SizedBox(width: 8),
-                _buildUrgencyOption(1, 'Medium', AppColors.secondary),
-                const SizedBox(width: 8),
-                _buildUrgencyOption(2, 'High', AppColors.emergency),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // ── Communication preference (2 options: In-app Chat / Come to Location) ──
-            Text(
-              'How should staff reach you?',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Column(
-                children: [
-                  RadioListTile<String>(
-                    title: const Text(
-                      'In-app Chat',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                    subtitle: const Text(
-                      'Staff will message or call you in the app',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                    value: 'chat',
-                    groupValue: _viewModel.contactMethod,
-                    activeColor: AppColors.primary,
-                    onChanged: (value) => _viewModel.setContactMethod(value!),
-                  ),
-                  const Divider(height: 1, indent: 16),
-                  RadioListTile<String>(
-                    title: const Text(
-                      'Come to my location',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                    subtitle: const Text(
-                      'Staff will find you in person',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                    value: 'location',
-                    groupValue: _viewModel.contactMethod,
-                    activeColor: AppColors.primary,
-                    onChanged: (value) => _viewModel.setContactMethod(value!),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // ── Share location toggle ──
-            Card(
-              child: SwitchListTile(
-                title: const Text(
-                  'Share my current location',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                ),
-                subtitle: Text(
-                  'Helps staff find you faster',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                secondary: const Icon(
-                  Icons.my_location,
-                  color: AppColors.primary,
-                ),
-                value: _viewModel.shareLocation,
-                activeColor: AppColors.primary,
-                onChanged: (value) => _viewModel.setShareLocation(value),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // ── FR-M5-27 / FR-M7-07: analytics consent toggle ──
-            Card(
-              child: SwitchListTile(
-                title: const Text(
-                  'Share anonymously for analytics',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                ),
-                subtitle: Text(
-                  'Let the institution count this request in anonymised service-improvement statistics. Your identity is never shown.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                secondary: const Icon(
-                  Icons.insights_outlined,
-                  color: AppColors.secondary,
-                ),
-                value: _viewModel.shareAnalytics,
-                activeColor: AppColors.primary,
-                onChanged: (value) => _viewModel.setShareAnalytics(value),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // ── Error message ──
-            if (_viewModel.errorMessage != null)
-              Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.emergency.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: AppColors.emergency.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Row(
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    const Icon(
-                      Icons.error_outline,
-                      color: AppColors.emergency,
-                      size: 18,
+                    _buildTypeChip(
+                      'Communication',
+                      Icons.chat_bubble_outline,
+                      'communication',
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _viewModel.errorMessage!,
-                        style: const TextStyle(
-                          color: AppColors.emergency,
-                          fontSize: 13,
-                        ),
-                      ),
+                    _buildTypeChip(
+                      'Finding Location',
+                      Icons.location_on_outlined,
+                      'location',
+                    ),
+                    _buildTypeChip(
+                      'Check-in / Boarding',
+                      Icons.confirmation_number_outlined,
+                      'checkin',
+                    ),
+                    _buildTypeChip(
+                      'Luggage Issue',
+                      Icons.luggage_outlined,
+                      'luggage',
+                    ),
+                    _buildTypeChip(
+                      'Accessibility',
+                      Icons.accessible_outlined,
+                      'accessibility',
+                    ),
+                    _buildTypeChip(
+                      'Emergency Info',
+                      Icons.warning_amber_outlined,
+                      'emergency',
+                    ),
+                    _buildTypeChip(
+                      'General Help',
+                      Icons.help_outline,
+                      'general',
                     ),
                   ],
                 ),
-              ),
+                const SizedBox(height: 24),
 
-            // ── Submit ──
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _viewModel.isSubmitting ? null : _handleSubmit,
-                icon: _viewModel.isSubmitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+                // ── Description ──
+                Text(
+                  'Describe your situation',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _viewModel.descriptionController,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    hintText: 'Tell us what you need help with...',
+                    alignLabelWithHint: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // ── Urgency ──
+                Text(
+                  'Urgency Level',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _buildUrgencyOption(0, 'Low', AppColors.success),
+                    const SizedBox(width: 8),
+                    _buildUrgencyOption(1, 'Medium', AppColors.secondary),
+                    const SizedBox(width: 8),
+                    _buildUrgencyOption(2, 'High', AppColors.emergency),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // ── Communication preference (2 options: In-app Chat / Come to Location) ──
+                Text(
+                  'How should staff reach you?',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  child: Column(
+                    children: [
+                      RadioListTile<String>(
+                        title: const Text(
+                          'In-app Chat',
+                          style: TextStyle(fontSize: 14),
                         ),
-                      )
-                    : const Icon(Icons.send),
-                label: Text(
-                  _viewModel.isSubmitting ? 'Submitting...' : 'Submit Request',
+                        subtitle: const Text(
+                          'Staff will message or call you in the app',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        value: 'chat',
+                        groupValue: _viewModel.contactMethod,
+                        activeColor: AppColors.primary,
+                        onChanged: (value) =>
+                            _viewModel.setContactMethod(value!),
+                      ),
+                      const Divider(height: 1, indent: 16),
+                      RadioListTile<String>(
+                        title: const Text(
+                          'Come to my location',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          'Staff will find you in person',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        value: 'location',
+                        groupValue: _viewModel.contactMethod,
+                        activeColor: AppColors.primary,
+                        onChanged: (value) =>
+                            _viewModel.setContactMethod(value!),
+                      ),
+                    ],
+                  ),
                 ),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                const SizedBox(height: 24),
+
+                // ── Share location toggle ──
+                Card(
+                  child: SwitchListTile(
+                    title: const Text(
+                      'Share my current location',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Helps staff find you faster',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    secondary: const Icon(
+                      Icons.my_location,
+                      color: AppColors.primary,
+                    ),
+                    value: _viewModel.shareLocation,
+                    activeColor: AppColors.primary,
+                    onChanged: (value) => _viewModel.setShareLocation(value),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 12),
+
+                // ── FR-M5-27 / FR-M7-07: analytics consent toggle ──
+                Card(
+                  child: SwitchListTile(
+                    title: const Text(
+                      'Share anonymously for analytics',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Let the institution count this request in anonymised service-improvement statistics. Your identity is never shown.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    secondary: const Icon(
+                      Icons.insights_outlined,
+                      color: AppColors.secondary,
+                    ),
+                    value: _viewModel.shareAnalytics,
+                    activeColor: AppColors.primary,
+                    onChanged: (value) => _viewModel.setShareAnalytics(value),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // ── Error message ──
+                if (_viewModel.errorMessage != null)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: AppColors.emergency.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: AppColors.emergency.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          color: AppColors.emergency,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _viewModel.errorMessage!,
+                            style: const TextStyle(
+                              color: AppColors.emergency,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // ── Submit ──
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _viewModel.isSubmitting ? null : _handleSubmit,
+                    icon: _viewModel.isSubmitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.send),
+                    label: Text(
+                      _viewModel.isSubmitting
+                          ? 'Submitting...'
+                          : 'Submit Request',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: TextButton(
+                    onPressed: () => context.push('/request-tracking'),
+                    child: const Text('View My Requests'),
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
             ),
-            const SizedBox(height: 12),
-            Center(
-              child: TextButton(
-                onPressed: () => context.push('/request-tracking'),
-                child: const Text('View My Requests'),
-              ),
-            ),
-            const SizedBox(height: 32),
-          ],
+          ),
         ),
-      ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.requestHelp,
+            targetKey: _tourTargetKey,
+            title: 'Request Help',
+            message: 'Share your location and what you need.',
+          ),
+        ),
+      ],
     );
   }
 
