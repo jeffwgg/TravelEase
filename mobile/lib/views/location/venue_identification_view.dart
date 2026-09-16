@@ -8,6 +8,7 @@ import '../../models/entities/announcement.dart';
 import '../../models/entities/venue_search_result.dart';
 import '../../models/entities/venue_session.dart';
 import '../../models/repositories/announcement_repository.dart';
+import '../../models/repositories/auth_repository.dart';
 import '../../models/repositories/captured_announcement_store.dart';
 import '../../models/repositories/venue_repository.dart';
 import '../../services/venue_session_service.dart';
@@ -27,6 +28,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   final _searchController = TextEditingController();
   final _venueRepository = VenueRepository();
   final _announcementRepository = AnnouncementRepository();
+  final _authRepository = AuthRepository();
 
   Timer? _searchDebounce;
 
@@ -358,6 +360,16 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     await VenueSessionService.instance.quit();
   }
 
+  /// First word of the signed-in traveller's full name, kept in sync with the
+  /// auth user metadata (set at sign-up and refreshed on profile updates).
+  String get _greetingName {
+    final fullName = _authRepository.currentUser?.userMetadata?['full_name'];
+    if (fullName is String && fullName.trim().isNotEmpty) {
+      return fullName.trim().split(RegExp(r'\s+')).first;
+    }
+    return 'traveller';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -390,7 +402,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Hello, Jeff',
+                                  'Hello, $_greetingName',
                                   style: Theme.of(
                                     context,
                                   ).textTheme.headlineLarge,

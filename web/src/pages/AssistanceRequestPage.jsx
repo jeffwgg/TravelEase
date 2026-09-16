@@ -514,21 +514,17 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                             <Eye size={13} />
                           </button>
                           {req.status === 'pending' ? (
-                            <button
-                              className="btn btn-primary btn-sm"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                              onClick={() => openAssignModal(req)}
-                            >
-                              <UserCheck size={14} /> Assign Staff
-                            </button>
-                          ) : req.status === 'in_progress' ? (
-                            <>
+                            !staffOnly && (
                               <button
-                                className="btn btn-secondary btn-sm"
+                                className="btn btn-primary btn-sm"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                                 onClick={() => openAssignModal(req)}
                               >
-                                Reassign
+                                <UserCheck size={14} /> Assign Staff
                               </button>
+                            )
+                          ) : req.status === 'in_progress' ? (
+                            staffOnly ? (
                               <button
                                 className="btn btn-primary btn-sm"
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
@@ -536,15 +532,22 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                               >
                                 <MessageSquare size={14} /> Open Chat
                               </button>
-                            </>
-                          ) : (
+                            ) : (
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => openAssignModal(req)}
+                              >
+                                Reassign
+                              </button>
+                            )
+                          ) : staffOnly ? (
                             <button
                               className="btn btn-secondary btn-sm"
                               onClick={() => navigate('/chat', { state: { requestId: req.id } })}
                             >
                               View Chat
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -956,7 +959,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                 Zone: <strong>{detailModalReq.location_zone}</strong>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                {detailModalReq.status === 'pending' && (
+                {!staffOnly && detailModalReq.status === 'pending' && (
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={() => {
@@ -968,7 +971,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                     <UserCheck size={14} /> Assign Staff
                   </button>
                 )}
-                {detailModalReq.status === 'in_progress' && (
+                {staffOnly && detailModalReq.status === 'in_progress' && (
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={() => {

@@ -107,8 +107,10 @@ class AssistanceRequestViewModel extends ChangeNotifier {
       currentLng = position.longitude;
 
       final resolved = await _reverseGeocode(position.latitude, position.longitude);
+      // Keep the zone empty so submission falls back to the resolved place
+      // name, same as the map-picker and manual-entry flows.
       venueName = resolved;
-      locationZone = 'Current Location';
+      locationZone = '';
     } catch (e) {
       // Ignore errors and let user pick manually
     }

@@ -102,6 +102,14 @@ class AssistanceMenuView extends StatelessWidget {
             const SizedBox(height: 16),
             _buildMenuCard(
               context,
+              icon: Icons.report_outlined,
+              title: 'Report a Barrier',
+              subtitle: 'Facility feedback only - staff will not respond to reports',
+              onTap: () => context.push('/accessibility-issue'),
+            ),
+            const SizedBox(height: 16),
+            _buildMenuCard(
+              context,
               icon: Icons.help_outline,
               title: 'Guidance Info',
               subtitle: 'Learn how the assistance feature works',

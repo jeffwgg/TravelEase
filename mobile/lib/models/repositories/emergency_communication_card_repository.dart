@@ -44,7 +44,7 @@ class EmergencyCommunicationCardRepository {
     await _client.from('emergency_communication_cards').upsert({
       'user_id': _userId,
       ...card.toJson(),
-      'updated_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
     }, onConflict: 'user_id');
   }
 }

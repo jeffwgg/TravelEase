@@ -80,7 +80,7 @@ class ChatViewModel extends ChangeNotifier {
 
   Future<void> sendMessage() async {
     final content = messageController.text.trim();
-    if (content.isEmpty) return;
+    if (content.isEmpty || isReadOnly) return;
 
     messageController.clear();
 
@@ -108,6 +108,7 @@ class ChatViewModel extends ChangeNotifier {
     required String filePath,
     required String mimeType,
   }) async {
+    if (isReadOnly) return;
     isUploading = true;
     notifyListeners();
 
@@ -134,18 +135,56 @@ class ChatViewModel extends ChangeNotifier {
     }
   }
 
+  String? get requestStatus => (requestDetails?['status'] ?? '').toString().toLowerCase();
+
+  /// Traveler has confirmed (fully) — request closed, conversation archived.
+  bool get isClosed => requestStatus == 'closed';
+
+  /// Staff marked resolved, or the request is closed: chat becomes view-only.
+  bool get isReadOnly => requestStatus == 'resolved' || isClosed;
+
   // FR-M5-16 / FR-M5-26: Deaf traveler confirms resolution and submits rating
   Future<bool> submitResolutionFeedback({
     required String outcome,
     required int rating,
     String? comment,
   }) async {
-    return await _repository.submitResolutionFeedback(
+    final success = await _repository.submitResolutionFeedback(
       requestId: requestId,
       outcome: outcome,
       rating: rating,
       comment: comment,
     );
+    if (success) {
+      // Optimistically flip local status so the UI locks immediately,
+      // without waiting for the realtime echo of our own update.
+      final newStatus = outcome == 'fully_resolved' ? 'closed' : 'in_progress';
+      requestDetails = {...?requestDetails, 'status': newStatus};
+      notifyListeners();
+    }
+    return success;
+  }
+
+  /// Chat log row after a finished voice/video call: "Video call · 1:23".
+  /// Stored as message_type `call` with content `video|45` (type, seconds).
+  Future<void> sendCallSummary({
+    required String callType,
+    required int seconds,
+  }) async {
+    try {
+      final result = await _repository.sendChatMessage(
+        requestId: requestId,
+        content: '$callType|$seconds',
+        messageType: 'call',
+      );
+      if (result != null && !messages.any((m) => m['id'] == result['id'])) {
+        messages.add(result);
+        notifyListeners();
+        _scrollToBottom();
+      }
+    } catch (e) {
+      debugPrint('Failed to log call summary: $e');
+    }
   }
 
   void subscribeToLive() {
@@ -159,14 +198,15 @@ class ChatViewModel extends ChangeNotifier {
     });
 
     // Subscribe to request row updates so staff name appears the moment
-    // a staff member is assigned (no need to wait for them to send a message).
+    // a staff member is assigned, and status changes (resolved/closed)
+    // lock the conversation in real time.
     _requestChannel = _repository.subscribeToRequestChanges(requestId, (updatedRequest) {
       final newName = updatedRequest['assigned_staff_name'] as String?;
       if (newName != null && newName.isNotEmpty && newName != 'Unassigned') {
         _staffNameFromRequest = newName;
-        requestDetails = updatedRequest;
-        notifyListeners();
       }
+      requestDetails = updatedRequest;
+      notifyListeners();
     });
   }
 

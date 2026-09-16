@@ -72,7 +72,7 @@ class CommunicationRepository {
           .from('communication_dialogue_sessions')
           .update({
             'status': 'completed',
-            'ended_at': DateTime.now().toIso8601String(),
+            'ended_at': DateTime.now().toUtc().toIso8601String(),
           })
           .eq('id', sessionId);
       return true;

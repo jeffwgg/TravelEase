@@ -253,7 +253,7 @@ class AssistanceRepository {
     try {
       await _client
           .from('assistance_requests')
-          .update({'status': 'cancelled', 'updated_at': DateTime.now().toIso8601String()})
+          .update({'status': 'cancelled', 'updated_at': DateTime.now().toUtc().toIso8601String()})
           .eq('id', requestId);
       return true;
     } catch (e) {
@@ -278,7 +278,7 @@ class AssistanceRepository {
             'user_rating': rating,
             'user_feedback_comment': comment,
             'status': newStatus,
-            'updated_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           })
           .eq('id', requestId);
       return true;

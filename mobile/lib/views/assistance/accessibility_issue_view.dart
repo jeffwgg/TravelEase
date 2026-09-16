@@ -3,9 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/theme.dart';
 import '../../viewmodels/accessibility_issue_viewmodel.dart';
+import '../../viewmodels/assistance_request_viewmodel.dart';
 
 class AccessibilityIssueView extends StatefulWidget {
-  const AccessibilityIssueView({super.key});
+  const AccessibilityIssueView({super.key, this.venueName});
+
+  /// Venue detected on the assistance flow; required so the report can be
+  /// matched to the institution's analytics scoping on the web portal.
+  final String? venueName;
 
   @override
   State<AccessibilityIssueView> createState() => _AccessibilityIssueViewState();
@@ -13,13 +18,28 @@ class AccessibilityIssueView extends StatefulWidget {
 
 class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
   final _viewModel = AccessibilityIssueViewModel();
+  // Reused only for its venue detection (GPS + reverse geocode) when this
+  // screen is opened without a venue passed in from the request form.
+  final _locationVm = AssistanceRequestViewModel();
   XFile? _selectedPhoto;
   bool _analyticsConsent = false; // FR-M5-27
+
+  /// Venue the report will be filed under: the caller-provided one wins,
+  /// otherwise the auto-detected location is used.
+  String get _venue {
+    final fromParam = (widget.venueName ?? '').trim();
+    return fromParam.isNotEmpty ? fromParam : _locationVm.venueName.trim();
+  }
 
   @override
   void initState() {
     super.initState();
     _viewModel.addListener(_onChanged);
+    if ((widget.venueName ?? '').trim().isEmpty) {
+      _locationVm.fetchCurrentLocation().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   void _onChanged() {
@@ -30,6 +50,7 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
   void dispose() {
     _viewModel.removeListener(_onChanged);
     _viewModel.dispose();
+    _locationVm.dispose();
     super.dispose();
   }
 
@@ -90,8 +111,20 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
       );
       return;
     }
+    final venue = _venue;
+    if (venue.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_locationVm.isFetchingLocation
+              ? 'Still detecting your location, please try again in a moment.'
+              : 'No venue detected. Enable location access or choose your location on the assistance request page first.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     final success = await _viewModel.submitReport(
-      venueName: 'Current Venue',
+      venueName: venue,
       analyticsConsent: _analyticsConsent,
     );
     if (success && mounted) {
@@ -160,7 +193,7 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Report barriers that don\'t need immediate help — like missing visual announcements or sound-only queue systems.',
+                      'Report barriers that don\'t need immediate help — like missing visual announcements or sound-only queue systems. Staff will not respond to this report; for help now, use Make Request.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.accent),
                     ),
                   ),
@@ -192,6 +225,22 @@ class _AccessibilityIssueViewState extends State<AccessibilityIssueView> {
                 prefixIcon: Icon(Icons.location_on_outlined, color: AppColors.textMuted),
               ),
             ),
+            if (_venue.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Report will be filed under: $_venue',
+                  style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                ),
+              )
+            else if (_locationVm.isFetchingLocation)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  'Detecting your venue...',
+                  style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                ),
+              ),
             const SizedBox(height: 24),
             Text('Description', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),

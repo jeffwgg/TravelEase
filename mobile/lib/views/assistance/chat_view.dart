@@ -5,6 +5,7 @@ import 'package:video_player/video_player.dart';
 import '../../core/theme.dart';
 import '../../viewmodels/chat_viewmodel.dart';
 import '../../services/webrtc_service.dart';
+import 'resolution_feedback_sheet.dart';
 
 class ChatView extends StatefulWidget {
   final String requestId;
@@ -37,8 +38,42 @@ class _ChatViewState extends State<ChatView> {
     });
   }
 
+  WebRTCCallState _prevCallState = WebRTCCallState.idle;
+
   void _onChanged() {
+    final now = _webrtc.callState;
+    // When a call this device dialed ends after connecting, log it in the chat.
+    if (now == WebRTCCallState.idle &&
+        _prevCallState != WebRTCCallState.idle &&
+        _webrtc.hasCallSummary) {
+      _emitCallSummary();
+    }
+    _prevCallState = now;
+    if (_webrtc.callError != null) {
+      final message = _webrtc.callError!;
+      _webrtc.callError = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message),
+              backgroundColor: AppColors.emergency,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      });
+    }
     if (mounted) setState(() {});
+  }
+
+  Future<void> _emitCallSummary() async {
+    final type = _webrtc.endedCallType == CallType.voice ? 'voice' : 'video';
+    final seconds = _webrtc.endedCallSeconds;
+    _webrtc.clearCallSummary();
+    if (seconds > 0) {
+      await _viewModel.sendCallSummary(callType: type, seconds: seconds);
+    }
   }
 
   @override
@@ -120,23 +155,17 @@ class _ChatViewState extends State<ChatView> {
           ],
         ),
         actions: [
-          // Confirm Resolution button for traveler
-          IconButton(
-            icon: const Icon(Icons.check_circle_outline, color: AppColors.success),
-            tooltip: 'Confirm Resolution & Rate',
-            onPressed: () => _showResolutionDialog(context),
-          ),
           // Voice call button
           IconButton(
-            icon: const Icon(Icons.call, color: AppColors.success),
-            tooltip: 'Start Voice Call',
-            onPressed: () => _startCall(CallType.voice),
+            icon: Icon(Icons.call, color: _viewModel.isReadOnly ? AppColors.textMuted : AppColors.success),
+            tooltip: _viewModel.isReadOnly ? 'Calls unavailable — request resolved' : 'Start Voice Call',
+            onPressed: _viewModel.isReadOnly ? null : () => _startCall(CallType.voice),
           ),
           // Video call button
           IconButton(
-            icon: const Icon(Icons.videocam, color: AppColors.primary),
-            tooltip: 'Start Video Call',
-            onPressed: () => _startCall(CallType.video),
+            icon: Icon(Icons.videocam, color: _viewModel.isReadOnly ? AppColors.textMuted : AppColors.primary),
+            tooltip: _viewModel.isReadOnly ? 'Calls unavailable — request resolved' : 'Start Video Call',
+            onPressed: _viewModel.isReadOnly ? null : () => _startCall(CallType.video),
           ),
           IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
         ],
@@ -164,25 +193,26 @@ class _ChatViewState extends State<ChatView> {
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
                       ),
                     ),
-                    InkWell(
-                      onTap: () => _showResolutionDialog(context),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.success.withValues(alpha: 0.5)),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle, size: 14, color: AppColors.success),
-                            SizedBox(width: 4),
-                            Text('Resolve & Rate', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
-                          ],
+                    if (!_viewModel.isClosed)
+                      InkWell(
+                        onTap: () => _showResolutionDialog(context),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.success.withValues(alpha: 0.5)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle, size: 14, color: AppColors.success),
+                              SizedBox(width: 4),
+                              Text('Resolve & Rate', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.success)),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -190,50 +220,76 @@ class _ChatViewState extends State<ChatView> {
               // Messages
               Expanded(child: _buildMessageList()),
 
-              // Input bar
-              Container(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, -2))],
-                ),
-                child: Row(
-                  children: [
-                    // Attach media / pick files button
-                    IconButton(
-                      icon: _viewModel.isUploading
-                          ? const SizedBox(
-                              width: 22, height: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textMuted),
-                            )
-                          : const Icon(Icons.add_circle_outline, color: AppColors.textMuted),
-                      onPressed: _viewModel.isUploading ? null : () => _pickMedia(context),
-                    ),
-                    Expanded(
-                      child: TextField(
-                        controller: _viewModel.messageController,
-                        enabled: !_viewModel.isUploading,
-                        decoration: InputDecoration(
-                          hintText: 'Type a message...',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
-                          filled: true,
-                          fillColor: AppColors.surfaceVariant,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              // Input bar — replaced by a read-only notice once resolved/closed
+              if (_viewModel.isReadOnly)
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, -2))],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.lock_outline, size: 16, color: AppColors.textMuted),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _viewModel.isClosed
+                              ? 'This request is closed. The conversation is view-only.'
+                              : 'Marked as resolved — chat is view-only. Confirm the resolution above to close the request.',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
-                        onSubmitted: (_) => _viewModel.sendMessage(),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(12)),
-                      child: IconButton(
-                        icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                        onPressed: () => _viewModel.sendMessage(),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, -2))],
+                  ),
+                  child: Row(
+                    children: [
+                      // Attach media / pick files button
+                      IconButton(
+                        icon: _viewModel.isUploading
+                            ? const SizedBox(
+                                width: 22, height: 22,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textMuted),
+                              )
+                            : const Icon(Icons.add_circle_outline, color: AppColors.textMuted),
+                        onPressed: _viewModel.isUploading ? null : () => _pickMedia(context),
                       ),
-                    ),
-                  ],
+                      Expanded(
+                        child: TextField(
+                          controller: _viewModel.messageController,
+                          enabled: !_viewModel.isUploading,
+                          decoration: InputDecoration(
+                            hintText: 'Type a message...',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                            filled: true,
+                            fillColor: AppColors.surfaceVariant,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          ),
+                          onSubmitted: (_) => _viewModel.sendMessage(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(12)),
+                        child: IconButton(
+                          icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                          onPressed: () => _viewModel.sendMessage(),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
             ],
           ),
 
@@ -486,6 +542,13 @@ class _ChatViewState extends State<ChatView> {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: _buildSystemMsg(context, content),
+          );
+        }
+
+        if ((msg['message_type'] ?? 'text') == 'call') {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: _buildCallLogMsg(content, time),
           );
         }
 
@@ -784,173 +847,81 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  // ── UC503: Resolution Confirmation Modal for Traveler ────────────────────
-  void _showResolutionDialog(BuildContext context) {
-    String selectedOutcome = '';
-    int selectedRating = 0;
-    final commentCtrl = TextEditingController();
-    bool isSubmitting = false;
+  // Centered system row for a finished voice/video call, e.g. "Video call · 1:23"
+  Widget _buildCallLogMsg(String content, String time) {
+    // content format: '<video|voice>|<seconds>'
+    var isVideo = true;
+    var seconds = 0;
+    final parts = content.split('|');
+    if (parts.length == 2) {
+      isVideo = parts[0] == 'video';
+      seconds = int.tryParse(parts[1]) ?? 0;
+    }
+    final label = '${isVideo ? 'Video call' : 'Voice call'} · '
+        '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) {
-          return Container(
-            padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
-            decoration: const BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceVariant,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isVideo ? Icons.videocam : Icons.call,
+              size: 14,
+              color: AppColors.textSecondary,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40, height: 4,
-                    margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2)),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
                   ),
-                ),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppColors.success.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(Icons.check_circle_outline, color: AppColors.success, size: 24),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Confirm Resolution', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                          Text('Provide feedback for your assistance session', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Was your assistance request effectively resolved by the staff?',
-                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.5),
-                ),
-                const SizedBox(height: 20),
-                const Text('Outcome', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    _buildOutcomeChip('fully_resolved', '✅ Resolved', AppColors.success, selectedOutcome, (v) => setSheetState(() => selectedOutcome = v)),
-                    const SizedBox(width: 8),
-                    _buildOutcomeChip('partially_resolved', '⚠️ Partial', AppColors.secondary, selectedOutcome, (v) => setSheetState(() => selectedOutcome = v)),
-                    const SizedBox(width: 8),
-                    _buildOutcomeChip('unresolved', '❌ Unresolved', AppColors.emergency, selectedOutcome, (v) => setSheetState(() => selectedOutcome = v)),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Text('Satisfaction Rating', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(5, (i) {
-                    final star = i + 1;
-                    return GestureDetector(
-                      onTap: () => setSheetState(() => selectedRating = star),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: Icon(
-                          star <= selectedRating ? Icons.star_rounded : Icons.star_outline_rounded,
-                          size: 42,
-                          color: star <= selectedRating ? const Color(0xFFF59E0B) : AppColors.textMuted,
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-                if (selectedRating > 0) ...[
-                  const SizedBox(height: 4),
-                  Center(
-                    child: Text(
-                      ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'][selectedRating],
-                      style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 20),
-                TextField(
-                  controller: commentCtrl,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    hintText: 'Any feedback comments? (optional)',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: (selectedOutcome.isEmpty || selectedRating == 0 || isSubmitting)
-                        ? null
-                        : () async {
-                            setSheetState(() => isSubmitting = true);
-                            final success = await _viewModel.submitResolutionFeedback(
-                              outcome: selectedOutcome,
-                              rating: selectedRating,
-                              comment: commentCtrl.text.trim().isEmpty ? null : commentCtrl.text.trim(),
-                            );
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            if (success && mounted) {
-                              final isFullyResolved = selectedOutcome == 'fully_resolved';
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(isFullyResolved
-                                      ? '✅ Request closed. Thank you for your rating!'
-                                      : '⚠️ Ticket re-opened for staff review.'),
-                                  backgroundColor: isFullyResolved ? AppColors.success : AppColors.secondary,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                              Navigator.pop(context);
-                            }
-                          },
-                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-                    child: isSubmitting
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Text('Submit Feedback'),
-                  ),
-                ),
-              ],
             ),
-          );
-        },
+            if (time.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              Text(
+                time,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontSize: 10,
+                      color: AppColors.textMuted,
+                    ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildOutcomeChip(String value, String label, Color color, String selected, ValueChanged<String> onTap) {
-    final isSelected = selected == value;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => onTap(value),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-          decoration: BoxDecoration(
-            color: isSelected ? color.withValues(alpha: 0.12) : AppColors.surfaceVariant,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: isSelected ? color : AppColors.cardBorder, width: isSelected ? 2 : 1),
-          ),
-          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isSelected ? color : AppColors.textMuted)),
-        ),
+  // ── UC503: Resolution Confirmation Modal for Traveler ────────────────────
+  Future<void> _showResolutionDialog(BuildContext context) async {
+    final feedback = await showResolutionFeedbackSheet(
+      context,
+      title: 'Confirm Resolution',
+      subtitle: 'Provide feedback for your assistance session',
+      question: 'Was your assistance request effectively resolved by the staff?',
+      onSubmit: (fb) => _viewModel.submitResolutionFeedback(
+        outcome: fb.outcome,
+        rating: fb.rating,
+        comment: fb.comment,
       ),
     );
+    if (feedback == null || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(feedback.isFullyResolved
+            ? 'Request closed. Thank you for your rating!'
+            : 'Ticket re-opened for staff review.'),
+        backgroundColor: feedback.isFullyResolved ? AppColors.success : AppColors.secondary,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    Navigator.pop(context);
   }
 }

@@ -121,7 +121,7 @@ class EmergencyContactRepository {
             'relationship': relationship,
             'phone_number': phoneNumber,
             'email': email,
-            'updated_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           })
           .eq('id', id)
           .eq('user_id', _userId)

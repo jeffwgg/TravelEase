@@ -242,19 +242,6 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                 onChanged: (value) => _viewModel.setShareLocation(value),
               ),
             ),
-            const SizedBox(height: 12),
-
-            // ── FR-M5-27 / FR-M7-07: analytics consent toggle ──
-            Card(
-              child: SwitchListTile(
-                title: const Text('Share anonymously for analytics', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                subtitle: Text('Let the institution count this request in anonymised service-improvement statistics. Your identity is never shown.', style: Theme.of(context).textTheme.bodySmall),
-                secondary: const Icon(Icons.insights_outlined, color: AppColors.secondary),
-                value: _viewModel.shareAnalytics,
-                activeColor: AppColors.primary,
-                onChanged: (value) => _viewModel.setShareAnalytics(value),
-              ),
-            ),
             const SizedBox(height: 16),
 
             // ── Error message ──
@@ -298,6 +285,47 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
               child: TextButton(
                 onPressed: () => context.push('/request-tracking'),
                 child: const Text('View My Requests'),
+              ),
+            ),
+
+            // ── Facility barrier report (Module 5 & 7): deliberately styled
+            // as the weakest action so travellers never mistake it for help.
+            const SizedBox(height: 8),
+            Material(
+              color: AppColors.surfaceVariant,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  final venue = Uri.encodeComponent(_viewModel.venueName);
+                  context.push('/accessibility-issue?venue=$venue');
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.report_outlined, size: 20, color: AppColors.textSecondary),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Report an Accessibility Barrier',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Facility feedback only — staff will not respond to reports. For immediate help, submit a request above.',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, size: 20, color: AppColors.textMuted),
+                    ],
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 32),

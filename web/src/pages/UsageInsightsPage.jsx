@@ -1,33 +1,43 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Users, ListOrdered, MessageSquareText, RefreshCw, Hourglass, UserX, Download, FileDown } from 'lucide-react'
+import {
+  ListOrdered, MessageSquareText, RefreshCw, Hourglass, UserX,
+  Download, FileDown, Zap, Clock, Star, ThumbsUp, ShieldAlert
+} from 'lucide-react'
 import { analyticsRepository } from '../repositories/analyticsRepository'
 import { assistanceRepository } from '../repositories/assistanceRepository'
+import { serviceAreaRepository } from '../repositories/serviceAreaRepository'
 import { useAuth } from '../context/AuthContext'
 import Tabs from '../components/Tabs'
-import { KpiCard, HBars, HourBars, LineTrend } from '../components/charts'
+import { KpiCard, HBars, HourBars, LineTrend, ChartSkeleton } from '../components/charts'
 import { downloadCsv, downloadPdf } from '../lib/exporter'
 import {
-  PERIODS, periodStart, inPeriod, queueStats, communicationStats,
+  PERIODS, periodStart, inPeriod, withDerivedTimes, assistanceKpis,
+  queueStats, communicationStats, ratingDistribution, assignServiceArea,
   fmtDuration, LOW_SAMPLE_MIN
 } from '../lib/analytics'
 
+// Consolidated operational analytics page (formerly Usage Insights + Service
+// Performance). Users & adoption analysis lives in the Reports page's "Users"
+// report type instead — its numbers are platform-wide and not actionable for
+// a single venue manager.
 const TABS = [
-  { key: 'users', label: 'Users & Adoption' },
+  { key: 'performance', label: 'Service Performance' },
   { key: 'queue', label: 'Queue Analytics' },
   { key: 'communication', label: 'Communication Usage' }
 ]
 
 export default function UsageInsightsPage() {
   const { staffContext } = useAuth()
-  const [period, setPeriod] = useState('90d')
-  const [tab, setTab] = useState('users')
+  const [period, setPeriod] = useState('30d')
+  const [tab, setTab] = useState('performance')
   const [loading, setLoading] = useState(true)
   const [queueLines, setQueueLines] = useState([])
   const [queueNumbers, setQueueNumbers] = useState([])
   const [sessions, setSessions] = useState([])
   const [messages, setMessages] = useState([])
-  const [userAnalytics, setUserAnalytics] = useState(null)
-  const [staffCount, setStaffCount] = useState(0)
+  const [requests, setRequests] = useState([])
+  const [areas, setAreas] = useState([])
+  const [slaConfigs, setSlaConfigs] = useState([])
 
   useEffect(() => {
     loadData()
@@ -36,24 +46,94 @@ export default function UsageInsightsPage() {
   async function loadData() {
     setLoading(true)
     const institutionId = staffContext?.institution_id
-    const [lines, numbers, sess, msgs, users, staff] = await Promise.all([
+    const [lines, numbers, sess, msgs, requestsData, areasData, slaData] = await Promise.all([
       analyticsRepository.getQueueLines(),
       analyticsRepository.getQueueNumbers(),
       analyticsRepository.getDialogueSessions(),
       analyticsRepository.getDialogueMessages(),
-      analyticsRepository.getUserAnalytics(),
-      assistanceRepository.getInstitutionStaff()
+      assistanceRepository.getAssistanceRequests(),
+      staffContext ? serviceAreaRepository.list(staffContext).catch(() => []) : Promise.resolve([]),
+      institutionId ? analyticsRepository.getSlaConfigs(institutionId) : Promise.resolve([])
     ])
     setQueueLines(lines)
     setQueueNumbers(numbers)
     setSessions(sess)
     setMessages(msgs)
-    setUserAnalytics(users)
-    setStaffCount(staff.length)
+    setRequests(withDerivedTimes(requestsData || []))
+    setAreas((areasData || []).filter((a) => a.active))
+    setSlaConfigs(slaData || [])
     setLoading(false)
   }
 
   const start = periodStart(period)
+  const venueName = staffContext?.institutions?.name
+  const venueLabel = venueName || 'All Venues'
+
+  // ------------------------------------------------ service performance
+  const periodRequests = useMemo(
+    () => requests.filter(
+      (r) => (!venueName || r.venue_name === venueName) && inPeriod(r, 'created_at', start) && r.analytics_consent !== false
+    ),
+    [requests, venueName, start]
+  )
+
+  // FR-M7-15: institution-wide default limit first, zone rows are overrides.
+  const defaultSla = useMemo(() => {
+    const row = slaConfigs.find((s) => s.zone_id == null)
+    return {
+      responseMinutes: row?.response_limit_minutes ?? 5,
+      resolutionMinutes: row?.resolution_limit_minutes ?? 60
+    }
+  }, [slaConfigs])
+
+  const kpis = useMemo(
+    () => assistanceKpis(periodRequests, {
+      response: defaultSla.responseMinutes * 60,
+      resolution: defaultSla.resolutionMinutes * 60
+    }),
+    [periodRequests, defaultSla]
+  )
+
+  const satisfactionTrend = useMemo(() => {
+    const rated = periodRequests.filter((r) => r.user_rating != null)
+    const buckets = new Map()
+    for (const r of rated) {
+      const d = new Date(r.created_at)
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const cur = buckets.get(k) || { sum: 0, n: 0 }
+      cur.sum += Number(r.user_rating)
+      cur.n += 1
+      buckets.set(k, cur)
+    }
+    return [...buckets.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, v]) => ({ key, count: Math.round((v.sum / v.n) * 100) / 100 }))
+  }, [periodRequests])
+
+  const ratingDist = useMemo(() => ratingDistribution(periodRequests), [periodRequests])
+
+  // FR-M7-10: compare service performance across service areas. Rows are
+  // attributed by shared coordinates (circle containment), with a text-match
+  // fallback; anything left over is bucketed as "Unmapped".
+  const areaComparison = useMemo(() => {
+    const buckets = new Map()
+    for (const r of periodRequests) {
+      const area = assignServiceArea(areas, r)
+      const key = area ? area.id : 'unmapped'
+      const label = area ? area.name : 'Unmapped'
+      if (!buckets.has(key)) buckets.set(key, { name: label, rows: [] })
+      buckets.get(key).rows.push(r)
+    }
+    return [...buckets.values()].map(({ name, rows }) => {
+      const k = assistanceKpis(rows, {
+        response: defaultSla.responseMinutes * 60,
+        resolution: defaultSla.resolutionMinutes * 60
+      })
+      return { name, ...k }
+    }).sort((a, b) => b.total - a.total)
+  }, [periodRequests, areas, defaultSla])
+
+  // ------------------------------------------------ queue & communication
   const periodQueue = useMemo(() => queueNumbers.filter((n) => inPeriod(n, 'created_at', start)), [queueNumbers, start])
   const periodSessions = useMemo(() => sessions.filter((s) => inPeriod(s, 'created_at', start)), [sessions, start])
   const periodSessionIds = useMemo(() => new Set(periodSessions.map((s) => s.id)), [periodSessions])
@@ -62,42 +142,46 @@ export default function UsageInsightsPage() {
   const queue = useMemo(() => queueStats(queueLines, periodQueue), [queueLines, periodQueue])
   const comm = useMemo(() => communicationStats(periodSessions, periodMessages), [periodSessions, periodMessages])
 
-  const signups = useMemo(
-    () => (userAnalytics?.signups || []).map((s) => ({ key: s.month, count: Number(s.count) })).sort((a, b) => a.key.localeCompare(b.key)),
-    [userAnalytics]
-  )
-
   const periodLabel = PERIODS.find((p) => p.key === period)?.label
-  const venueLabel = staffContext?.institutions?.name || 'All Venues'
 
   // ------------------------------------------------- per-tab export builders
   function exportCurrentTab(format) {
     const base = {
-      title: 'Usage Insights Export',
+      title: 'Service Analytics Export',
       metaLines: [
         ['Venue', venueLabel],
-        ['Period', tab === 'users' ? 'All time (adoption history)' : periodLabel],
-        ['Generated', new Date().toISOString()],
-        ['Note', 'Aggregate counts only — no personal data.']
+        ['Period', periodLabel],
+        ['Generated', new Date().toISOString()]
       ]
     }
     let spec
-    if (tab === 'users') {
+    if (tab === 'performance') {
       spec = {
         ...base,
-        title: 'Platform Users & Adoption Export',
+        title: 'Service Performance Export',
+        metaLines: [...base.metaLines, ['Note', 'Assistance data limited to consented rows. SLA limits: ' + defaultSla.responseMinutes + ' min response / ' + defaultSla.resolutionMinutes + ' min resolution.']],
         kpis: [
-          { label: 'Total registered users', value: userAnalytics?.total_users ?? '—' },
-          { label: 'Staff at this institution', value: staffCount }
+          { label: 'Avg first response time', value: fmtDuration(kpis.avgFirstResponseSec) },
+          { label: 'Avg resolution time', value: fmtDuration(kpis.avgResolutionSec) },
+          { label: 'User satisfaction', value: kpis.avgRating != null ? `${kpis.avgRating.toFixed(2)} / 5 (n=${kpis.ratingCount})` : '—' },
+          { label: 'Resolution rate', value: `${kpis.resolutionRatePct}% (n=${kpis.serviceable})` },
+          { label: 'Response SLA breaches', value: `${kpis.respBreaches} (${kpis.respBreachPct}%)` },
+          { label: 'Resolution SLA breaches', value: `${kpis.resolBreaches} (${kpis.resolBreachPct}%)` }
         ],
-        tables: [
-          { title: 'Monthly sign-ups', headers: ['Month', 'Users'], rows: signups.map((s) => [s.key, s.count]) }
-        ]
+        tables: [{
+          title: 'Service area performance comparison',
+          headers: ['Service area', 'Requests', 'Avg first response', 'Avg resolution', 'Avg rating', 'Ratings (n)'],
+          rows: areaComparison.map((z) => [
+            z.name, z.total, fmtDuration(z.avgFirstResponseSec), fmtDuration(z.avgResolutionSec),
+            z.avgRating != null ? z.avgRating.toFixed(2) : '—', z.ratingCount
+          ])
+        }]
       }
     } else if (tab === 'queue') {
       spec = {
         ...base,
         title: 'Queue Service Analytics Export',
+        metaLines: [...base.metaLines, ['Note', 'Aggregate counts only — no personal data.']],
         kpis: [
           { label: 'Queue numbers issued', value: queue.total },
           { label: 'Completed', value: queue.total - queue.cancelled },
@@ -117,6 +201,7 @@ export default function UsageInsightsPage() {
       spec = {
         ...base,
         title: 'Accessible Communication Usage Export',
+        metaLines: [...base.metaLines, ['Note', 'Aggregate counts only — no personal data.']],
         kpis: [
           { label: 'Dialogue sessions', value: comm.total },
           { label: 'Completed sessions', value: comm.completed },
@@ -130,7 +215,7 @@ export default function UsageInsightsPage() {
         ]
       }
     }
-    const filename = `travelease_usage_${tab}_${tab === 'users' ? 'all' : period}_${new Date().toISOString().slice(0, 10)}`
+    const filename = `travelease_analytics_${tab}_${period}_${new Date().toISOString().slice(0, 10)}`
     if (format === 'pdf') downloadPdf(`${filename}.pdf`, spec)
     else downloadCsv(`${filename}.csv`, spec)
   }
@@ -150,14 +235,15 @@ export default function UsageInsightsPage() {
     <div>
       <div className="page-header">
         <div>
-          <h2>Usage Insights</h2>
+          <h2>Service Analytics</h2>
           <div className="header-subtitle">
-            Cross-module analytics: platform adoption (Module 1), queue service patterns (Module 2) and accessible
-            communication usage (Module 3) feeding the Module 7 dashboard.
+            Operational analytics across assistance service (SLA &amp; satisfaction), queue service
+            and accessible communication usage.
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <select className="input" style={{ width: '160px' }} value={period} onChange={(e) => setPeriod(e.target.value)}>
+        <div className="header-actions">
+          <label className="sr-only" htmlFor="analytics-period">Analytics period</label>
+          <select id="analytics-period" className="input filter-select" value={period} onChange={(e) => setPeriod(e.target.value)}>
             {PERIODS.map((p) => (
               <option key={p.key} value={p.key}>{p.label}</option>
             ))}
@@ -171,68 +257,200 @@ export default function UsageInsightsPage() {
       <div className="page-body">
         <Tabs tabs={TABS} active={tab} onChange={setTab} actions={tabActions} />
 
-        {tab === 'users' && (
-          <div className="card">
-            <div className="card-header">
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Users size={18} /> Platform Users & Adoption</h3>
-              <span className="badge muted">aggregate counts only — no personal data</span>
-            </div>
-            <div className="stats-grid" style={{ margin: '16px 0 20px' }}>
+        {/* ----------------------------------------------- service performance */}
+        {tab === 'performance' && (
+          <>
+            <div className="stats-grid">
               <KpiCard
-                icon={<Users size={22} />}
+                loading={loading}
+                icon={<Zap size={22} />}
                 tone="primary"
-                label="Total Registered Users"
-                value={loading || !userAnalytics ? '…' : userAnalytics.total_users}
-                sub="traveller + institution accounts"
+                label="Avg. First Response Time"
+                value={fmtDuration(kpis.avgFirstResponseSec)}
+                sub={kpis.responseSampleCount ? `n = ${kpis.responseSampleCount}` : 'No responses recorded yet'}
               />
               <KpiCard
-                icon={<Users size={22} />}
+                loading={loading}
+                icon={<Clock size={22} />}
+                tone="accent"
+                label="Avg. Resolution Time"
+                value={fmtDuration(kpis.avgResolutionSec)}
+                sub={kpis.resolutionSampleCount ? `n = ${kpis.resolutionSampleCount}` : 'No resolutions recorded yet'}
+              />
+              <KpiCard
+                loading={loading}
+                icon={<Star size={22} />}
                 tone="secondary"
-                label="Staff at This Institution"
-                value={loading ? '…' : staffCount}
-                sub={venueLabel}
+                label="User Satisfaction"
+                value={kpis.avgRating != null ? `${kpis.avgRating.toFixed(2)} / 5` : '—'}
+                sub={kpis.ratingCount ? `based on ${kpis.ratingCount} ratings` : 'No ratings yet'}
+              />
+              <KpiCard
+                loading={loading}
+                icon={<ThumbsUp size={22} />}
+                tone="success"
+                label="Resolution Rate"
+                value={`${kpis.resolutionRatePct}%`}
+                sub={kpis.serviceable ? `unresolved: ${kpis.unresolvedRatePct}% • repeated: ${kpis.repeatedRatePct}% • n = ${kpis.serviceable}` : 'No completed requests yet'}
               />
             </div>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>New sign-ups per month</div>
-              {loading ? <div className="chart-placeholder">Loading…</div> : <LineTrend points={signups} />}
+
+            <div className="grid-2 section-gap">
+              <div className="card">
+                <div className="card-header">
+                  <h3>SLA Compliance</h3>
+                  <span className="badge secondary">
+                    Limits: {defaultSla.responseMinutes} min response / {defaultSla.resolutionMinutes} min resolution
+                  </span>
+                </div>
+                {loading ? (
+                  <ChartSkeleton height={140} />
+                ) : (
+                  <>
+                    <div className="breach-grid">
+                      <div className="breach-tile danger">
+                        <div className="breach-tile-label">
+                          <ShieldAlert size={14} color="#ef4444" /> Response SLA breaches
+                        </div>
+                        <div className="breach-tile-value">
+                          {kpis.respBreaches}
+                          {kpis.responseSampleCount > 0 && <small> of {kpis.responseSampleCount}</small>}
+                        </div>
+                        <div className="breach-tile-note">
+                          {kpis.responseSampleCount > 0
+                            ? `${kpis.respBreachPct}% exceeded the ${defaultSla.responseMinutes}-minute limit`
+                            : 'No responses sampled in this period'}
+                        </div>
+                      </div>
+                      <div className="breach-tile warn">
+                        <div className="breach-tile-label">
+                          <ShieldAlert size={14} color="#f59e0b" /> Resolution SLA breaches
+                        </div>
+                        <div className="breach-tile-value">
+                          {kpis.resolBreaches}
+                          {kpis.resolutionSampleCount > 0 && <small> of {kpis.resolutionSampleCount}</small>}
+                        </div>
+                        <div className="breach-tile-note">
+                          {kpis.resolutionSampleCount > 0
+                            ? `${kpis.resolBreachPct}% exceeded the ${defaultSla.resolutionMinutes}-minute limit`
+                            : 'No resolutions sampled in this period'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="panel-footnote">
+                      Total assistance requests exceeding the institution's predefined response or resolution limits.
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="card">
+                <div className="card-header">
+                  <h3>Satisfaction Rating Distribution</h3>
+                  {kpis.ratingCount > 0 && <span className="badge secondary">n = {kpis.ratingCount}</span>}
+                </div>
+                {loading
+                  ? <ChartSkeleton />
+                  : <HBars items={ratingDist} total={kpis.ratingCount} color="#d97706" showPct={kpis.ratingCount >= LOW_SAMPLE_MIN} />}
+              </div>
             </div>
-          </div>
+
+            <div className="card section-gap">
+              <div className="card-header">
+                <h3>Satisfaction Trend</h3>
+                <span className="badge muted">unresolved {kpis.unresolvedCount} ({kpis.unresolvedRatePct}%) • cancelled {kpis.cancelled} • repeated {kpis.repeatedRatePct}%</span>
+              </div>
+              {loading ? (
+                <ChartSkeleton height={150} />
+              ) : satisfactionTrend.length < 2 ? (
+                <div className="chart-placeholder">Not enough rated months to draw a trend yet.</div>
+              ) : (
+                <LineTrend points={satisfactionTrend} color="#8b5cf6" suffix=" stars" />
+              )}
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <h3>Service Area Performance Comparison</h3>
+                <span className="badge muted">{venueLabel}</span>
+              </div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Service Area</th>
+                    <th>Requests</th>
+                    <th>Avg. First Response</th>
+                    <th>Avg. Resolution</th>
+                    <th>Avg. Rating</th>
+                    <th>Ratings (n)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={6} className="table-message">Loading…</td></tr>
+                  ) : areaComparison.length === 0 ? (
+                    <tr><td colSpan={6} className="table-message">No data available for the selected period.</td></tr>
+                  ) : (
+                    areaComparison.map((z) => (
+                      <tr key={z.name}>
+                        <td><strong>{z.name}</strong></td>
+                        <td>{z.total}</td>
+                        <td>{fmtDuration(z.avgFirstResponseSec)}</td>
+                        <td>{fmtDuration(z.avgResolutionSec)}</td>
+                        <td>
+                          {z.avgRating != null ? (
+                            <span className="badge success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <Star size={12} fill="currentColor" /> {z.avgRating.toFixed(2)}
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td>{z.ratingCount}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
+        {/* ------------------------------------------------- queue analytics */}
         {tab === 'queue' && (
           <div className="card">
             <div className="card-header">
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><ListOrdered size={18} /> Queue Service Analytics</h3>
+              <h3><ListOrdered size={18} /> Queue Service Analytics</h3>
               <span className="badge muted">{venueLabel}</span>
             </div>
-            <div className="stats-grid" style={{ margin: '16px 0 20px' }}>
+            <div className="stats-grid">
               <KpiCard
+                loading={loading}
                 icon={<ListOrdered size={22} />}
                 tone="primary"
                 label="Queue Numbers Issued"
-                value={loading ? '…' : queue.total}
-                sub={`${queue.total - queue.cancelled} completed • n = ${queue.total}`}
+                value={queue.total}
+                sub={queue.total ? `${queue.total - queue.cancelled} completed • n = ${queue.total}` : 'No numbers issued in this period'}
               />
               <KpiCard
+                loading={loading}
                 icon={<Hourglass size={22} />}
                 tone="accent"
                 label="Median Wait Before Call"
-                value={loading ? '…' : fmtDuration(queue.medianWaitSec)}
+                value={fmtDuration(queue.medianWaitSec)}
                 sub="issued → called"
               />
               <KpiCard
+                loading={loading}
                 icon={<UserX size={22} />}
                 tone="secondary"
                 label="Abandonment Rate"
-                value={loading ? '…' : `${queue.abandonmentPct}%`}
+                value={`${queue.abandonmentPct}%`}
                 sub={`${queue.cancelled} cancelled without service`}
               />
             </div>
             <div className="grid-2">
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Queue arrivals by time of day</div>
-                {loading ? <div className="chart-placeholder">Loading…</div> : <HourBars counts={queue.hourly} color="#8b5cf6" />}
+              <div className="chart-block">
+                <div className="chart-group-title">Queue arrivals by time of day</div>
+                {loading ? <ChartSkeleton height={170} /> : <HourBars counts={queue.hourly} color="#8b5cf6" label="Queue arrivals by hour of day" />}
               </div>
               <table className="data-table">
                 <thead>
@@ -246,9 +464,9 @@ export default function UsageInsightsPage() {
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: '24px' }}>Loading…</td></tr>
+                    <tr><td colSpan={5} className="table-message">Loading…</td></tr>
                   ) : queue.perLine.length === 0 ? (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: '24px' }}>No data available for the selected period.</td></tr>
+                    <tr><td colSpan={5} className="table-message">No data available for the selected period.</td></tr>
                   ) : (
                     queue.perLine.map((l) => (
                       <tr key={l.id}>
@@ -266,45 +484,48 @@ export default function UsageInsightsPage() {
           </div>
         )}
 
+        {/* -------------------------------------------- communication usage */}
         {tab === 'communication' && (
           <div className="card">
             <div className="card-header">
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><MessageSquareText size={18} /> Accessible Communication Usage</h3>
-              <span className="badge muted">Module 3 two-way dialogue</span>
+              <h3><MessageSquareText size={18} /> Accessible Communication Usage</h3>
+              <span className="badge muted">Two-way traveller dialogue</span>
             </div>
-            <div className="stats-grid" style={{ margin: '16px 0 20px' }}>
+            <div className="stats-grid">
               <KpiCard
+                loading={loading}
                 icon={<MessageSquareText size={22} />}
                 tone="primary"
                 label="Dialogue Sessions"
-                value={loading ? '…' : comm.total}
-                sub={`n = ${comm.total}`}
+                value={comm.total}
+                sub={comm.total ? `n = ${comm.total}` : 'No sessions in this period'}
               />
               <KpiCard
+                loading={loading}
                 icon={<Hourglass size={22} />}
                 tone="accent"
                 label="Avg. Session Duration"
-                value={loading ? '…' : fmtDuration(comm.avgDurationSec)}
+                value={fmtDuration(comm.avgDurationSec)}
                 sub={`${comm.completed} completed`}
               />
             </div>
-            <div className="grid-2" style={{ marginBottom: '20px' }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Traveller input modality mix</div>
+            <div className="grid-2 section-gap">
+              <div className="chart-block">
+                <div className="chart-group-title">Traveller input modality mix</div>
                 {loading
-                  ? <div className="chart-placeholder">Loading…</div>
+                  ? <ChartSkeleton />
                   : <HBars items={comm.modalityMix} showPct={comm.modalityMix.reduce((s, i) => s + i.count, 0) >= LOW_SAMPLE_MIN} />}
               </div>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Translation direction (EN → ?)</div>
+              <div className="chart-block">
+                <div className="chart-group-title">Translation direction (EN → ?)</div>
                 {loading
-                  ? <div className="chart-placeholder">Loading…</div>
+                  ? <ChartSkeleton />
                   : <HBars items={comm.targetMix} total={comm.total} color="#10b981" />}
               </div>
             </div>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Sessions per month</div>
-              {loading ? <div className="chart-placeholder">Loading…</div> : <LineTrend points={comm.monthly} color="#10b981" />}
+            <div className="chart-block">
+              <div className="chart-group-title">Sessions per month</div>
+              {loading ? <ChartSkeleton height={140} /> : <LineTrend points={comm.monthly} color="#10b981" />}
             </div>
           </div>
         )}
