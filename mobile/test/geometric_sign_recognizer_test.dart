@@ -1,8 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:travelease/services/sign_frame_data.dart';
-import 'package:travelease/services/sign_clip_recorder.dart';
 import 'package:travelease/services/geometric_sign_recognizer.dart';
-import 'package:travelease/services/sign_accuracy_evaluator.dart';
 
 /// Synthetic hand/anchor geometry used to verify the geometric recognizer
 /// end-to-end (Phase 0.2 harness validation).
@@ -227,19 +225,6 @@ void main() {
       rec.processFrame(_frame(hand: _pointAtNose(), ts: _ts));
       final o = rec.processFrame(_frame(hand: _pointAtNose(), ts: _ts + 5000));
       expect(o.handPresent, isTrue);
-    });
-  });
-
-  group('SignAccuracyEvaluator', () {
-    test('majority vote scores clips and reports confusions', () {
-      final clip = SignClip(label: 'nose', frames: [
-        for (int i = 0; i < 5; i++) _frame(hand: _pointAtNose(), ts: _ts + i * 100),
-      ]);
-
-      final report = const SignAccuracyEvaluator().evaluate([clip]);
-      expect(report.totalClips, 1);
-      expect(report.top1Accuracy, 1.0);
-      expect(report.clips.first.predictedSign, 'nose');
     });
   });
 

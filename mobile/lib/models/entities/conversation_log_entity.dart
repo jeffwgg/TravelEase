@@ -1,10 +1,10 @@
-/// Stored conversation log / transcript (FR-M3-17, FR-M3-18, UC304)
+/// Stored conversation log / transcript 
 class ConversationLog {
   final String id;
   final String userId;
   final String? sessionId;
   final String logTitle;
-  final String translationType; // 'two_way_dialogue', 'sign_to_text', 'speech_to_sign'
+  final String translationType; // 'two_way_dialogue', 'sign_to_text'
   final String? summary;
   final List<Map<String, dynamic>> fullTranscript;
   final int messageCount;

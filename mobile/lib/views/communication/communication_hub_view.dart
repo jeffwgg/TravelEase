@@ -7,7 +7,6 @@ import '../../services/app_tour_controller.dart';
 import '../../widgets/app_tour_coachmark.dart';
 import '../sign_reference/sign_dictionary_view.dart';
 import '../sign_reference/favorite_phrases_view.dart';
-import 'speech_to_sign_view.dart';
 import 'two_way_dialogue_view.dart';
 
 class CommunicationHubView extends StatelessWidget {
@@ -41,19 +40,92 @@ class CommunicationHubView extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // Grid of Communication Tools
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildToolCard(
-                        context: context,
-                        icon: Icons.sign_language_rounded,
-                        tourKey: _signTourKey,
-                        title: 'Live Camera Sign Translation',
-                        subtitle: 'Real-time gesture AI with Auto-Speak',
-                        accentColor: AppColors.primary,
-                        onTap: () => context.push('/sign-camera'),
-                      ),
+            // 2 x 2 grid of Communication Tools
+            Row(
+              children: [
+                Expanded(
+                  child: _buildToolCard(
+                    context: context,
+                    icon: Icons.sign_language_rounded,
+                    title: 'Live Camera Sign Translation',
+                    subtitle: 'Real-time gesture AI with Auto-Speak',
+                    accentColor: AppColors.primary,
+                    onTap: () => context.push('/sign-camera'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildToolCard(
+                    context: context,
+                    icon: Icons.chat_bubble_outline_rounded,
+                    title: '2-Way Dialogue',
+                    subtitle: 'Counter split-screen chat',
+                    accentColor: AppColors.secondary,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (ctx) => const TwoWayDialogueView()),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildToolCard(
+                    context: context,
+                    icon: Icons.menu_book_rounded,
+                    title: 'Sign Dictionary',
+                    subtitle: 'BIM / ASL Library',
+                    accentColor: const Color(0xFF10B981),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (ctx) => const SignDictionaryView()),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildToolCard(
+                    context: context,
+                    icon: Icons.star_rounded,
+                    title: 'Favorites',
+                    subtitle: 'Bookmarked quick phrases',
+                    accentColor: AppColors.secondary,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (ctx) => const FavoritePhrasesView()),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Quick Travel Dialect Badges
+            Text(
+              'Supported Sign Dialects',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [SignLanguageType.bim, SignLanguageType.asl].map((lang) {
+                  return Container(
+                    margin: const EdgeInsets.only(right: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceVariant,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.cardBorder),
                     ),
                     const SizedBox(width: 12),
                     Expanded(

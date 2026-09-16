@@ -75,14 +75,8 @@ mobile/.cursorrules
 # Browser automation artifacts
 .playwright-mcp/
 
-# SLR: BIM-SIGN Pose dataset & trained artifacts (large binary, CC BY-NC)
-slr/data/*.zip
-slr/data/*.npz
-slr/data/*.pt
-slr/data/keypoints*
-slr/data/metadata/
-slr/data_custom/
-slr/bin/
+# Dev-only folders: training tooling + parked code, never shipped
+training_resources/
+future_work/
 /mobile/sign_test_videos
-/slr
 mobile/nul

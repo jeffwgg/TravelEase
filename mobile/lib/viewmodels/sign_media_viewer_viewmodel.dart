@@ -9,7 +9,7 @@ import '../core/hardware_services.dart';
 import '../models/entities/sign_language_entity.dart';
 import '../models/entities/sign_phrase_entity.dart';
 import '../models/repositories/sign_reference_repository.dart';
-import '../models/sign_word_video_library.dart';
+import '../services/sign_word_video_library.dart';
 
 /// ViewModel for Sign Media Video playback (FR-M4-01, FR-M4-05 to FR-M4-12, UC402).
 ///

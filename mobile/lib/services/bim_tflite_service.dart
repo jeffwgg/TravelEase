@@ -1,17 +1,21 @@
 import 'dart:convert';
+import 'dart:ffi';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
-import 'bim_sign_recognition_service.dart';
 import 'sign_frame_data.dart';
 
+typedef _ResetNative = Void Function(Pointer<Void>);
+typedef _ResetDart = void Function(Pointer<Void>);
+
 /// On-device BIM word recognition: the exported BIM-SIGN Pose BiLSTM
-/// (slr/scripts/export_tflite.py) run over live gesture windows.
+/// (training_resources/bim/slr/scripts/export_tflite.py) run over live gesture windows.
 ///
-/// This is a frame-accurate port of `predict_sign` in `slr/scripts/demo.py` —
+/// This is a frame-accurate port of `predict_sign` in `training_resources/bim/slr/scripts/demo.py` —
 /// guards, idle trimming, the mirror-flip x multi-temporal-scale ensemble, and
 /// shoulder-center standardization must all stay in lockstep with the desktop
 /// inference, because the model's real-webcam accuracy was tuned against that
@@ -19,17 +23,18 @@ import 'sign_frame_data.dart';
 ///
 /// STATE HYGIENE: the converter exports the LSTM with arena-backed state
 /// tensors that leak between invokes — every forward MUST start from zeroed
-/// state, exactly like the desktop demo (torch rebuilds the hidden state per
-/// call). tflite_flutter 0.12.1's `resetVariableTensors()` cannot be used: its
-/// deleted-flag guard is inverted upstream and it throws
-/// `Bad state: Should not acces delegate after it has been closed.` on every
-/// call against a healthy interpreter. This service therefore builds a FRESH
-/// Interpreter PER VIEW (12 per clip; asset bytes are cached, creation is
-/// single-digit ms) and closes it after each forward — a new interpreter's
-/// state is zeroed by definition. (The Python parity harness uses
-/// ai_edge_litert's working `reset_all_variables()` instead.) Reusing one
-/// interpreter across a clip's views chains hidden state and measurably
-/// degrades the ensemble (3/8 vs 6/8 on the in-vocab reference clips).
+/// state, exactly like the desktop demo. Reusing one interpreter across a
+/// clip's views chains hidden state and measurably degrades the ensemble
+/// (3/8 vs 6/8 on reference clips). Preferred path: ONE interpreter per
+/// clip, variables zeroed before each view via the raw
+/// `TfLiteInterpreterResetVariableTensors` binding — tflite_flutter 0.12.1's
+/// Dart wrapper for it has an inverted guard and throws `Bad state: Should
+/// not acces delegate…` on healthy interpreters, so we call the symbol
+/// through FFI directly. Forwards then run on a worker [IsolateInterpreter]
+/// so the ~130 ms native calls never stall the camera loop (UI-thread
+/// forwards dropped the loop to 4-10 fps for each classification). If the
+/// symbol cannot be resolved, the service falls back to a FRESH Interpreter
+/// PER VIEW on the main isolate — slower and UI-blocking, but state-correct.
 ///
 /// It recognises ONE word per clip. Phrase assembly stays in the shared
 /// word→phrase step (the viewmodel's gloss list), identical in spirit to how
@@ -44,6 +49,23 @@ class BimTfliteService {
   static const double _handMotionFloor = 0.01;
   static const int _maxGlosses = 8;
   static const String _modelAsset = 'assets/models/bim_model.tflite';
+
+  /// Raw `TfLiteInterpreterResetVariableTensors` — the exact binding every
+  /// working TFLite runtime uses for LSTM state reset. Resolved once;
+  /// `null` (symbol not found) selects the per-view-interpreter fallback.
+  static final _ResetDart? _resetVariableTensors = () {
+    try {
+      final lib = Platform.isAndroid
+          ? DynamicLibrary.open('libtensorflowlite_c.so')
+          : DynamicLibrary.process();
+      return lib.lookupFunction<_ResetNative, _ResetDart>(
+          'TfLiteInterpreterResetVariableTensors');
+    } catch (e) {
+      debugPrint('[BimTfliteService] reset symbol unavailable ($e); '
+          'using per-view interpreters on the UI isolate');
+      return null;
+    }
+  }();
 
   Map<int, String> _indexToGloss = {};
   List<double> _mean = const [], _std = const [];
@@ -109,7 +131,7 @@ class BimTfliteService {
       _lastError = null;
       debugPrint('[BimTfliteService] Model loaded – ${_indexToGloss.length} '
           'glosses, input: $inShape, output: $outShape '
-          '(fresh interpreter per clip)');
+          '(reset via ${_resetVariableTensors != null ? 'FFI + isolate' : 'per-view interpreters'})');
     } catch (e) {
       _lastError = e.toString();
       _initFuture = null; // allow a retry after a failed load
@@ -134,6 +156,34 @@ class BimTfliteService {
     required List<String> previousGlosses,
   }) async {
     final p = _prepareViews(frames);
+    final reset = _resetVariableTensors;
+    if (reset != null) {
+      // Preferred path: one interpreter per clip, state zeroed via the raw
+      // binding before every view, forwards on a worker isolate.
+      final it = await Interpreter.fromAsset(_modelAsset);
+      try {
+        final iso = await IsolateInterpreter.create(address: it.address);
+        try {
+          final origProbs = <List<double>>[];
+          for (final s in p.seqsOrig) {
+            reset(Pointer.fromAddress(it.address));
+            origProbs.add(await _runIsolated(it, iso, s));
+          }
+          final flipProbs = <List<double>>[];
+          for (final s in p.seqsFlip) {
+            reset(Pointer.fromAddress(it.address));
+            flipProbs.add(await _runIsolated(it, iso, s));
+          }
+          return _aggregate(p, origProbs, flipProbs, previousGlosses);
+        } finally {
+          await iso.close();
+        }
+      } finally {
+        it.close();
+      }
+    }
+    // Fallback: fresh interpreter per view on the main isolate — slower and
+    // UI-chunking, but state-correct without the FFI symbol.
     final origProbs = <List<double>>[];
     for (final s in p.seqsOrig) {
       origProbs.add(await _runForProbs(s));
@@ -145,6 +195,15 @@ class BimTfliteService {
       await Future<void>.delayed(Duration.zero);
     }
     return _aggregate(p, origProbs, flipProbs, previousGlosses);
+  }
+
+  Future<List<double>> _runIsolated(
+      Interpreter it, IsolateInterpreter iso, List<List<double>> seq) async {
+    final numClasses = it.getOutputTensor(0).shape.last;
+    final input = <List<List<double>>>[seq];
+    final output = <List<double>>[List<double>.filled(numClasses, 0.0)];
+    await iso.run(input, output);
+    return _softmax(output[0]);
   }
 
   /// Guards + trimming + the 2-orientation × 2-candidate × 3-time-scale
@@ -280,14 +339,17 @@ class BimTfliteService {
       final input = <List<List<double>>>[seq];
       final output = <List<double>>[List<double>.filled(numClasses, 0.0)];
       it.run(input, output);
-      final logits = output[0];
-      final maxLogit = logits.reduce(math.max);
-      final exps = logits.map((v) => math.exp(v - maxLogit)).toList();
-      final sum = exps.reduce((a, b) => a + b);
-      return exps.map((v) => v / sum).toList(growable: false);
+      return _softmax(output[0]);
     } finally {
       it.close();
     }
+  }
+
+  static List<double> _softmax(List<double> logits) {
+    final maxLogit = logits.reduce(math.max);
+    final exps = logits.map((v) => math.exp(v - maxLogit)).toList();
+    final sum = exps.reduce((a, b) => a + b);
+    return exps.map((v) => v / sum).toList(growable: false);
   }
 
   // ─── preprocessing port of dataset.py / demo.py helpers ─────────────────
@@ -418,7 +480,7 @@ class BimTfliteService {
   }
 
   void dispose() {
-    // Interpreters are per-view and closed by _runForProbs; nothing to
+    // Interpreters are created and closed inside recognizeClip; nothing to
     // release here beyond resetting init state.
     _isInitialized = false;
     _initFuture = null;
@@ -435,4 +497,53 @@ class _PreparedBimViews {
   final List<List<List<double>>> seqsFlip;
   final double poseVis;
   final double handMotion;
+}
+
+// ─── recognition result shape ───────────────────────────────────────────────
+// Formerly in bim_sign_recognition_service.dart; kept as the shared shape so
+// the on-device path and (if revived) any future remote path return the same
+// object to the viewmodel.
+
+/// A word plus its accumulated BIM travel phrase, produced per recognized clip.
+class BimSignRecognition {
+  const BimSignRecognition({
+    required this.word,
+    required this.confidence,
+    required this.glosses,
+    required this.malay,
+    required this.chinese,
+    required this.english,
+    required this.matched,
+  });
+
+  final String word;
+  final double confidence;
+  final List<String> glosses;
+  final String malay;
+  final String chinese;
+  final String english;
+  final bool matched;
+
+  factory BimSignRecognition.fromJson(Map<String, dynamic> json) {
+    return BimSignRecognition(
+      word: json['word'] as String? ?? '',
+      confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
+      glosses: (json['glosses'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(growable: false),
+      malay: json['malay'] as String? ?? '',
+      chinese: json['chinese'] as String? ?? '',
+      english: json['english'] as String? ?? '',
+      matched: json['matched'] as bool? ?? false,
+    );
+  }
+}
+
+class BimSignRecognitionException implements Exception {
+  const BimSignRecognitionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }

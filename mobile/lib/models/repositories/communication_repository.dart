@@ -7,7 +7,6 @@ import '../../core/supabase_client.dart';
 import '../entities/dialogue_session_entity.dart';
 import '../entities/dialogue_message_entity.dart';
 import '../entities/conversation_log_entity.dart';
-import '../entities/quick_phrase_entity.dart';
 
 /// Repository for Module 3: Multimodal Accessible Communication Module (FR-M3-01 to FR-M3-18)
 class CommunicationRepository {
@@ -202,13 +201,13 @@ class CommunicationRepository {
   }
 
   // --------------------------------------------------------------------------
-  // 3. Conversation Logs (FR-M3-17, FR-M3-18, UC304)
+  // 3. Conversation Logs
   // --------------------------------------------------------------------------
   Future<ConversationLog?> saveConversationLog({
     required String userId,
     String? sessionId,
     required String logTitle,
-    required String translationType, // 'two_way_dialogue', 'sign_to_text', 'speech_to_sign'
+    required String translationType, // 'two_way_dialogue', 'sign_to_text'
     String? summary,
     required List<Map<String, dynamic>> fullTranscript,
   }) async {
@@ -278,7 +277,7 @@ class CommunicationRepository {
   }
 
   // --------------------------------------------------------------------------
-  // Local Device Storage for Conversation Text Logs (FR-M3-17, FR-M3-18)
+  // Local Device Storage for Conversation Text Logs
   // Persists full transcripts locally via shared_preferences so logs survive
   // app restarts even when offline.
   // --------------------------------------------------------------------------
@@ -342,21 +341,6 @@ class CommunicationRepository {
       logs.removeWhere((l) => l['id'] == logId);
       await prefs.setString(_localLogsKey, jsonEncode(logs));
     } catch (_) {}
-  }
-
-  // --------------------------------------------------------------------------
-  // 4. Predefined Quick Phrases Tray (FR-M3-16)
-  // --------------------------------------------------------------------------
-  Future<List<DialogueQuickPhrase>> getQuickPhrases() async {
-    try {
-      final response = await _client
-          .from('communication_quick_phrases')
-          .select()
-          .order('display_order', ascending: true);
-      return (response as List).map((q) => DialogueQuickPhrase.fromJson(q)).toList();
-    } catch (e) {
-      return const [];
-    }
   }
 
   // --------------------------------------------------------------------------

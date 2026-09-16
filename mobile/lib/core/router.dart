@@ -29,7 +29,6 @@ import '../views/location/queue_tracking_view.dart';
 import '../views/location/notification_history_view.dart';
 import '../views/communication/communication_hub_view.dart';
 import '../views/communication/sign_translation_camera_view.dart';
-import '../views/communication/speech_to_sign_view.dart';
 import '../views/communication/two_way_dialogue_view.dart';
 import '../views/sign_reference/sign_dictionary_view.dart';
 import '../views/sign_reference/favorite_phrases_view.dart';
@@ -164,10 +163,6 @@ final GoRouter appRouter = GoRouter(
     GoRoute(
       path: '/sign-camera',
       builder: (context, state) => const SignTranslationCameraView(),
-    ),
-    GoRoute(
-      path: '/speech-to-sign',
-      builder: (context, state) => const SpeechToSignView(),
     ),
     GoRoute(
       path: '/dialogue',

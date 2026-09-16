@@ -28,9 +28,18 @@ class _FavoritePhrasesViewState extends State<FavoritePhrasesView> {
 
   void _onRemove(FavoritePhrase fav) {
     _viewModel.removeFavorite(fav);
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    // Drop any leftover bar first: without this, back-to-back removals
+    // queue up and the message looks like it never goes away.
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
       SnackBar(
         content: Text('Removed "${fav.phrase?.phraseEn ?? 'Phrase'}" from favorites'),
+        duration: const Duration(seconds: 3),
+        // Flutter >=3.35: a SnackBar with an action defaults to `persist`
+        // (never auto-dismisses) unless told otherwise — the Undo action was
+        // making this bar stick forever.
+        persist: false,
         action: SnackBarAction(
           label: 'Undo',
           onPressed: () => _viewModel.restoreFavorite(fav),

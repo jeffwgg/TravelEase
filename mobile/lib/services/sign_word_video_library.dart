@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'entities/sign_language_entity.dart';
+import '../models/entities/sign_language_entity.dart';
 
 /// A resolved playable clip for a single gloss word.
 class SignWordClip {
