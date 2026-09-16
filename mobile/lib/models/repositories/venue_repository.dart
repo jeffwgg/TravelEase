@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/supabase_client.dart';
-import '../entities/venue_public_information.dart';
+import '../entities/venue_information.dart';
 import '../entities/venue_search_result.dart';
 import '../entities/venue_service_area.dart';
 

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import '../../viewmodels/accessibility_preferences_viewmodel.dart';
+import '../../services/app_tour_controller.dart';
+import '../../widgets/app_tour_coachmark.dart';
 
 /// Accessibility preferences in two sections — Alert Preferences governs
 /// important sound alerts, General Notification Preference governs
@@ -17,6 +19,7 @@ class PreferencesView extends StatefulWidget {
 
 class _PreferencesViewState extends State<PreferencesView> {
   late final AccessibilityPreferencesViewModel _viewModel;
+  final _alertPreferencesTourKey = GlobalKey();
 
   @override
   void initState() {
@@ -32,103 +35,117 @@ class _PreferencesViewState extends State<PreferencesView> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Accessibility Preferences'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            title: const Text('Accessibility Preferences'),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+          body: ListenableBuilder(
+            listenable: _viewModel,
+            builder: (context, _) {
+              if (_viewModel.isLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _buildSectionHeader('Alert Preferences'),
+                  Card(
+                    key: _alertPreferencesTourKey,
+                    child: Column(
+                      children: [
+                        _buildSwitch(
+                          'Enable Alert Notification',
+                          'Push alert notifications when you are not in the app',
+                          Icons.notifications_active,
+                          _viewModel.alertNotification,
+                          _viewModel.setAlertNotification,
+                        ),
+                        const Divider(height: 1, indent: 56),
+                        _buildSwitch(
+                          'Enable Vibration',
+                          'Vibrate for alert notifications',
+                          Icons.vibration,
+                          _viewModel.alertVibration,
+                          _viewModel.setAlertVibration,
+                          enabled: _viewModel.alertNotification,
+                        ),
+                        const Divider(height: 1, indent: 56),
+                        _buildSwitch(
+                          'Enable Flash',
+                          'Camera torch flash for alert notifications',
+                          Icons.flash_on,
+                          _viewModel.alertFlash,
+                          _viewModel.setAlertFlash,
+                          enabled: _viewModel.alertNotification,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  _buildSectionHeader('General Notification Preference'),
+                  Card(
+                    child: Column(
+                      children: [
+                        _buildSwitch(
+                          'Enable General Notification',
+                          'Push announcements, queue updates and '
+                              'messages notifications when you are not in the app',
+                          Icons.notifications_active,
+                          _viewModel.generalNotification,
+                          _viewModel.setGeneralNotification,
+                        ),
+                        const Divider(height: 1, indent: 56),
+                        _buildSwitch(
+                          'Enable Vibration',
+                          'Vibrate for announcements, queue updates and messages',
+                          Icons.vibration,
+                          _viewModel.generalVibration,
+                          _viewModel.setGeneralVibration,
+                          enabled: _viewModel.generalNotification,
+                        ),
+                        const Divider(height: 1, indent: 56),
+                        _buildSwitch(
+                          'Enable Flash',
+                          'Camera torch flash for announcements, queue updates '
+                              'and messages',
+                          Icons.flash_on,
+                          _viewModel.generalFlash,
+                          _viewModel.setGeneralFlash,
+                          enabled: _viewModel.generalNotification,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_viewModel.errorMessage != null) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      _viewModel.errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.emergency),
+                    ),
+                  ],
+                  const SizedBox(height: 32),
+                ],
+              );
+            },
+          ),
         ),
-      ),
-      body: ListenableBuilder(
-        listenable: _viewModel,
-        builder: (context, _) {
-          if (_viewModel.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _buildSectionHeader('Alert Preferences'),
-              Card(
-                child: Column(
-                  children: [
-                    _buildSwitch(
-                      'Enable Alert Notification',
-                      'Push alert notifications when you are not in the app',
-                      Icons.notifications_active,
-                      _viewModel.alertNotification,
-                      _viewModel.setAlertNotification,
-                    ),
-                    const Divider(height: 1, indent: 56),
-                    _buildSwitch(
-                      'Enable Vibration',
-                      'Vibrate for alert notifications',
-                      Icons.vibration,
-                      _viewModel.alertVibration,
-                      _viewModel.setAlertVibration,
-                      enabled: _viewModel.alertNotification,
-                    ),
-                    const Divider(height: 1, indent: 56),
-                    _buildSwitch(
-                      'Enable Flash',
-                      'Camera torch flash for alert notifications',
-                      Icons.flash_on,
-                      _viewModel.alertFlash,
-                      _viewModel.setAlertFlash,
-                      enabled: _viewModel.alertNotification,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              _buildSectionHeader('General Notification Preference'),
-              Card(
-                child: Column(
-                  children: [
-                    _buildSwitch(
-                      'Enable General Notification',
-                      'Push announcements, queue updates and '
-                          'messages notifications when you are not in the app',
-                      Icons.notifications_active,
-                      _viewModel.generalNotification,
-                      _viewModel.setGeneralNotification,
-                    ),
-                    const Divider(height: 1, indent: 56),
-                    _buildSwitch(
-                      'Enable Vibration',
-                      'Vibrate for announcements, queue updates and messages',
-                      Icons.vibration,
-                      _viewModel.generalVibration,
-                      _viewModel.setGeneralVibration,
-                      enabled: _viewModel.generalNotification,
-                    ),
-                    const Divider(height: 1, indent: 56),
-                    _buildSwitch(
-                      'Enable Flash',
-                      'Camera torch flash for announcements, queue updates '
-                          'and messages',
-                      Icons.flash_on,
-                      _viewModel.generalFlash,
-                      _viewModel.setGeneralFlash,
-                      enabled: _viewModel.generalNotification,
-                    ),
-                  ],
-                ),
-              ),
-              if (_viewModel.errorMessage != null) ...[
-                const SizedBox(height: 16),
-                Text(
-                  _viewModel.errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.emergency),
-                ),
-              ],
-              const SizedBox(height: 32),
-            ],
-          );
-        },
-      ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.alertConfig,
+            targetKey: _alertPreferencesTourKey,
+            title: 'Alert Preferences',
+            message: 'Choose notification, vibration, and flash alerts here.',
+          ),
+        ),
+      ],
     );
   }
 
@@ -137,9 +154,8 @@ class _PreferencesViewState extends State<PreferencesView> {
       padding: const EdgeInsets.only(bottom: 12, left: 4),
       child: Text(
         title,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        style: Theme.of(context).textTheme.titleMedium
+            ?.copyWith(fontWeight: FontWeight.w600),
       ),
     );
   }

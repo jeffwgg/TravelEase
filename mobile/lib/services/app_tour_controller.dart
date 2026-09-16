@@ -10,11 +10,21 @@ import '../models/repositories/home_guidance_repository.dart';
 /// the rest of the first-login tour. Help Center can also launch any one
 /// guide without marking the complete tour as finished.
 enum AppTourFeature {
+  communicationNavigation,
+  communicationSignMenu,
+  communicationSpeechMenu,
+  communicationDialogueMenu,
+  communicationDictionaryMenu,
   signTranslate,
   speechToSign,
   twoWayDialogue,
   signDictionary,
   requestHelp,
+  assistanceNavigation,
+  assistanceRequestMenu,
+  profileNavigation,
+  alertPreferencesMenu,
+  alertConfig,
   sos,
   complete,
   queueTracking,
@@ -97,7 +107,7 @@ class AppTourController extends ChangeNotifier {
     _isRunning = true;
     _guide = AppTourGuide.communication;
     _shouldSaveCompletion = false;
-    _currentFeature = AppTourFeature.signTranslate;
+    _currentFeature = AppTourFeature.communicationNavigation;
     _homeSection = null;
     _sosStep = 0;
     notifyListeners();
@@ -136,27 +146,57 @@ class AppTourController extends ChangeNotifier {
 
     final next = switch (_guide) {
       AppTourGuide.full => switch (current) {
-        AppTourFeature.sos => AppTourFeature.signTranslate,
-        AppTourFeature.signTranslate => AppTourFeature.speechToSign,
-        AppTourFeature.speechToSign => AppTourFeature.twoWayDialogue,
-        AppTourFeature.twoWayDialogue => AppTourFeature.signDictionary,
-        AppTourFeature.signDictionary => AppTourFeature.requestHelp,
-        AppTourFeature.requestHelp => AppTourFeature.complete,
+        AppTourFeature.sos => AppTourFeature.communicationNavigation,
+        AppTourFeature.communicationNavigation =>
+          AppTourFeature.communicationSignMenu,
+        AppTourFeature.communicationSignMenu => AppTourFeature.signTranslate,
+        AppTourFeature.signTranslate => AppTourFeature.communicationSpeechMenu,
+        AppTourFeature.communicationSpeechMenu => AppTourFeature.speechToSign,
+        AppTourFeature.speechToSign => AppTourFeature.communicationDialogueMenu,
+        AppTourFeature.communicationDialogueMenu =>
+          AppTourFeature.twoWayDialogue,
+        AppTourFeature.twoWayDialogue =>
+          AppTourFeature.communicationDictionaryMenu,
+        AppTourFeature.communicationDictionaryMenu =>
+          AppTourFeature.signDictionary,
+        AppTourFeature.signDictionary => AppTourFeature.assistanceNavigation,
+        AppTourFeature.assistanceNavigation =>
+          AppTourFeature.assistanceRequestMenu,
+        AppTourFeature.assistanceRequestMenu => AppTourFeature.requestHelp,
+        AppTourFeature.requestHelp => AppTourFeature.profileNavigation,
+        AppTourFeature.profileNavigation => AppTourFeature.alertPreferencesMenu,
+        AppTourFeature.alertPreferencesMenu => AppTourFeature.alertConfig,
+        AppTourFeature.alertConfig => AppTourFeature.complete,
         AppTourFeature.complete => null,
         // Queue Tracking is introduced from Home, after announcements.
         AppTourFeature.queueTracking => null,
       },
       AppTourGuide.communication => switch (current) {
-        AppTourFeature.signTranslate => AppTourFeature.speechToSign,
-        AppTourFeature.speechToSign => AppTourFeature.twoWayDialogue,
-        AppTourFeature.twoWayDialogue => AppTourFeature.signDictionary,
+        AppTourFeature.communicationNavigation =>
+          AppTourFeature.communicationSignMenu,
+        AppTourFeature.communicationSignMenu => AppTourFeature.signTranslate,
+        AppTourFeature.signTranslate => AppTourFeature.communicationSpeechMenu,
+        AppTourFeature.communicationSpeechMenu => AppTourFeature.speechToSign,
+        AppTourFeature.speechToSign => AppTourFeature.communicationDialogueMenu,
+        AppTourFeature.communicationDialogueMenu =>
+          AppTourFeature.twoWayDialogue,
+        AppTourFeature.twoWayDialogue =>
+          AppTourFeature.communicationDictionaryMenu,
+        AppTourFeature.communicationDictionaryMenu =>
+          AppTourFeature.signDictionary,
         AppTourFeature.signDictionary => AppTourFeature.complete,
         AppTourFeature.complete => null,
         _ => null,
       },
       AppTourGuide.assistanceSafety => switch (current) {
-        AppTourFeature.sos => AppTourFeature.requestHelp,
-        AppTourFeature.requestHelp => AppTourFeature.complete,
+        AppTourFeature.sos => AppTourFeature.assistanceNavigation,
+        AppTourFeature.assistanceNavigation =>
+          AppTourFeature.assistanceRequestMenu,
+        AppTourFeature.assistanceRequestMenu => AppTourFeature.requestHelp,
+        AppTourFeature.requestHelp => AppTourFeature.profileNavigation,
+        AppTourFeature.profileNavigation => AppTourFeature.alertPreferencesMenu,
+        AppTourFeature.alertPreferencesMenu => AppTourFeature.alertConfig,
+        AppTourFeature.alertConfig => AppTourFeature.complete,
         AppTourFeature.complete => null,
         _ => null,
       },
@@ -221,11 +261,21 @@ class AppTourController extends ChangeNotifier {
   }
 
   String _routeFor(AppTourFeature feature) => switch (feature) {
+    AppTourFeature.communicationNavigation ||
+    AppTourFeature.assistanceNavigation ||
+    AppTourFeature.profileNavigation => '/home',
+    AppTourFeature.communicationSignMenu ||
+    AppTourFeature.communicationSpeechMenu ||
+    AppTourFeature.communicationDialogueMenu ||
+    AppTourFeature.communicationDictionaryMenu => '/communicate',
+    AppTourFeature.assistanceRequestMenu => '/assistance-request',
+    AppTourFeature.alertPreferencesMenu => '/profile',
     AppTourFeature.signTranslate => '/sign-camera',
     AppTourFeature.speechToSign => '/speech-to-sign',
     AppTourFeature.twoWayDialogue => '/dialogue',
     AppTourFeature.signDictionary => '/sign-dictionary',
     AppTourFeature.requestHelp => '/assistance-request/new',
+    AppTourFeature.alertConfig => '/preferences',
     AppTourFeature.queueTracking => '/queue',
     // SOS is explained on its existing Home button. This avoids starting an
     // emergency countdown just to show a coach mark.

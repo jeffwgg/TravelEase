@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../models/repositories/notification_history_store.dart';
+import '../../models/repositories/notification_repository.dart';
 import '../../core/theme.dart';
 
 /// Home-screen notification button. The red dot only shows while there are

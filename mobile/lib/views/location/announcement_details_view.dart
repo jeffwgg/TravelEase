@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import '../../models/entities/announcement.dart';
-import '../../models/entities/captured_announcement.dart';
+import '../../models/entities/spoken_announcement.dart';
 import '../../models/repositories/announcement_repository.dart';
-import '../../models/repositories/captured_announcement_store.dart';
+import '../../models/repositories/spoken_announcement_repository.dart';
 import '../../models/repositories/feature_usage_repository.dart';
 import '../../services/translation_service.dart';
 import '../../widgets/app_message_banner.dart';

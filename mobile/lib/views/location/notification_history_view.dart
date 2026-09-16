@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
-import '../../models/repositories/notification_history_store.dart';
+import '../../models/repositories/notification_repository.dart';
 import '../../services/app_notification_service.dart';
 
 enum _NotificationFilter { announcement, alert, queue, message }

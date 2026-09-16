@@ -149,14 +149,14 @@ class _HomeGuidanceOverlayState extends State<HomeGuidanceOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    // Do not show a transient, misplaced highlight while a screen or its
-    // target is still entering. The next settled frame will reveal it.
-    if (!_targetReady || _target == null) return const SizedBox.expand();
-
+    // During automatic scrolling the next target can take a few frames to
+    // settle. Keep the guidance card (and its Next button) visible instead of
+    // returning an empty overlay, otherwise the tour looks as though it has
+    // stopped after a step such as Quick Actions.
     return LayoutBuilder(
       builder: (overlayContext, constraints) {
         final size = constraints.biggest;
-        final target = _target;
+        final target = _targetReady ? _target : null;
         final spotlight = target?.inflate(8).intersect(Offset.zero & size);
 
         return Semantics(

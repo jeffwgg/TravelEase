@@ -9,11 +9,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
 import '../../models/entities/announcement.dart';
 import '../../models/entities/venue_search_result.dart';
-import '../../models/entities/venue_public_information.dart';
+import '../../models/entities/venue_information.dart';
 import '../../models/entities/venue_session.dart';
 import '../../models/entities/venue_service_area.dart';
 import '../../models/repositories/announcement_repository.dart';
-import '../../models/repositories/captured_announcement_store.dart';
+import '../../models/repositories/spoken_announcement_repository.dart';
 import '../../models/repositories/feature_usage_repository.dart';
 import '../../services/app_tour_controller.dart';
 import '../../models/repositories/venue_repository.dart';
@@ -24,6 +24,8 @@ import '../widgets/notification_bell_button.dart';
 
 enum _HomeTourStep {
   quickActions,
+  activeVenueSession,
+  quitVenueSession,
   locationSearch,
   locationGps,
   // locationResults,
@@ -53,6 +55,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
 
   final _quickActionsKey = GlobalKey();
   final _locationCardKey = GlobalKey();
+  final _quitVenueSessionKey = GlobalKey();
   final _locationSearchKey = GlobalKey();
   final _locationGpsKey = GlobalKey();
   final _spokenAnnouncementsKey = GlobalKey();
@@ -491,7 +494,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
 
   _HomeTourStep _initialTourStep() =>
       switch (AppTourController.instance.homeSection) {
-        HomeGuideSection.location => _HomeTourStep.locationSearch,
+        HomeGuideSection.location => _session == null
+            ? _HomeTourStep.locationSearch
+            : _HomeTourStep.activeVenueSession,
         HomeGuideSection.spokenAnnouncements =>
           _HomeTourStep.spokenAnnouncements,
         HomeGuideSection.officialAnnouncements =>
@@ -517,6 +522,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
 
   GlobalKey _targetKeyFor(_HomeTourStep step) => switch (step) {
     _HomeTourStep.quickActions => _quickActionsKey,
+    _HomeTourStep.activeVenueSession => _locationCardKey,
+    _HomeTourStep.quitVenueSession => _quitVenueSessionKey,
     _HomeTourStep.locationSearch => _locationSearchKey,
     _HomeTourStep.locationGps => _locationGpsKey,
     // _HomeTourStep.locationResults => _locationCardKey,
@@ -531,7 +538,11 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       return;
     }
     final nextStep = switch (_tourStep) {
-      _HomeTourStep.quickActions => _HomeTourStep.locationSearch,
+      _HomeTourStep.quickActions => _session == null
+          ? _HomeTourStep.locationSearch
+          : _HomeTourStep.activeVenueSession,
+      _HomeTourStep.activeVenueSession => _HomeTourStep.quitVenueSession,
+      _HomeTourStep.quitVenueSession => _HomeTourStep.spokenAnnouncements,
       _HomeTourStep.locationSearch => _HomeTourStep.locationGps,
       _HomeTourStep.locationGps => _HomeTourStep.spokenAnnouncements,
       // _HomeTourStep.locationResults => _HomeTourStep.spokenAnnouncements,
@@ -562,6 +573,20 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
           targetKey: _quickActionsKey,
           title: 'Quick Actions',
           message: 'Your key tools are here.',
+        );
+      case _HomeTourStep.activeVenueSession:
+        return _buildTourStepOverlay(
+          targetKey: _locationCardKey,
+          title: 'Active Venue Session',
+          message:
+              'You are connected to this venue and service area. Official announcements and queue information are matched to this session.',
+        );
+      case _HomeTourStep.quitVenueSession:
+        return _buildTourStepOverlay(
+          targetKey: _quitVenueSessionKey,
+          title: 'End Venue Session',
+          message:
+              'Use this when you leave the venue. You will stop receiving its location-based announcements.',
         );
       case _HomeTourStep.locationSearch:
         return _buildTourStepOverlay(
@@ -1077,6 +1102,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
           ),
           const SizedBox(height: 12),
           SizedBox(
+            key: _quitVenueSessionKey,
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: _quitSession,

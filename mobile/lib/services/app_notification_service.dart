@@ -1,7 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
 
-import '../models/repositories/notification_history_store.dart';
+import '../models/repositories/notification_repository.dart';
 import 'notification_settings.dart';
 
 /// Central local-notification helper. Every alert relevant to a deaf

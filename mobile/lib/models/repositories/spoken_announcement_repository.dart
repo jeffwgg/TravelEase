@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../entities/announcement.dart';
-import '../entities/captured_announcement.dart';
+import '../entities/spoken_announcement.dart';
 
 /// Device-local storage for microphone-captured public announcements. No
 /// Supabase table is introduced: captures live in SharedPreferences on the

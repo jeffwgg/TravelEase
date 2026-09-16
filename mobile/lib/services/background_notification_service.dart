@@ -135,11 +135,17 @@ Future<Map<String, dynamic>?> _trackedSession() async {
 Future<List<dynamic>> _restGet(String path, Map<String, String> query) async {
   final uri = Uri.parse('${SupabaseClientHelper.supabaseUrl}/rest/v1/$path')
       .replace(queryParameters: query);
+  // The background isolate restores the signed-in Supabase session. Use that
+  // token when it is available so RLS can return the traveller's own manual
+  // queue-notification events; the anon key remains suitable for public data.
+  final accessToken =
+      SupabaseClientHelper.client.auth.currentSession?.accessToken ??
+      SupabaseClientHelper.supabaseAnonKey;
   final response = await http.get(
     uri,
     headers: {
       'apikey': SupabaseClientHelper.supabaseAnonKey,
-      'Authorization': 'Bearer ${SupabaseClientHelper.supabaseAnonKey}',
+      'Authorization': 'Bearer $accessToken',
       'Accept': 'application/json',
     },
   );

@@ -13,8 +13,7 @@ class QueueRepository {
         .from('queue_lines')
         .select()
         .eq('institution_id', institutionId)
-        .neq('status', 'closed')
-        .neq('status', 'reset')
+        .eq('status', 'active')
         .order('name');
     return (response as List<dynamic>)
         .map((row) => QueueLineInfo.fromJson(row as Map<String, dynamic>))
@@ -31,6 +30,9 @@ class QueueRepository {
         .from('queue_numbers')
         .select('*, queue_lines!inner(*)')
         .eq('institution_id', institutionId)
+        // Reset lines retain historical number rows. A matching old number
+        // must never win over the current active queue line after a reset.
+        .eq('queue_lines.status', 'active')
         .inFilter('number', numberCandidates(number, queuePrefix));
     if (queueLineId != null && queueLineId.isNotEmpty) {
       query = query.eq('queue_line_id', queueLineId);
@@ -73,7 +75,7 @@ class QueueRepository {
         .from('queue_lines')
         .select()
         .eq('institution_id', institutionId)
-        .neq('status', 'reset');
+        .eq('status', 'active');
     if (queueLineId != null && queueLineId.isNotEmpty) {
       lines = lines.eq('id', queueLineId);
     }
@@ -84,7 +86,7 @@ class QueueRepository {
           final linePrefix = (row['prefix'] as String? ?? '')
               .replaceAll(RegExp(r'[\\s-]'), '')
               .toUpperCase();
-          return row['status'] != 'reset' &&
+          return row['status'] == 'active' &&
               linePrefix == requestedPrefix &&
               value <= (row['max_tracking_number'] as int? ??
                   QueueLineInfo.defaultMaxTrackingNumber);

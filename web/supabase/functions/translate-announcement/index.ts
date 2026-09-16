@@ -10,6 +10,11 @@ const libreTranslateLanguageCodes: Record<string, string> = {
   ms: 'ms',
   zh: 'zh',
 }
+const googleTranslateLanguageCodes: Record<string, string> = {
+  ms: 'ms',
+  zh: 'zh-CN',
+}
+const googleTranslateEndpoint = 'https://translate.googleapis.com/translate_a/single'
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -21,10 +26,19 @@ Deno.serve(async (request) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
+    // Google is the default provider so the web flow matches the current
+    // mobile TranslationService. Set TRANSLATION_PROVIDER=libretranslate to
+    // continue using the existing Docker-hosted implementation.
+    const translationProvider = (Deno.env.get('TRANSLATION_PROVIDER') || 'google').toLowerCase()
+    if (translationProvider !== 'google' && translationProvider !== 'libretranslate') {
+      return json({ error: 'TRANSLATION_PROVIDER must be google or libretranslate.' }, 503)
+    }
     const configuredUrl = Deno.env.get('LIBRETRANSLATE_URL')
     const libreTranslateApiKey = Deno.env.get('LIBRETRANSLATE_API_KEY')
-    if (!configuredUrl) return json({ error: 'Self-hosted LibreTranslate URL is not configured.' }, 503)
-    const libreTranslateUrl = configuredUrl.replace(/\/$/, '')
+    if (translationProvider === 'libretranslate' && !configuredUrl) {
+      return json({ error: 'Self-hosted LibreTranslate URL is not configured.' }, 503)
+    }
+    const libreTranslateUrl = configuredUrl?.replace(/\/$/, '')
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authorization } },
@@ -51,10 +65,18 @@ Deno.serve(async (request) => {
 
     const translations: Record<string, { title: string; message: string }> = {}
     for (const target of targetLanguages) {
+      if (translationProvider === 'google') {
+        translations[target] = {
+          title: await translateWithGoogle(title, target),
+          message: await translateWithGoogle(message, target),
+        }
+        continue
+      }
+
       const providerTarget = libreTranslateLanguageCodes[target]
       let response: Response
       try {
-        response = await fetch(`${libreTranslateUrl}/translate`, {
+        response = await fetch(`${libreTranslateUrl!}/translate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: AbortSignal.timeout(30000),
@@ -104,4 +126,34 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+async function translateWithGoogle(text: string, target: string): Promise<string> {
+  const targetLanguage = googleTranslateLanguageCodes[target]
+  const url = new URL(googleTranslateEndpoint)
+  url.searchParams.set('client', 'gtx')
+  url.searchParams.set('sl', 'en')
+  url.searchParams.set('tl', targetLanguage)
+  url.searchParams.set('dt', 't')
+  url.searchParams.set('q', text)
+
+  let response: Response
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(30000) })
+  } catch {
+    throw new Error('Could not reach Google Translate. Check the internet connection and try again.')
+  }
+  if (!response.ok) throw new Error(`Google Translate failed for ${target} (HTTP ${response.status}).`)
+
+  const result: unknown = await response.json()
+  if (!Array.isArray(result) || !Array.isArray(result[0])) {
+    throw new Error(`Google Translate returned an invalid response for ${target}.`)
+  }
+  const translated = result[0]
+    .filter((segment: unknown) => Array.isArray(segment) && typeof segment[0] === 'string')
+    .map((segment: unknown[]) => segment[0])
+    .join('')
+    .trim()
+  if (!translated) throw new Error(`Google Translate returned an empty translation for ${target}.`)
+  return translated
 }

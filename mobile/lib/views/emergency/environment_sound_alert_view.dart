@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
 import '../../models/entities/environment_sound.dart';
-import '../../models/repositories/captured_announcement_store.dart';
+import '../../models/repositories/spoken_announcement_repository.dart';
 import '../../models/repositories/environment_sound_repository.dart';
 import '../../services/environment_sound_detector.dart';
 import '../../services/public_announcement_capture_service.dart';

@@ -67,7 +67,10 @@ export default function QueueUpdatePage() {
     const matchesServiceArea = serviceAreaFilter === 'all' || line.service_area_id === serviceAreaFilter
     return matchesStatus && matchesServiceArea && line.status !== 'reset'
   })
-  const operationalLines = filteredLines.filter((line) => line.status !== 'closed')
+  // The call controls are operationally important, so they always remain at
+  // the top of the page. Filters below apply only to the Queue Lines table;
+  // otherwise choosing e.g. "Closed" would hide queues staff can still call.
+  const activeLines = lines.filter((line) => line.status === 'active')
 
   // A line is exhausted once its upcoming number would exceed the maximum
   // queue number; calling and notifying must stop there.
@@ -296,8 +299,8 @@ export default function QueueUpdatePage() {
         {success && <div className="form-alert success" role="status">{success}</div>}
         {loading ? <div className="card table-message">Loading queue lines…</div> : <>
           <div className="queue-call-scroll" aria-label="Queue lines available to call">
-            {!operationalLines.length && <div className="form-alert info" role="note">No active queue lines match the selected filters.</div>}
-            {operationalLines.map((line) => {
+            {!activeLines.length && <div className="form-alert info" role="note">No active queue lines are currently available.</div>}
+            {activeLines.map((line) => {
               const waiting = realWaitingCount(line)
               const pastRecords = recentPastRecords(line)
               return <div key={line.id} className="card queue-call-card" style={{ background: 'linear-gradient(135deg, var(--dark-bg), var(--dark-surface))', color: '#fff' }}>

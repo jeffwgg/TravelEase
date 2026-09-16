@@ -18,6 +18,9 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView> {
   int _currentIndex = 0;
   final _sosTourKey = GlobalKey();
+  final _communicateTourKey = GlobalKey();
+  final _assistanceTourKey = GlobalKey();
+  final _profileTourKey = GlobalKey();
 
   static const _tabs = [
     '/home',
@@ -62,11 +65,26 @@ class _HomeViewState extends State<HomeView> {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _buildNavItem(Icons.explore_rounded, 'Explore', 0),
-                    _buildNavItem(Icons.forum_outlined, 'Communicate', 1),
+                    _buildNavItem(
+                      Icons.forum_outlined,
+                      'Communicate',
+                      1,
+                      tourKey: _communicateTourKey,
+                    ),
                     // Middle Sign Language Camera Translation Button
                     _buildSignTranslateButton(context),
-                    _buildNavItem(Icons.support_agent_rounded, 'Assistance', 2),
-                    _buildNavItem(Icons.person_rounded, 'Profile', 3),
+                    _buildNavItem(
+                      Icons.support_agent_rounded,
+                      'Assistance',
+                      2,
+                      tourKey: _assistanceTourKey,
+                    ),
+                    _buildNavItem(
+                      Icons.person_rounded,
+                      'Profile',
+                      3,
+                      tourKey: _profileTourKey,
+                    ),
                   ],
                 ),
               ),
@@ -86,13 +104,43 @@ class _HomeViewState extends State<HomeView> {
             onNext: () => AppTourController.instance.advanceSos(context),
           ),
         ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.communicationNavigation,
+            targetKey: _communicateTourKey,
+            title: 'Open Communication',
+            message: 'Use Communicate in the bottom menu.',
+          ),
+        ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.assistanceNavigation,
+            targetKey: _assistanceTourKey,
+            title: 'Open Assistance',
+            message: 'Use Assistance in the bottom menu.',
+          ),
+        ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.profileNavigation,
+            targetKey: _profileTourKey,
+            title: 'Open Profile',
+            message: 'Use Profile in the bottom menu for alert settings.',
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, int index) {
+  Widget _buildNavItem(
+    IconData icon,
+    String label,
+    int index, {
+    GlobalKey? tourKey,
+  }) {
     final isSelected = _currentIndex == index;
     return GestureDetector(
+      key: tourKey,
       onTap: () {
         setState(() => _currentIndex = index);
         context.go(_tabs[index]);

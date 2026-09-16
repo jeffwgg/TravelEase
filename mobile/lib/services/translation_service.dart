@@ -4,8 +4,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-/// Real machine translation using Google Translate's public web endpoint
-/// (the same backend powering translate.google.com). No API key required.
+import '../core/supabase_client.dart';
+
+/// Translation prefers the authenticated self-hosted LibreTranslate proxy.
+/// Google Translate's public endpoint remains as a compatibility fallback.
 ///
 /// Supported app language codes: 'en', 'ms', 'zh'.
 class TranslationService {
@@ -129,6 +131,26 @@ class TranslationService {
     if (fromLang.toLowerCase() == toLang.toLowerCase()) return text;
 
     try {
+      final response = await SupabaseClientHelper.client.functions
+          .invoke(
+            'translate-mobile-text',
+            body: {
+              'text': trimmed,
+              'source': _libreLangCode(fromLang),
+              'target': _libreLangCode(toLang),
+            },
+          )
+          .timeout(const Duration(seconds: 10));
+      final data = response.data;
+      if (data is Map) {
+        final translated = data['translatedText']?.toString().trim() ?? '';
+        if (translated.isNotEmpty) return translated;
+      }
+    } catch (e) {
+      debugPrint('LibreTranslate unavailable, trying Google fallback: $e');
+    }
+
+    try {
       final url = Uri.parse(
         '$_endpoint?client=gtx&sl=${_googleLangCode(fromLang)}'
         '&tl=${_googleLangCode(toLang)}&dt=t&q=${Uri.encodeComponent(trimmed)}',
@@ -150,8 +172,21 @@ class TranslationService {
       final translated = buffer.toString().trim();
       return translated.isEmpty ? text : translated;
     } catch (e) {
-      debugPrint('Google Translate failed, returning original text: $e');
+      debugPrint('Google Translate fallback failed, returning original text: $e');
       return text;
+    }
+  }
+
+  static String _libreLangCode(String lang) {
+    switch (lang.toLowerCase()) {
+      case 'zh':
+      case 'cn':
+        return 'zh';
+      case 'ms':
+      case 'my':
+        return 'ms';
+      default:
+        return 'en';
     }
   }
 }

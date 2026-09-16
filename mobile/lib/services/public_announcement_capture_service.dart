@@ -5,9 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
-import '../models/entities/captured_announcement.dart';
+import '../models/entities/spoken_announcement.dart';
 import '../models/entities/environment_sound.dart';
-import '../models/repositories/captured_announcement_store.dart';
+import '../models/repositories/spoken_announcement_repository.dart';
 import '../models/repositories/environment_sound_repository.dart';
 import 'announcement_keyword_scorer.dart';
 import 'announcement_text_refiner.dart';
