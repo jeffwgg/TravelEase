@@ -150,8 +150,12 @@ class AppTourController extends ChangeNotifier {
         AppTourFeature.communicationNavigation =>
           AppTourFeature.communicationSignMenu,
         AppTourFeature.communicationSignMenu => AppTourFeature.signTranslate,
-        AppTourFeature.signTranslate => AppTourFeature.communicationSpeechMenu,
-        AppTourFeature.communicationSpeechMenu => AppTourFeature.speechToSign,
+        // Speech-to-Sign is not an implemented Communication Hub screen.
+        // Continue to the next real tool instead of navigating the tour to a
+        // missing route.
+        AppTourFeature.signTranslate =>
+          AppTourFeature.communicationDialogueMenu,
+        AppTourFeature.communicationSpeechMenu ||
         AppTourFeature.speechToSign => AppTourFeature.communicationDialogueMenu,
         AppTourFeature.communicationDialogueMenu =>
           AppTourFeature.twoWayDialogue,
@@ -175,9 +179,8 @@ class AppTourController extends ChangeNotifier {
         AppTourFeature.communicationNavigation =>
           AppTourFeature.communicationSignMenu,
         AppTourFeature.communicationSignMenu => AppTourFeature.signTranslate,
-        AppTourFeature.signTranslate => AppTourFeature.communicationSpeechMenu,
-        AppTourFeature.communicationSpeechMenu => AppTourFeature.speechToSign,
-        AppTourFeature.speechToSign => AppTourFeature.communicationDialogueMenu,
+        AppTourFeature.signTranslate =>
+          AppTourFeature.communicationDialogueMenu,
         AppTourFeature.communicationDialogueMenu =>
           AppTourFeature.twoWayDialogue,
         AppTourFeature.twoWayDialogue =>

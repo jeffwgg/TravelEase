@@ -6,6 +6,7 @@ import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
+
 import '../../core/theme.dart';
 import '../../models/entities/sign_language_entity.dart';
 import '../../models/repositories/feature_usage_repository.dart';
@@ -13,6 +14,8 @@ import '../../services/camera_landmark_extractor_service.dart';
 import '../../services/sign_frame_data.dart';
 import '../../services/app_tour_controller.dart';
 import '../../viewmodels/sign_translation_camera_viewmodel.dart';
+import '../../widgets/app_tour_coachmark.dart';
+
 /// Debug overlays (skeleton painter, harness tray) are hidden in release
 /// builds but shown in BOTH debug and profile — profiling runs are exactly
 /// where the landmark overlay is most useful.
@@ -28,7 +31,8 @@ class SignTranslationCameraView extends StatefulWidget {
 class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
     with SingleTickerProviderStateMixin {
   late final SignTranslationCameraViewModel _cameraViewModel;
-  final CameraLandmarkExtractorService _landmarkExtractor = CameraLandmarkExtractorService();
+  final CameraLandmarkExtractorService _landmarkExtractor =
+      CameraLandmarkExtractorService();
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -42,6 +46,7 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
   bool _isCameraInitialized = false;
   bool _hasCameraPermission = false;
   bool _isCameraLoading = true;
+  final _signTourTargetKey = GlobalKey();
 
   /// Clip-harness tray (debug builds only): long-press the tracking badge
   /// to toggle. Contains the record-clip, batch-capture and clip-export
@@ -186,7 +191,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           isProcessing = true;
 
           try {
-            final result = await _landmarkExtractor.processCameraFrame(image, camera);
+            final result = await _landmarkExtractor.processCameraFrame(
+              image,
+              camera,
+            );
             if (result != null && mounted) {
               _cameraViewModel.onLiveFrameRecognized(
                 hasHand: result['hasHand'] == true,
@@ -362,116 +370,107 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
         // change path (now or later) can leave it on the wrong model.
         _landmarkExtractor.bimMode =
             _cameraViewModel.selectedLanguage == SignLanguageType.bim;
-        return Scaffold(
-          backgroundColor: Colors.white,
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 0.5,
-            iconTheme: const IconThemeData(color: AppColors.textPrimary),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-              onPressed: () {
-                if (Navigator.canPop(context)) {
-                  Navigator.pop(context);
-                } else {
-                  context.go('/home');
-                }
-              },
-            ),
-            title: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(
-                  Icons.sign_language_rounded,
-                  size: 18,
-                  color: AppColors.primary,
-                ),
-                SizedBox(width: 6),
-                Text(
-                  'Sign to Text',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              // Save Translation Log (FR-M3-17/18, UC301)
-              IconButton(
-                icon: const Icon(
-                  Icons.save_alt_rounded,
-                  color: AppColors.textPrimary,
-                  size: 22,
-                ),
-                tooltip: 'Save Translation Log to Device',
-                onPressed: () async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  final ok = await _cameraViewModel.saveTranslationLog();
-                  if (!mounted) return;
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        ok
-                            ? 'Conversation log saved to this device!'
-                            : 'Nothing to save yet.',
-                      ),
-                      backgroundColor:
-                          ok ? AppColors.success : AppColors.emergency,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
-              ),
-              // Auto-Speak Toggle Icon
-              IconButton(
-                icon: Icon(
-                  _cameraViewModel.isAutoSpeakEnabled
-                      ? Icons.volume_up_rounded
-                      : Icons.volume_off_rounded,
-                  color: _cameraViewModel.isAutoSpeakEnabled
-                      ? AppColors.primary
-                      : AppColors.textMuted,
-                  size: 24,
-                ),
-                tooltip: _cameraViewModel.isAutoSpeakEnabled
-                    ? 'Auto-Speak: ON'
-                    : 'Tap to Enable Auto-Speak',
-                onPressed: () {
-                  if (!_cameraViewModel.isAutoSpeakEnabled) {
-                    _cameraViewModel.speakAloud();
-                  }
-                  _cameraViewModel.toggleAutoSpeak();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        _cameraViewModel.isAutoSpeakEnabled
-                            ? 'Auto-Speak Enabled: Automatically speaks translated signs aloud!'
-                            : 'Auto-Speak Disabled.',
-                      ),
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
-              ),
-              // Flip Camera Button
-              if (_canFlipCamera)
-                IconButton(
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Scaffold(
+              backgroundColor: Colors.white,
+              appBar: AppBar(
+                backgroundColor: Colors.white,
+                elevation: 0.5,
+                iconTheme: const IconThemeData(color: AppColors.textPrimary),
+                leading: IconButton(
                   icon: const Icon(
-                    Icons.flip_camera_ios_rounded,
+                    Icons.arrow_back,
                     color: AppColors.textPrimary,
-                    size: 22,
                   ),
-                  tooltip: _currentLensDirection == CameraLensDirection.front
-                      ? 'Switch to Back Camera'
-                      : 'Switch to Front Camera',
-                  onPressed: _flipCamera,
+                  onPressed: () {
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    } else {
+                      context.go('/home');
+                    }
+                  },
                 ),
-              const SizedBox(width: 4),
-            ],
-          ),
-          body: _buildSignToTextView(),
+                title: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(
+                      Icons.sign_language_rounded,
+                      size: 18,
+                      color: AppColors.primary,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      'Sign to Text',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  // Auto-Speak Toggle Icon
+                  IconButton(
+                    icon: Icon(
+                      _cameraViewModel.isAutoSpeakEnabled
+                          ? Icons.volume_up_rounded
+                          : Icons.volume_off_rounded,
+                      color: _cameraViewModel.isAutoSpeakEnabled
+                          ? AppColors.primary
+                          : AppColors.textMuted,
+                      size: 24,
+                    ),
+                    tooltip: _cameraViewModel.isAutoSpeakEnabled
+                        ? 'Auto-Speak: ON'
+                        : 'Tap to Enable Auto-Speak',
+                    onPressed: () {
+                      if (!_cameraViewModel.isAutoSpeakEnabled) {
+                        _cameraViewModel.speakAloud();
+                      }
+                      _cameraViewModel.toggleAutoSpeak();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            _cameraViewModel.isAutoSpeakEnabled
+                                ? 'Auto-Speak Enabled: Automatically speaks translated signs aloud!'
+                                : 'Auto-Speak Disabled.',
+                          ),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                  ),
+                  // Flip Camera Button
+                  if (_canFlipCamera)
+                    IconButton(
+                      icon: const Icon(
+                        Icons.flip_camera_ios_rounded,
+                        color: AppColors.textPrimary,
+                        size: 22,
+                      ),
+                      tooltip:
+                          _currentLensDirection == CameraLensDirection.front
+                          ? 'Switch to Back Camera'
+                          : 'Switch to Front Camera',
+                      onPressed: _flipCamera,
+                    ),
+                  const SizedBox(width: 4),
+                ],
+              ),
+              body: _buildSignToTextView(),
+            ),
+            Positioned.fill(
+              child: AppTourCoachmark(
+                feature: AppTourFeature.signTranslate,
+                targetKey: _signTourTargetKey,
+                title: 'Live sign translation',
+                message: 'Allow camera access, keep your hands in this frame, and sign naturally to translate your gesture.',
+              ),
+            ),
+          ],
         );
       },
     );
@@ -517,42 +516,43 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                     // CSL input is not offered on this screen yet.
                     .where((lang) => lang != SignLanguageType.csl)
                     .map((lang) {
-                  final isSelected = _cameraViewModel.selectedLanguage == lang;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      avatar: Text(
-                        lang.flagEmoji,
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                      label: Text('${lang.code} (${lang.countryCode})'),
-                      selected: isSelected,
-                      selectedColor: AppColors.primary,
-                      labelStyle: TextStyle(
-                        color: isSelected
-                            ? Colors.white
-                            : AppColors.textPrimary,
-                        fontWeight: isSelected
-                            ? FontWeight.w800
-                            : FontWeight.w500,
-                        fontSize: 12,
-                      ),
-                      backgroundColor: AppColors.surfaceVariant,
-                      side: BorderSide(
-                        color: isSelected
-                            ? AppColors.primary
-                            : AppColors.cardBorder,
-                      ),
-                      onSelected: (val) {
-                        if (!val) return;
-                        // Recognition routing follows automatically: the
-                        // builder syncs _landmarkExtractor.bimMode from the
-                        // viewmodel's dialect on the rebuild this triggers.
-                        _cameraViewModel.switchDialect(lang);
-                      },
-                    ),
-                  );
-                }),
+                      final isSelected =
+                          _cameraViewModel.selectedLanguage == lang;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          avatar: Text(
+                            lang.flagEmoji,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          label: Text('${lang.code} (${lang.countryCode})'),
+                          selected: isSelected,
+                          selectedColor: AppColors.primary,
+                          labelStyle: TextStyle(
+                            color: isSelected
+                                ? Colors.white
+                                : AppColors.textPrimary,
+                            fontWeight: isSelected
+                                ? FontWeight.w800
+                                : FontWeight.w500,
+                            fontSize: 12,
+                          ),
+                          backgroundColor: AppColors.surfaceVariant,
+                          side: BorderSide(
+                            color: isSelected
+                                ? AppColors.primary
+                                : AppColors.cardBorder,
+                          ),
+                          onSelected: (val) {
+                            if (!val) return;
+                            // Recognition routing follows automatically: the
+                            // builder syncs _landmarkExtractor.bimMode from the
+                            // viewmodel's dialect on the rebuild this triggers.
+                            _cameraViewModel.switchDialect(lang);
+                          },
+                        ),
+                      );
+                    }),
               ],
             ),
           ),
@@ -650,7 +650,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                       left: 10,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.72),
                           borderRadius: BorderRadius.circular(14),
@@ -658,14 +660,20 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.fiber_manual_record_rounded,
-                                size: 12, color: AppColors.emergency),
+                            const Icon(
+                              Icons.fiber_manual_record_rounded,
+                              size: 12,
+                              color: AppColors.emergency,
+                            ),
                             const SizedBox(width: 6),
-                            Text('$_batchLabel  $_batchDone/$_batchTarget',
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800)),
+                            Text(
+                              '$_batchLabel  $_batchDone/$_batchTarget',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -688,14 +696,17 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                             anchors: _cameraViewModel.handAnchors,
                             fromMediaPipe: _cameraViewModel.handFromMediaPipe,
                             cameraWidth:
-                                _cameraController!.value.previewSize?.height ?? 1,
+                                _cameraController!.value.previewSize?.height ??
+                                1,
                             cameraHeight:
-                                _cameraController!.value.previewSize?.width ?? 1,
+                                _cameraController!.value.previewSize?.width ??
+                                1,
                             // Model coords are third-person (unmirrored);
                             // the front-camera preview is the mirrored
                             // selfie view — flip for display only.
                             mirrorX:
-                                _currentLensDirection == CameraLensDirection.front,
+                                _currentLensDirection ==
+                                CameraLensDirection.front,
                           ),
                         ),
                       ),
@@ -714,26 +725,41 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                         height: 270,
                         decoration: BoxDecoration(
                           border: Border.all(
-                            color: _cameraViewModel.isHandDetected ? AppColors.success : AppColors.primaryLight.withValues(alpha: 0.5),
+                            color: _cameraViewModel.isHandDetected
+                                ? AppColors.success
+                                : AppColors.primaryLight.withValues(alpha: 0.5),
                             width: _cameraViewModel.isHandDetected ? 2.5 : 1.5,
                           ),
                           borderRadius: BorderRadius.circular(24),
-                          color: (_cameraViewModel.isHandDetected ? AppColors.success : AppColors.primary).withValues(alpha: 0.04),
+                          color:
+                              (_cameraViewModel.isHandDetected
+                                      ? AppColors.success
+                                      : AppColors.primary)
+                                  .withValues(alpha: 0.04),
                         ),
                         child: Align(
                           alignment: Alignment.topCenter,
                           child: Container(
                             margin: const EdgeInsets.only(top: 10),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
-                              color: _cameraViewModel.isHandDetected ? AppColors.success : AppColors.primary,
+                              color: _cameraViewModel.isHandDetected
+                                  ? AppColors.success
+                                  : AppColors.primary,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
                               _cameraViewModel.isHandDetected
                                   ? '● TRACKING ACTIVE ($_trackingSourceLabel)'
                                   : '● SCANNING ENTIRE CAMERA VIEW...',
-                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
@@ -764,9 +790,15 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                               child: Row(
                                 children: [
                                   _buildRecorderButton(
-                                    label: _isRecordingClip ? 'Stop & Save Clip' : 'Record Clip',
-                                    icon: _isRecordingClip ? Icons.stop_rounded : Icons.fiber_manual_record_rounded,
-                                    color: _isRecordingClip ? AppColors.emergency : AppColors.success,
+                                    label: _isRecordingClip
+                                        ? 'Stop & Save Clip'
+                                        : 'Record Clip',
+                                    icon: _isRecordingClip
+                                        ? Icons.stop_rounded
+                                        : Icons.fiber_manual_record_rounded,
+                                    color: _isRecordingClip
+                                        ? AppColors.emergency
+                                        : AppColors.success,
                                     onTap: _toggleClipRecording,
                                   ),
                                   const SizedBox(width: 6),
@@ -837,7 +869,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                         width: 8,
                         height: 8,
                         decoration: BoxDecoration(
-                          color: hasText ? AppColors.success : AppColors.primary,
+                          color: hasText
+                              ? AppColors.success
+                              : AppColors.primary,
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -846,7 +880,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                         hasText
                             ? 'Recognized (${_cameraViewModel.selectedLanguage.code})'
                             : 'AI Live Tracking (${_cameraViewModel.selectedLanguage.code})',
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w700),
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                   ),
@@ -863,20 +901,36 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
-                                color: AppColors.successLight.withValues(alpha: 0.25),
+                                color: AppColors.successLight.withValues(
+                                  alpha: 0.25,
+                                ),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: AppColors.success, width: 0.8),
+                                border: Border.all(
+                                  color: AppColors.success,
+                                  width: 0.8,
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.verified, size: 13, color: AppColors.success),
+                                  const Icon(
+                                    Icons.verified,
+                                    size: 13,
+                                    color: AppColors.success,
+                                  ),
                                   const SizedBox(width: 4),
                                   Text(
                                     '${(_cameraViewModel.confidenceScore * 100).toInt()}% Conf.',
-                                    style: const TextStyle(color: AppColors.success, fontSize: 10.5, fontWeight: FontWeight.w700),
+                                    style: const TextStyle(
+                                      color: AppColors.success,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -884,7 +938,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                             IconButton(
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
-                              icon: const Icon(Icons.clear_rounded, size: 18, color: AppColors.textMuted),
+                              icon: const Icon(
+                                Icons.clear_rounded,
+                                size: 18,
+                                color: AppColors.textMuted,
+                              ),
                               tooltip: 'Clear Recognized Text',
                               onPressed: _cameraViewModel.clearText,
                             ),
@@ -904,8 +962,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
               Container(
                 width: double.infinity,
                 constraints: const BoxConstraints(minHeight: 44),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.surfaceVariant,
                   borderRadius: BorderRadius.circular(12),
@@ -913,8 +973,11 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.translate_rounded,
-                        size: 16, color: AppColors.primary),
+                    const Icon(
+                      Icons.translate_rounded,
+                      size: 16,
+                      color: AppColors.primary,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: SingleChildScrollView(
@@ -936,13 +999,12 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                     ),
                     if (_cameraViewModel.recognizedWords.isNotEmpty) ...[
                       Text(
-                        _cameraViewModel.phraseMatched
-                            ? '→ sentence ✓'
-                            : '…',
+                        _cameraViewModel.phraseMatched ? '→ sentence ✓' : '…',
                         style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.success),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.success,
+                        ),
                       ),
                     ],
                   ],
@@ -1129,12 +1191,15 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
       final clip = _landmarkExtractor.stopClipRecording();
       setState(() => _isRecordingClip = false);
       if (mounted && clip != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
               'Clip saved: "${clip.label}" (${clip.frames.length} frames). '
-              'Tap "Save & Share Clips" to export.'),
-          duration: const Duration(seconds: 3),
-        ));
+              'Tap "Save & Share Clips" to export.',
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
       return;
     }
@@ -1154,7 +1219,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, labelController.text.trim()),
             child: const Text('Start'),
@@ -1193,11 +1261,14 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('Start ×12')),
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Start ×12'),
+          ),
         ],
       ),
     );
@@ -1208,11 +1279,15 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
       _batchTarget = 12;
     });
     _landmarkExtractor.onGestureWindowClosed = _onBatchWindow;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Sign the word 12 times — pause ~1s between reps, '
-          'each sign is captured automatically.'),
-      duration: Duration(seconds: 3),
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Sign the word 12 times — pause ~1s between reps, '
+          'each sign is captured automatically.',
+        ),
+        duration: Duration(seconds: 3),
+      ),
+    );
   }
 
   void _onBatchWindow(List<SignFrameData> frames) {
@@ -1224,10 +1299,12 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
     if (total >= _batchTarget) {
       _endBatch('complete');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        duration: const Duration(milliseconds: 900),
-        content: Text('$total/$_batchTarget'),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(milliseconds: 900),
+          content: Text('$total/$_batchTarget'),
+        ),
+      );
     }
   }
 
@@ -1239,10 +1316,12 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
         _batchLabel = null;
         _batchTarget = 0;
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Batch $why: $_batchDone clip(s) of "$label"'),
-        duration: const Duration(seconds: 3),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Batch $why: $_batchDone clip(s) of "$label"'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -1260,15 +1339,19 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           files: [XFile(path, mimeType: 'application/json')],
         ),
       );
-      messenger.showSnackBar(SnackBar(
-        content: Text('Saved:\n$path', style: const TextStyle(fontSize: 11)),
-        duration: const Duration(seconds: 6),
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Saved:\n$path', style: const TextStyle(fontSize: 11)),
+          duration: const Duration(seconds: 6),
+        ),
+      );
     } catch (e) {
-      messenger.showSnackBar(SnackBar(
-        content: Text('Clip export failed: $e'),
-        duration: const Duration(seconds: 4),
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Clip export failed: $e'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 
@@ -1293,13 +1376,19 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
           children: [
             Icon(icon, size: 13, color: Colors.white),
             const SizedBox(width: 4),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w800)),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
-
 }
 
 /// Paints the live 21-point hand skeleton and face/body anchors over the
@@ -1327,24 +1416,27 @@ class _HandOverlayPainter extends CustomPainter {
   final bool mirrorX;
 
   static const List<List<int>> _bones = [
-    [0, 1], [1, 2], [2, 3], [3, 4],       // thumb
-    [0, 5], [5, 6], [6, 7], [7, 8],       // index
-    [9, 10], [10, 11], [11, 12],          // middle
-    [13, 14], [14, 15], [15, 16],         // ring
-    [0, 17], [17, 18], [18, 19], [19, 20],// pinky
-    [5, 9], [9, 13], [13, 17],            // knuckle row
+    [0, 1], [1, 2], [2, 3], [3, 4], // thumb
+    [0, 5], [5, 6], [6, 7], [7, 8], // index
+    [9, 10], [10, 11], [11, 12], // middle
+    [13, 14], [14, 15], [15, 16], // ring
+    [0, 17], [17, 18], [18, 19], [19, 20], // pinky
+    [5, 9], [9, 13], [13, 17], // knuckle row
   ];
 
   @override
   void paint(Canvas canvas, Size size) {
     if (cameraWidth < 2 || cameraHeight < 2) return;
-    final scale =
-        math.max(size.width / cameraWidth, size.height / cameraHeight);
+    final scale = math.max(
+      size.width / cameraWidth,
+      size.height / cameraHeight,
+    );
     final dx = (size.width - cameraWidth * scale) / 2;
     final dy = (size.height - cameraHeight * scale) / 2;
     Offset map(SGPoint p) => Offset(
-        dx + (mirrorX ? 1 - p.x : p.x) * cameraWidth * scale,
-        dy + p.y * cameraHeight * scale);
+      dx + (mirrorX ? 1 - p.x : p.x) * cameraWidth * scale,
+      dy + p.y * cameraHeight * scale,
+    );
 
     // Face/body anchors (orange) — verify hand/pose space alignment.
     final anchorPaint = Paint()..color = const Color(0xFFFFB300);
@@ -1362,8 +1454,9 @@ class _HandOverlayPainter extends CustomPainter {
 
     if (hand.length < 21) return;
 
-    final color =
-        fromMediaPipe ? const Color(0xFF69F0AE) : const Color(0xFFFF6E40);
+    final color = fromMediaPipe
+        ? const Color(0xFF69F0AE)
+        : const Color(0xFFFF6E40);
     final bonePaint = Paint()
       ..color = color.withValues(alpha: 0.95)
       ..strokeWidth = 3.0
