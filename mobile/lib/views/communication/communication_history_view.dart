@@ -22,13 +22,11 @@ class _CommunicationHistoryViewState extends State<CommunicationHistoryView> {
   static const Map<String, String> _typeLabels = {
     'two_way_dialogue': '2-Way Dialogue',
     'sign_to_text': 'Sign to Text',
-    'speech_to_sign': 'Speech to Sign',
   };
 
   static const Map<String, IconData> _typeIcons = {
     'two_way_dialogue': Icons.swap_horiz_rounded,
     'sign_to_text': Icons.sign_language_rounded,
-    'speech_to_sign': Icons.record_voice_over_rounded,
   };
 
   @override

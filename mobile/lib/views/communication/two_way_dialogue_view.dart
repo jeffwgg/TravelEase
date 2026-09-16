@@ -420,7 +420,7 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                   child: Column(
                     children: [
                       Icon(
-                        Icons.favorite_border_rounded,
+                        Icons.star_border_rounded,
                         size: 48,
                         color: AppColors.textMuted,
                       ),
@@ -978,9 +978,10 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Left section: Keyboard button (fixed width)
+              // Left section: Keyboard button (fixed width — mirrors the
+              // right slot so the mic button stays centered)
               SizedBox(
-                width: 56,
+                width: 96,
                 child: Align(
                   alignment: Alignment.centerRight,
                   child: _buildSmallActionButton(
@@ -1036,9 +1037,10 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                 ),
               ),
               const SizedBox(width: 16),
-              // Right section: Favorites + Flip turn (fixed width, matches left)
+              // Right section: Favorites + Flip turn. Both slots are 96px:
+              // star (40) + gap (8) + flip-or-placeholder (44) needs 92.
               SizedBox(
-                width: 56,
+                width: 96,
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Row(
@@ -1046,7 +1048,7 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       _buildSmallActionButton(
-                        icon: Icons.favorite_rounded,
+                        icon: Icons.star_rounded,
                         tooltip: 'Favorite phrases for quick insertion',
                         onPressed: _openFavoritesSheet,
                       ),

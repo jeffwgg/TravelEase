@@ -6,6 +6,7 @@ import '../services/travel_phrase_assembler.dart';
 import '../services/sign_frame_data.dart';
 import '../models/repositories/communication_repository.dart';
 import '../core/hardware_services.dart';
+import '../core/supabase_client.dart';
 import '../services/translation_service.dart';
 
 /// ViewModel for Camera Sign Translation (Alphabet Fingerspelling & Words)
@@ -68,6 +69,12 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
   List<String> _words = const [];
   AssembledPhrase _phrase = AssembledPhrase.empty;
   DateTime _lastPredictionTime = DateTime.now();
+
+  // Session log buffer: finished phrase segments are appended here (on Clear,
+  // on the 8-word rollover, and at save time) so Save stores the whole signing
+  // session as one multi-sentence conversation log, like the dialogue flow.
+  final List<Map<String, dynamic>> _sessionEntries = [];
+  int get sessionEntryCount => _sessionEntries.length;
 
   // Getters
   bool get isDetecting => _isDetecting;
@@ -196,6 +203,9 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
         // set into the sentence shown below the words box.
         if (isNewSign) {
           final all = [..._words, newText.toLowerCase()];
+          // The word buffer is full: the on-screen phrase is superseded, so
+          // keep it as a finished segment before the oldest word drops off.
+          if (all.length > _maxWords) _captureCurrentPhrase();
           _words = all.length > _maxWords
               ? List.unmodifiable(all.sublist(all.length - _maxWords))
               : List.unmodifiable(all);
@@ -234,6 +244,8 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
 
   /// Clear current recognized text
   void clearText() {
+    // The phrase being cleared counts as finished — keep it for the session log.
+    _captureCurrentPhrase();
     _predictedText = '';
     _confidenceScore = 0.0;
     _customTranslations.clear();
@@ -241,6 +253,28 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
     _phrase = AssembledPhrase.empty;
     _errorMessage = null;
     notifyListeners();
+  }
+
+  /// Buffer the phrase currently on screen as one transcript entry. Skipped
+  /// when there is nothing recognized or when it duplicates the last entry.
+  void _captureCurrentPhrase() {
+    if (!hasContent) return;
+    final entry = {
+      'original_text': _words.isNotEmpty ? wordsText : _predictedText,
+      'translated_text': currentTranslatedText,
+      'input_modality': 'sign_to_text',
+      'source_language': _selectedLanguage.code,
+      'target_language': _targetOutputLang,
+      'confidence_score': _confidenceScore,
+      'created_at': DateTime.now().toIso8601String(),
+    };
+    final last = _sessionEntries.isEmpty ? null : _sessionEntries.last;
+    if (last != null &&
+        last['original_text'] == entry['original_text'] &&
+        last['translated_text'] == entry['translated_text']) {
+      return;
+    }
+    _sessionEntries.add(entry);
   }
 
   // Actions
@@ -349,6 +383,49 @@ class SignTranslationCameraViewModel extends ChangeNotifier {
       _isPlayingAudio = false;
       notifyListeners();
     }
+  }
+
+  String get currentUserId =>
+      SupabaseClientHelper.client.auth.currentUser?.id ?? 'local_user';
+
+  /// Save the signing session as one conversation log (FR-M3-17/18, UC301):
+  /// every finished phrase since the last save — buffered on Clear, on the
+  /// 8-word rollover, or captured now — goes into a single multi-sentence
+  /// transcript. Local device storage first, then best-effort cloud sync so
+  /// the log also shows up in Communication History (UC303). Returns false
+  /// when nothing was recognized since the last save.
+  Future<bool> saveTranslationLog() async {
+    _captureCurrentPhrase();
+    if (_sessionEntries.isEmpty) return false;
+
+    final now = DateTime.now();
+    final title =
+        'Sign to Text (${now.hour}:${now.minute.toString().padLeft(2, '0')})';
+    final summary =
+        'Signing session saved with ${_sessionEntries.length} sentence(s).';
+
+    await _repository.saveConversationLogLocally(
+      userId: currentUserId,
+      logTitle: title,
+      translationType: 'sign_to_text',
+      summary: summary,
+      fullTranscript: List.of(_sessionEntries),
+    );
+
+    // Best-effort cloud sync; the local copy stays authoritative on failure.
+    try {
+      await _repository.saveConversationLog(
+        userId: currentUserId,
+        logTitle: title,
+        translationType: 'sign_to_text',
+        summary: summary,
+        fullTranscript: List.of(_sessionEntries),
+      );
+    } catch (_) {}
+
+    // The saved log now owns these sentences; start a fresh session buffer.
+    _sessionEntries.clear();
+    return true;
   }
 
   /// Optional simulation method for testing/fallback gesture triggering

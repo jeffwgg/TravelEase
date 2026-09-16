@@ -149,8 +149,9 @@ class _SignMediaViewerViewState extends State<SignMediaViewerView> {
                             SignLanguageType.asl,
                           ].map((lang) {
                             final isSelected = dialect == lang;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
+                            return Flexible(
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 8),
                               child: GestureDetector(
                                 onTap: () => _viewModel.switchDialect(lang),
                                 child: Container(
@@ -179,20 +180,25 @@ class _SignMediaViewerViewState extends State<SignMediaViewerView> {
                                         style: const TextStyle(fontSize: 14),
                                       ),
                                       const SizedBox(width: 6),
-                                      Text(
-                                        '${lang.displayName} (${lang.code})',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          color: isSelected
-                                              ? AppColors.primary
-                                              : AppColors.textMuted,
+                                      Flexible(
+                                        child: Text(
+                                          '${lang.displayName} (${lang.code})',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: isSelected
+                                                ? AppColors.primary
+                                                : AppColors.textMuted,
+                                          ),
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
                               ),
+                            ),
                             );
                           }),
                         ],
@@ -381,25 +387,30 @@ class _SignMediaViewerViewState extends State<SignMediaViewerView> {
           Positioned(
             top: 14,
             left: 14,
+            right: 90,
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.7),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: Text(
-                    'CLIP ${_viewModel.currentClipIndex + 1}/${_viewModel.playlist.length}'
-                    '${_viewModel.currentClip != null ? ' • ${_viewModel.currentClip!.word}' : ''}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Text(
+                      'CLIP ${_viewModel.currentClipIndex + 1}/${_viewModel.playlist.length}'
+                      '${_viewModel.currentClip != null ? ' • ${_viewModel.currentClip!.word}' : ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),

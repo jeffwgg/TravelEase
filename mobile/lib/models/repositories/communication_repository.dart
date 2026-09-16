@@ -155,6 +155,7 @@ class CommunicationRepository {
   Future<bool> correctDialogueMessage({
     required String messageId,
     required String correctedText,
+    String? correctedTranslation,
   }) async {
     try {
       await _client
@@ -162,6 +163,7 @@ class CommunicationRepository {
           .update({
             'is_corrected': true,
             'corrected_text': correctedText,
+            'translated_text': ?correctedTranslation,
           })
           .eq('id', messageId);
       return true;
@@ -171,6 +173,7 @@ class CommunicationRepository {
         _inMemoryMessages[index] = _inMemoryMessages[index].copyWith(
           isCorrected: true,
           correctedText: correctedText,
+          translatedText: correctedTranslation,
         );
       }
       return true;

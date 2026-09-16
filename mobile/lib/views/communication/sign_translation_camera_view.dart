@@ -398,6 +398,32 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
               ],
             ),
             actions: [
+              // Save Translation Log (FR-M3-17/18, UC301)
+              IconButton(
+                icon: const Icon(
+                  Icons.save_alt_rounded,
+                  color: AppColors.textPrimary,
+                  size: 22,
+                ),
+                tooltip: 'Save Translation Log to Device',
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final ok = await _cameraViewModel.saveTranslationLog();
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        ok
+                            ? 'Conversation log saved to this device!'
+                            : 'Nothing to save yet.',
+                      ),
+                      backgroundColor:
+                          ok ? AppColors.success : AppColors.emergency,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
               // Auto-Speak Toggle Icon
               IconButton(
                 icon: Icon(

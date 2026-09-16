@@ -62,8 +62,9 @@ class CommunicationHubView extends StatelessWidget {
                     subtitle: 'Counter split-screen chat',
                     accentColor: AppColors.secondary,
                     onTap: () {
-                      Navigator.push(
-                        context,
+                      // Root navigator: opens full-screen, above the shell's
+                      // bottom navigation menu.
+                      Navigator.of(context, rootNavigator: true).push(
                         MaterialPageRoute(builder: (ctx) => const TwoWayDialogueView()),
                       );
                     },
