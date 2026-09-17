@@ -71,9 +71,16 @@ export default function ManagerDashboardPage() {
     return () => { active = false; unsubs.forEach((u) => u?.()) }
   }, [institutionId])
 
+  const venueName = staffContext?.institutions?.name
+  const scopedRequests = useMemo(() => {
+    if (!venueName) return requests
+    const target = venueName.trim().toLowerCase()
+    return requests.filter(r => (r.venue_name || '').trim().toLowerCase() === target)
+  }, [requests, venueName])
+
   const activeRequests = useMemo(
-    () => requests.filter((r) => r.status === 'pending' || r.status === 'in_progress'),
-    [requests]
+    () => scopedRequests.filter((r) => r.status === 'pending' || r.status === 'in_progress'),
+    [scopedRequests]
   )
   const pending = activeRequests.filter((r) => r.status === 'pending')
   const unassignedPending = pending.filter((r) => !r.assigned_staff_id)

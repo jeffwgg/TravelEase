@@ -152,6 +152,12 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
     return barrierReports.filter(b => (b.venue_name || '').trim().toLowerCase() === target)
   }, [barrierReports, rawVenueName])
 
+  const scopedRequests = useMemo(() => {
+    if (!rawVenueName) return requests
+    const target = rawVenueName.trim().toLowerCase()
+    return requests.filter(r => (r.venue_name || '').trim().toLowerCase() === target)
+  }, [requests, rawVenueName])
+
   const filteredBarriers = useMemo(() => {
     return scopedBarriers.filter(b => {
       const s = (b.status || '').toLowerCase()
@@ -264,8 +270,8 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
   }
 
   const baseRequests = staffOnly
-    ? requests.filter(req => req.assigned_staff_id === myStaffId)
-    : requests
+    ? scopedRequests.filter(req => req.assigned_staff_id === myStaffId)
+    : scopedRequests
 
   const filteredRequests = baseRequests.filter(req => {
     const isUnassigned = !req.assigned_staff_name || req.assigned_staff_name === 'Unassigned'

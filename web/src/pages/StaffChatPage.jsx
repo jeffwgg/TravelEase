@@ -113,10 +113,12 @@ export default function StaffChatPage() {
     }
   }, [])
 
+  const rawVenueName = staffContext?.institutions?.name
   // Filter requests to ONLY assigned chat requests, respecting chatFilter ('unsolved' by default)
   const assignedChatRequests = requests.filter(
     (r) => r.preferred_communication !== 'location' &&
-      r.assigned_staff_id === myStaffId
+      r.assigned_staff_id === myStaffId &&
+      (!rawVenueName || (r.venue_name || '').trim().toLowerCase() === rawVenueName.trim().toLowerCase())
   )
 
   const unsolvedCount = assignedChatRequests.filter(

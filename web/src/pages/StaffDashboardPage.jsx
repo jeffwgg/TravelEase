@@ -32,9 +32,13 @@ export default function StaffDashboardPage() {
     return () => { active = false; unsub?.() }
   }, [])
 
+  const venueName = staffContext?.institutions?.name
   const requests = useMemo(
-    () => allRequests.filter(r => r.assigned_staff_id === myStaffId),
-    [allRequests, myStaffId]
+    () => allRequests.filter(r =>
+      r.assigned_staff_id === myStaffId &&
+      (!venueName || (r.venue_name || '').trim().toLowerCase() === venueName.trim().toLowerCase())
+    ),
+    [allRequests, myStaffId, venueName]
   )
 
   const pending    = useMemo(() => requests.filter(r => r.status === 'pending'), [requests])

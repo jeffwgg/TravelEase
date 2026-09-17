@@ -110,6 +110,26 @@ class WebRTCService extends ChangeNotifier {
 
   bool _renderersInitialized = false;
 
+  Future<String> _currentTravelerName() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return 'Traveler';
+    try {
+      final row = await _client
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', user.id)
+          .maybeSingle();
+      final profileName = (row?['full_name'] as String?)?.trim();
+      if (profileName != null && profileName.isNotEmpty) return profileName;
+    } catch (_) {
+      // fall through
+    }
+    final metadataName = (user.userMetadata?['full_name'] as String?)?.trim();
+    if (metadataName != null && metadataName.isNotEmpty) return metadataName;
+    final emailHandle = user.email?.split('@').first ?? '';
+    return emailHandle.isNotEmpty ? emailHandle : 'Traveler';
+  }
+
   // ── Public API ─────────────────────────────────────────────────────────────
 
   /// Call this once when app starts.
@@ -222,10 +242,11 @@ class WebRTCService extends ChangeNotifier {
       final offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      final travelerName = await _currentTravelerName();
       await _sendSignal('call_offer', {
         'sdp': offer.sdp,
         'callType': type == CallType.video ? 'video' : 'voice',
-        'callerName': 'Jeff Wong (Traveler)',
+        'callerName': '$travelerName (Traveler)',
         'callerSide': 'mobile',
         'requestId': requestId,
       });
