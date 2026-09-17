@@ -64,22 +64,23 @@ class AnnouncementDetailsViewModel extends ChangeNotifier {
     isTranslating = true;
     notifyListeners();
     try {
-      final sourceTitle = capture == null
-          ? current.title
-          : CapturedAnnouncement.deriveTitle(capture!.transcript);
+      // Captured titles are short English category labels while a caption can
+      // be bilingual or Malay. Translate the title using its own language.
+      final sourceTitle = current.title;
       final sourceMessage = capture?.transcript ?? current.messageEn;
-      final sourceLanguage = capture == null
+      final sourceMessageLanguage = capture == null
           ? 'en'
           : await _translator.detectLanguage(sourceMessage);
+      final sourceTitleLanguage = await _translator.detectLanguage(sourceTitle);
       final translated = await Future.wait([
         _translator.translateText(
           text: sourceTitle,
-          fromLang: sourceLanguage,
+          fromLang: sourceTitleLanguage,
           toLang: value,
         ),
         _translator.translateText(
           text: sourceMessage,
-          fromLang: sourceLanguage,
+          fromLang: sourceMessageLanguage,
           toLang: value,
         ),
       ]);

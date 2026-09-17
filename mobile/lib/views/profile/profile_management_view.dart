@@ -18,6 +18,7 @@ class ProfileManagementView extends StatefulWidget {
 class _ProfileManagementViewState extends State<ProfileManagementView> {
   late final ProfileViewModel _profileViewModel;
   final _alertPreferencesTourKey = GlobalKey();
+  final _emergencyContactsTourKey = GlobalKey();
 
   @override
   void initState() {
@@ -267,6 +268,7 @@ class _ProfileManagementViewState extends State<ProfileManagementView> {
                             Icons.contact_phone,
                             'Emergency Contacts',
                             () => context.push('/emergency-contacts'),
+                            key: _emergencyContactsTourKey,
                           ),
                           _MenuItem(
                             Icons.badge,
@@ -398,6 +400,14 @@ class _ProfileManagementViewState extends State<ProfileManagementView> {
             targetKey: _alertPreferencesTourKey,
             title: 'Alert settings',
             message: 'Open Accessibility Preferences to configure alerts.',
+          ),
+        ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.emergencyContactsMenu,
+            targetKey: _emergencyContactsTourKey,
+            title: 'Emergency Contacts',
+            message: 'Open this page to add the people we can notify.',
           ),
         ),
       ],

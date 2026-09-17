@@ -1,19 +1,29 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/entities/announcement.dart';
 import '../models/repositories/announcement_repository.dart';
 import '../models/repositories/spoken_announcement_repository.dart';
+import '../services/translation_service.dart';
 import '../services/venue_session_service.dart';
 
 /// State and workflow for the Module 2 announcement feeds.
 class AnnouncementViewModel extends ChangeNotifier {
-  AnnouncementViewModel({AnnouncementRepository? repository})
-    : _repository = repository ?? AnnouncementRepository();
+  AnnouncementViewModel({
+    AnnouncementRepository? repository,
+    TranslationService? translator,
+  }) : _repository = repository ?? AnnouncementRepository(),
+       _translator = translator ?? TranslationService();
 
   final AnnouncementRepository _repository;
+  final TranslationService _translator;
+  final Map<String, AnnouncementTranslation> _deviceTranslations = {};
+
+  static const _officialLanguageKey = 'official_announcement_list_language';
+  static const _spokenLanguageKey = 'spoken_announcement_list_language';
 
   List<Announcement> announcements = [];
   RealtimeChannel? channel;
@@ -32,6 +42,13 @@ class AnnouncementViewModel extends ChangeNotifier {
   /// this view model.
   Future<void> initialize({required bool isSpokenFeed}) async {
     _isSpokenFeed = isSpokenFeed;
+    final preferences = await SharedPreferences.getInstance();
+    final savedLanguage = preferences.getString(
+      isSpokenFeed ? _spokenLanguageKey : _officialLanguageKey,
+    );
+    if (const {'en', 'ms', 'zh'}.contains(savedLanguage)) {
+      language = savedLanguage!;
+    }
     if (isSpokenFeed) {
       CapturedAnnouncementStore.instance.version.addListener(
         _onCapturedAnnouncementsChanged,
@@ -43,10 +60,62 @@ class AnnouncementViewModel extends ChangeNotifier {
     await syncSession(reload: true);
   }
 
-  void selectLanguage(String value) {
+  Future<void> selectLanguage(String value) async {
     if (language == value) return;
     language = value;
     _notify();
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      _isSpokenFeed ? _spokenLanguageKey : _officialLanguageKey,
+      value,
+    );
+    await _translateListAnnouncements();
+  }
+
+  AnnouncementTranslation? translationFor(Announcement announcement) {
+    if (language == 'en') return null;
+    return announcement.translations[language] ??
+        _deviceTranslations['$language:${announcement.id}'];
+  }
+
+  Future<void> _translateListAnnouncements() async {
+    if (language == 'en' || announcements.isEmpty || _disposed) return;
+    final targetLanguage = language;
+    for (final announcement in announcements) {
+      if (_disposed || announcement.translations[targetLanguage] != null) {
+        continue;
+      }
+      final cacheKey = '$targetLanguage:${announcement.id}';
+      if (_deviceTranslations.containsKey(cacheKey)) continue;
+      try {
+        final messageLanguage = announcement.isCaptured
+            ? await _translator.detectLanguage(announcement.messageEn)
+            : 'en';
+        final titleLanguage = announcement.isCaptured
+            ? await _translator.detectLanguage(announcement.title)
+            : 'en';
+        final translated = await Future.wait([
+          _translator.translateText(
+            text: announcement.title,
+            fromLang: titleLanguage,
+            toLang: targetLanguage,
+          ),
+          _translator.translateText(
+            text: announcement.messageEn,
+            fromLang: messageLanguage,
+            toLang: targetLanguage,
+          ),
+        ]);
+        if (_disposed || language != targetLanguage) return;
+        _deviceTranslations[cacheKey] = AnnouncementTranslation(
+          title: translated[0],
+          message: translated[1],
+        );
+        _notify();
+      } catch (_) {
+        // Original text remains visible if translation is unavailable.
+      }
+    }
   }
 
   void _onSessionChanged() {
@@ -112,6 +181,7 @@ class AnnouncementViewModel extends ChangeNotifier {
       loading = false;
     }
     _notify();
+    unawaited(_translateListAnnouncements());
   }
 
   Future<void> loadSpokenAnnouncements() async {
@@ -127,6 +197,7 @@ class AnnouncementViewModel extends ChangeNotifier {
       loading = false;
     }
     _notify();
+    unawaited(_translateListAnnouncements());
   }
 
   Future<void> reload() =>
