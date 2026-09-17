@@ -14,7 +14,6 @@ import '../../models/entities/venue_session.dart';
 import '../../models/entities/venue_service_area.dart';
 import '../../models/repositories/announcement_repository.dart';
 import '../../models/repositories/auth_repository.dart';
-import '../../models/repositories/captured_announcement_store.dart';
 import '../../models/repositories/spoken_announcement_repository.dart';
 import '../../models/repositories/feature_usage_repository.dart';
 import '../../services/app_tour_controller.dart';
@@ -493,6 +492,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       return fullName.trim().split(RegExp(r'\s+')).first;
     }
     return 'traveller';
+  }
+
   Future<void> _loadHomeTour() async {
     if (_tourCheckStarted) return;
     _tourCheckStarted = true;
@@ -686,11 +687,6 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                           children: [
                             Row(
                               children: [
-                                Text(
-                                  'Hello, $_greetingName',
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.headlineLarge,
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(10),
                                   child: Image.asset(
@@ -704,10 +700,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Hello, Jeff',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .headlineLarge,
+                                      'Hello, $_greetingName',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.headlineLarge,
                                     ),
                                     const SizedBox(height: 2),
                                     Text(

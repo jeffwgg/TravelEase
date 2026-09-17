@@ -193,124 +193,6 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  // Editable venue name field
-                  TextField(
-                    controller: _venueController,
-                    onChanged: (value) => _viewModel.setVenue(value),
-                    decoration: InputDecoration(
-                      hintText: 'Or type venue name here...',
-                      prefixIcon: const Icon(Icons.edit_location_alt_outlined, size: 20, color: AppColors.textMuted),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      isDense: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: AppColors.cardBorder),
-                      ),
-                    ),
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // ── Request type ──
-            Text('What do you need help with?', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildTypeChip('Communication', Icons.chat_bubble_outline, 'communication'),
-                _buildTypeChip('Finding Location', Icons.location_on_outlined, 'location'),
-                _buildTypeChip('Check-in / Boarding', Icons.confirmation_number_outlined, 'checkin'),
-                _buildTypeChip('Luggage Issue', Icons.luggage_outlined, 'luggage'),
-                _buildTypeChip('Accessibility', Icons.accessible_outlined, 'accessibility'),
-                _buildTypeChip('Emergency Info', Icons.warning_amber_outlined, 'emergency'),
-                _buildTypeChip('General Help', Icons.help_outline, 'general'),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // ── Description ──
-            Text('Describe your situation', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _viewModel.descriptionController,
-              maxLines: 4,
-              decoration: InputDecoration(
-                hintText: 'Tell us what you need help with...',
-                alignLabelWithHint: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // ── Urgency ──
-            Text('Urgency Level', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _buildUrgencyOption(0, 'Low', AppColors.success),
-                const SizedBox(width: 8),
-                _buildUrgencyOption(1, 'Medium', AppColors.secondary),
-                const SizedBox(width: 8),
-                _buildUrgencyOption(2, 'High', AppColors.emergency),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // ── Communication preference (2 options: In-app Chat / Come to Location) ──
-            Text('How should staff reach you?', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Card(
-              child: Column(
-                children: [
-                  RadioListTile<String>(
-                    title: const Text('In-app Chat', style: TextStyle(fontSize: 14)),
-                    subtitle: const Text('Staff will message or call you in the app', style: TextStyle(fontSize: 11)),
-                    value: 'chat',
-                    groupValue: _viewModel.contactMethod,
-                    activeColor: AppColors.primary,
-                    onChanged: (value) => _viewModel.setContactMethod(value!),
-                  ),
-                  const Divider(height: 1, indent: 16),
-                  RadioListTile<String>(
-                    title: const Text('Come to my location', style: TextStyle(fontSize: 14)),
-                    subtitle: const Text('Staff will find you in person', style: TextStyle(fontSize: 11)),
-                    value: 'location',
-                    groupValue: _viewModel.contactMethod,
-                    activeColor: AppColors.primary,
-                    onChanged: (value) => _viewModel.setContactMethod(value!),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // ── Share location toggle ──
-            Card(
-              child: SwitchListTile(
-                title: const Text('Share my current location', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                subtitle: Text('Helps staff find you faster', style: Theme.of(context).textTheme.bodySmall),
-                secondary: const Icon(Icons.my_location, color: AppColors.primary),
-                value: _viewModel.shareLocation,
-                activeColor: AppColors.primary,
-                onChanged: (value) => _viewModel.setShareLocation(value),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // ── Error message ──
-            if (_viewModel.errorMessage != null)
-              Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.emergency.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.emergency.withValues(alpha: 0.3)),
                 ),
                 const SizedBox(height: 24),
 
@@ -559,59 +441,69 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                     child: const Text('View My Requests'),
                   ),
                 ),
+
+                // ── Facility barrier report (Module 5 & 7): deliberately styled
+                // as the weakest action so travellers never mistake it for help.
+                const SizedBox(height: 8),
+                Material(
+                  color: AppColors.surfaceVariant,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      final venue = Uri.encodeComponent(_viewModel.venueName);
+                      context.push('/accessibility-issue?venue=$venue');
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.report_outlined,
+                            size: 20,
+                            color: AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Report an Accessibility Barrier',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Facility feedback only — staff will not respond to reports. For immediate help, submit a request above.',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(color: AppColors.textMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right,
+                            size: 20,
+                            color: AppColors.textMuted,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 32),
               ],
             ),
-            const SizedBox(height: 12),
-            Center(
-              child: TextButton(
-                onPressed: () => context.push('/request-tracking'),
-                child: const Text('View My Requests'),
-              ),
-            ),
-
-            // ── Facility barrier report (Module 5 & 7): deliberately styled
-            // as the weakest action so travellers never mistake it for help.
-            const SizedBox(height: 8),
-            Material(
-              color: AppColors.surfaceVariant,
-              borderRadius: BorderRadius.circular(12),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  final venue = Uri.encodeComponent(_viewModel.venueName);
-                  context.push('/accessibility-issue?venue=$venue');
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.report_outlined, size: 20, color: AppColors.textSecondary),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Report an Accessibility Barrier',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Facility feedback only — staff will not respond to reports. For immediate help, submit a request above.',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, size: 20, color: AppColors.textMuted),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 32),
-          ],
+          ),
         ),
         Positioned.fill(
           child: AppTourCoachmark(

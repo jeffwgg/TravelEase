@@ -108,6 +108,15 @@ class AssistanceMenuView extends StatelessWidget {
                 const SizedBox(height: 16),
                 _buildMenuCard(
                   context,
+                  icon: Icons.report_outlined,
+                  title: 'Report a Barrier',
+                  subtitle:
+                      'Facility feedback only - staff will not respond to reports',
+                  onTap: () => context.push('/accessibility-issue'),
+                ),
+                const SizedBox(height: 16),
+                _buildMenuCard(
+                  context,
                   icon: Icons.help_outline,
                   title: 'Guidance Info',
                   subtitle: 'Learn how the assistance feature works',
@@ -115,46 +124,7 @@ class AssistanceMenuView extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Select an option below to get assistance from our staff.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-            ),
-            const SizedBox(height: 32),
-            _buildMenuCard(
-              context,
-              icon: Icons.add_circle_outline,
-              title: 'Make Request',
-              subtitle: 'Request help from staff (e.g. navigation, luggage)',
-              onTap: () => context.push('/assistance-request/new'),
-            ),
-            const SizedBox(height: 16),
-            _buildMenuCard(
-              context,
-              icon: Icons.track_changes_outlined,
-              title: 'View / Track Request',
-              subtitle: 'Check the status of your current requests',
-              onTap: () => context.push('/request-tracking'),
-            ),
-            const SizedBox(height: 16),
-            _buildMenuCard(
-              context,
-              icon: Icons.report_outlined,
-              title: 'Report a Barrier',
-              subtitle: 'Facility feedback only - staff will not respond to reports',
-              onTap: () => context.push('/accessibility-issue'),
-            ),
-            const SizedBox(height: 16),
-            _buildMenuCard(
-              context,
-              icon: Icons.help_outline,
-              title: 'Guidance Info',
-              subtitle: 'Learn how the assistance feature works',
-              onTap: () => _showGuidanceInfo(context),
-            ),
-          ],
+          ),
         ),
         Positioned.fill(
           child: AppTourCoachmark(
