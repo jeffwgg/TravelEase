@@ -867,7 +867,26 @@ export default function StaffChatPage() {
                   messages.map((msg) => {
                     const isStaff = msg.sender_type === 'staff'
                     const msgType = msg.message_type || 'text'
-                    const timeStr = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    
+                    // Robust timestamp parsing supporting Postgres and ISO formats with fallback
+                    let timeStr = ''
+                    if (msg.created_at) {
+                      try {
+                        let d = new Date(msg.created_at)
+                        if (isNaN(d.getTime()) && typeof msg.created_at === 'string') {
+                          const normalized = msg.created_at.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')
+                          d = new Date(normalized)
+                        }
+                        if (!isNaN(d.getTime())) {
+                          timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        }
+                      } catch {
+                        // ignore and use fallback
+                      }
+                    }
+                    if (!timeStr) {
+                      timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    }
 
                     // Call summary row: content is '<video|voice>|<seconds>'
                     if (msgType === 'call') {
@@ -902,12 +921,13 @@ export default function StaffChatPage() {
                         style={{
                           alignSelf: isStaff ? 'flex-end' : 'flex-start',
                           maxWidth: '85%',
+                          minWidth: '72px',
                           background: isStaff ? 'var(--success)' : 'var(--surface)',
                           color: isStaff ? '#fff' : 'var(--text)',
-                          padding: msgType === 'text' ? '14px' : '8px',
+                          padding: msgType === 'text' ? '10px 14px 12px 14px' : '8px',
                           borderRadius: '16px',
                           border: isStaff ? 'none' : '1px solid var(--card-border)',
-                          overflow: 'hidden',
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
                         }}
                       >
                         {msgType === 'image' ? (
@@ -926,7 +946,7 @@ export default function StaffChatPage() {
                                 objectFit: 'cover',
                               }}
                             />
-                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)', textAlign: 'right', marginTop: '4px', padding: '0 4px' }}>
+                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)', textAlign: 'right', marginTop: '6px', padding: '0 4px 2px' }}>
                               {timeStr}
                             </div>
                           </div>
@@ -944,24 +964,35 @@ export default function StaffChatPage() {
                                 background: '#000',
                               }}
                             />
-                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)', textAlign: 'right', marginTop: '4px', padding: '0 4px' }}>
+                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)', textAlign: 'right', marginTop: '6px', padding: '0 4px 2px' }}>
                               {timeStr}
                             </div>
                           </div>
                         ) : (
-                          <>
-                            <div style={{ fontSize: '14px' }}>{msg.content}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <div
+                              style={{
+                                fontSize: '14px',
+                                lineHeight: '1.5',
+                                wordBreak: 'break-word',
+                                paddingBottom: '6px', // Extra bottom padding to avoid overlapping the line/timing
+                              }}
+                            >
+                              {msg.content}
+                            </div>
                             <div
                               style={{
                                 fontSize: '10px',
-                                color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)',
+                                color: isStaff ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)',
                                 textAlign: 'right',
-                                marginTop: '4px'
+                                lineHeight: '1.2',
+                                alignSelf: 'flex-end',
+                                userSelect: 'none',
                               }}
                             >
                               {timeStr}
                             </div>
-                          </>
+                          </div>
                         )}
                       </div>
                     )

@@ -182,7 +182,11 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/request-tracking',
-      builder: (context, state) => const RequestTrackingView(),
+      builder: (context, state) {
+        final tabParam = state.uri.queryParameters['tab'];
+        final initialTab = tabParam == 'reports' ? 1 : 0;
+        return RequestTrackingView(initialTab: initialTab);
+      },
     ),
     GoRoute(
       path: '/assistance-request/new',

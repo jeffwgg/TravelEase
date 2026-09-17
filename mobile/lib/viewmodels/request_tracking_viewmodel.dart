@@ -10,8 +10,13 @@ class RequestTrackingViewModel extends ChangeNotifier {
   String? errorMessage;
   bool _isDisposed = false;
 
+  // Accessibility reports state (FR-M5-28)
+  List<Map<String, dynamic>> accessibilityReports = [];
+  bool isLoadingReports = false;
+  String? reportsErrorMessage;
+
   // Tracks which requests need resolution confirmation (status just changed to resolved)
-  Set<String> pendingResolution = {};
+  Set<String> pendingResolution = <String>{};
 
   Future<void> loadRequests() async {
     isLoading = true;
@@ -46,9 +51,45 @@ class RequestTrackingViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> loadAccessibilityReports() async {
+    isLoadingReports = true;
+    reportsErrorMessage = null;
+    _notify();
+
+    try {
+      final result = await _repository.getUserAccessibilityReports();
+      accessibilityReports = result;
+      isLoadingReports = false;
+      _notify();
+    } catch (e) {
+      isLoadingReports = false;
+      reportsErrorMessage = 'Failed to load reports: $e';
+      _notify();
+    }
+  }
+
+  Future<void> loadAll() async {
+    await Future.wait([
+      loadRequests(),
+      loadAccessibilityReports(),
+    ]);
+  }
+
   // FR-M5-29: Cancel a request
   Future<bool> cancelRequest(String requestId) async {
     final success = await _repository.cancelRequest(requestId);
+    if (success) {
+      if (LiveLocationService.instance.activeSessionId == requestId) {
+        await LiveLocationService.instance.stop();
+      }
+      await loadRequests();
+    }
+    return success;
+  }
+
+  /// User-initiated resolve for in-person requests.
+  Future<bool> resolveRequest(String requestId) async {
+    final success = await _repository.resolveRequest(requestId);
     if (success) {
       if (LiveLocationService.instance.activeSessionId == requestId) {
         await LiveLocationService.instance.stop();
@@ -123,6 +164,53 @@ class RequestTrackingViewModel extends ChangeNotifier {
         return const Color(0xFFEF4444);
       default:
         return const Color(0xFF94A3B8);
+    }
+  }
+
+  String getBarrierStatusLabel(String status) {
+    switch (status.toLowerCase()) {
+      case 'reported':
+        return 'Reported';
+      case 'investigating':
+      case 'in_progress':
+        return 'Investigating';
+      case 'resolved':
+        return 'Resolved';
+      default:
+        return status;
+    }
+  }
+
+  Color getBarrierStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'reported':
+        return const Color(0xFF3B82F6);
+      case 'investigating':
+      case 'in_progress':
+        return const Color(0xFFF59E0B);
+      case 'resolved':
+        return const Color(0xFF10B981);
+      default:
+        return const Color(0xFF94A3B8);
+    }
+  }
+
+  String getIssueTypeLabel(String issueType) {
+    switch (issueType.toLowerCase()) {
+      case 'visual':
+        return 'No Visual Announcement';
+      case 'queue':
+        return 'Sound-Only Queue';
+      case 'sign':
+        return 'No Sign Language';
+      case 'alert':
+        return 'Missing Visual Alert';
+      case 'access':
+        return 'Inaccessible Area';
+      case 'other':
+        return 'Other Issue';
+      default:
+        return issueType;
     }
   }
 

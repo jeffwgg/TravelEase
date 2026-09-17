@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase_client.dart';
 
@@ -193,6 +194,35 @@ class AssistanceRepository {
     );
   }
 
+  // Module 5: Upload accessibility report photo to Supabase Storage (FR-M5-24)
+  Future<String?> uploadAccessibilityReportPhoto({
+    required String reportCode,
+    required String filePath,
+  }) async {
+    try {
+      final file = File(filePath);
+      final bytes = await file.readAsBytes();
+      final fileName = filePath.split('/').last;
+      final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final storagePath = '$reportCode/${timestamp}_$safeName';
+
+      await _client.storage.from('accessibility-reports').uploadBinary(
+        storagePath,
+        bytes,
+        fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false),
+      );
+
+      final publicUrl = _client.storage
+          .from('accessibility-reports')
+          .getPublicUrl(storagePath);
+      return publicUrl;
+    } catch (e) {
+      debugPrint('Error uploading accessibility report photo: $e');
+      return null;
+    }
+  }
+
   // Module 5 & 7: Report Accessibility Issue
   Future<Map<String, dynamic>?> reportAccessibilityIssue({
     required String reportCode,
@@ -202,6 +232,7 @@ class AssistanceRepository {
     required String description,
     required String severity,
     required bool analyticsConsent,
+    String? photoUrl,
   }) async {
     try {
       final response = await _client
@@ -217,13 +248,31 @@ class AssistanceRepository {
             'severity': severity,
             'status': 'reported',
             'analytics_consent': analyticsConsent,
+            if (photoUrl != null && photoUrl.isNotEmpty) 'photo_url': photoUrl,
           })
           .select()
           .single();
       return response;
     } catch (e) {
-      print('Error reporting accessibility issue: $e');
+      debugPrint('Error reporting accessibility issue: $e');
       return null;
+    }
+  }
+
+  // Module 5: Get logged-in traveler's accessibility reports history (FR-M5-28)
+  Future<List<Map<String, dynamic>>> getUserAccessibilityReports() async {
+    try {
+      final userId = _client.auth.currentUser?.id;
+      if (userId == null) return [];
+      final response = await _client
+          .from('accessibility_issue_reports')
+          .select()
+          .eq('user_id', userId)
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching accessibility reports: $e');
+      return [];
     }
   }
 
@@ -262,6 +311,27 @@ class AssistanceRepository {
     }
   }
 
+  /// User-initiated resolve: marks an in-person request as resolved and
+  /// records the resolved_at timestamp. Used when the traveller confirms
+  /// the staff member helped them on-site.
+  Future<bool> resolveRequest(String requestId) async {
+    try {
+      final now = DateTime.now().toUtc().toIso8601String();
+      await _client
+          .from('assistance_requests')
+          .update({
+            'status': 'resolved',
+            'resolved_at': now,
+            'updated_at': now,
+          })
+          .eq('id', requestId);
+      return true;
+    } catch (e) {
+      print('Error resolving request: $e');
+      return false;
+    }
+  }
+
   // FR-M5-16 / FR-M5-26: Submit resolution feedback and close/reopen ticket
   Future<bool> submitResolutionFeedback({
     required String requestId,
@@ -271,6 +341,7 @@ class AssistanceRepository {
   }) async {
     try {
       final newStatus = outcome == 'fully_resolved' ? 'closed' : 'in_progress';
+      final now = DateTime.now().toUtc().toIso8601String();
       await _client
           .from('assistance_requests')
           .update({
@@ -278,7 +349,8 @@ class AssistanceRepository {
             'user_rating': rating,
             'user_feedback_comment': comment,
             'status': newStatus,
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'updated_at': now,
+            if (newStatus == 'closed') 'resolved_at': now,
           })
           .eq('id', requestId);
       return true;

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/repositories/assistance_repository.dart';
 
 class AccessibilityIssueViewModel extends ChangeNotifier {
@@ -15,6 +16,7 @@ class AccessibilityIssueViewModel extends ChangeNotifier {
   bool isSubmitting = false;
   String? errorMessage;
   bool isSubmitted = false;
+  String? lastSubmittedReportCode;
 
   void setIssueType(String? value) {
     issueType = value;
@@ -43,7 +45,12 @@ class AccessibilityIssueViewModel extends ChangeNotifier {
     return 'RPT-$code';
   }
 
-  Future<bool> submitReport({required String venueName, required bool analyticsConsent}) async {
+  Future<bool> submitReport({
+    required String venueName,
+    required bool analyticsConsent,
+    XFile? photoFile,
+    String? serviceAreaName,
+  }) async {
     if (issueType == null) {
       errorMessage = 'Please select an issue type';
       notifyListeners();
@@ -61,22 +68,35 @@ class AccessibilityIssueViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final reportCode = _generateReportCode();
+      String? photoUrl;
+      if (photoFile != null) {
+        photoUrl = await _repository.uploadAccessibilityReportPhoto(
+          reportCode: reportCode,
+          filePath: photoFile.path,
+        );
+      }
+
       final result = await _repository.reportAccessibilityIssue(
-        reportCode: _generateReportCode(),
+        reportCode: reportCode,
         issueType: issueType!,
         venueName: venueName,
         locationZone: locationController.text.isNotEmpty
             ? locationController.text
-            : venueName,
+            : (serviceAreaName != null && serviceAreaName.trim().isNotEmpty)
+                  ? serviceAreaName.trim()
+                  : venueName,
         description: descriptionController.text,
         severity: severityLabel,
         analyticsConsent: analyticsConsent,
+        photoUrl: photoUrl,
       );
 
       isSubmitting = false;
 
       if (result != null) {
         isSubmitted = true;
+        lastSubmittedReportCode = reportCode;
         notifyListeners();
         return true;
       } else {
@@ -99,6 +119,7 @@ class AccessibilityIssueViewModel extends ChangeNotifier {
     descriptionController.clear();
     errorMessage = null;
     isSubmitted = false;
+    lastSubmittedReportCode = null;
     notifyListeners();
   }
 

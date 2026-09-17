@@ -10,11 +10,7 @@ import '../../models/entities/venue_search_result.dart';
 import '../../models/entities/venue_information.dart';
 import '../../models/entities/venue_session.dart';
 import '../../models/entities/venue_service_area.dart';
-import '../../models/repositories/announcement_repository.dart';
 import '../../models/repositories/auth_repository.dart';
-import '../../models/repositories/spoken_announcement_repository.dart';
-import '../../models/repositories/feature_usage_repository.dart';
-import '../../services/app_tour_controller.dart';
 import '../../models/repositories/venue_repository.dart';
 import '../../services/app_tour_controller.dart';
 import '../../viewmodels/venue_identification_viewmodel.dart';
@@ -50,8 +46,6 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     with WidgetsBindingObserver {
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
-  final _venueRepository = VenueRepository();
-  final _announcementRepository = AnnouncementRepository();
   final _authRepository = AuthRepository();
   final _viewModel = VenueIdentificationViewModel();
   int _appliedSearchInputResetVersion = 0;
@@ -429,10 +423,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Hello, Jeff',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .headlineLarge,
+                                        'Hello, $_greetingName',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.headlineLarge,
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
@@ -466,24 +460,6 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                                   AppColors.primary,
                                   () => context.push('/sign-camera'),
                                 ),
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Hello, $_greetingName',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.headlineLarge,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'Where are you traveling today?',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium,
-                                    ),
-                                  ],
                                 _buildQuickAction(
                                   Icons.forum_rounded,
                                   'Two-Way\nDialogue',

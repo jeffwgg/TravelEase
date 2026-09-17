@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { 
   Clock, 
@@ -18,7 +18,11 @@ import {
   Check,
   ShieldCheck,
   Eye,
-  Radio
+  Radio,
+  Image as ImageIcon,
+  ZoomIn,
+  FileText,
+  LifeBuoy
 } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import { useAuth } from '../context/AuthContext'
@@ -34,6 +38,21 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
   const [statusFilter, setStatusFilter] = useState('All Statuses')
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Top-level Navigation Tab: 'requests' | 'barriers'
+  const [mainTab, setMainTab] = useState('requests')
+
+  // Accessibility Barrier Reports State (Module 5 & 7)
+  const [barrierReports, setBarrierReports] = useState([])
+  const [loadingBarriers, setLoadingBarriers] = useState(true)
+  const [barrierStatusFilter, setBarrierStatusFilter] = useState('All Statuses')
+  const [barrierSearchQuery, setBarrierSearchQuery] = useState('')
+  const [selectedBarrier, setSelectedBarrier] = useState(null)
+  const [isBarrierModalOpen, setIsBarrierModalOpen] = useState(false)
+  const [barrierNewStatus, setBarrierNewStatus] = useState('reported')
+  const [barrierNewNotes, setBarrierNewNotes] = useState('')
+  const [savingBarrier, setSavingBarrier] = useState(false)
+  const [zoomPhotoUrl, setZoomPhotoUrl] = useState(null)
+
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedReq, setSelectedReq] = useState(null)
@@ -48,15 +67,24 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
 
   useEffect(() => {
     loadRequests()
+    if (!staffOnly) {
+      loadBarrierReports()
+    }
 
     const unsubscribe = assistanceRepository.subscribeToRequests(() => {
       loadRequests()
     })
+    const unsubscribeBarriers = !staffOnly
+      ? assistanceRepository.subscribeToAccessibilityReports(() => {
+          loadBarrierReports()
+        })
+      : null
 
     return () => {
       if (unsubscribe) unsubscribe()
+      if (unsubscribeBarriers) unsubscribeBarriers()
     }
-  }, [])
+  }, [staffOnly])
 
   // Live-refresh staff availability while the assign modal is open
   useEffect(() => {
@@ -78,6 +106,112 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
     const data = await assistanceRepository.getAssistanceRequests()
     setRequests(data || [])
     setLoading(false)
+  }
+
+  async function loadBarrierReports() {
+    setLoadingBarriers(true)
+    const data = await assistanceRepository.getAccessibilityIssueReports()
+    setBarrierReports(data || [])
+    setLoadingBarriers(false)
+  }
+
+  function openBarrierModal(report) {
+    setSelectedBarrier(report)
+    setBarrierNewStatus(report.status || 'reported')
+    setBarrierNewNotes(report.admin_notes || '')
+    setIsBarrierModalOpen(true)
+  }
+
+  async function handleSaveBarrier() {
+    if (!selectedBarrier) return
+    setSavingBarrier(true)
+    try {
+      const updated = await assistanceRepository.updateAccessibilityReport(selectedBarrier.id, {
+        status: barrierNewStatus,
+        adminNotes: barrierNewNotes
+      })
+      if (updated) {
+        showToast(`Barrier report #${selectedBarrier.report_code} updated successfully`)
+        setIsBarrierModalOpen(false)
+        await loadBarrierReports()
+      } else {
+        showToast('Failed to update report. Please try again.')
+      }
+    } catch (err) {
+      console.error('Failed to update barrier report:', err)
+      showToast('Error updating barrier report.')
+    } finally {
+      setSavingBarrier(false)
+    }
+  }
+
+  const rawVenueName = staffContext?.institutions?.name
+  const scopedBarriers = useMemo(() => {
+    if (!rawVenueName) return barrierReports
+    const target = rawVenueName.trim().toLowerCase()
+    return barrierReports.filter(b => (b.venue_name || '').trim().toLowerCase() === target)
+  }, [barrierReports, rawVenueName])
+
+  const filteredBarriers = useMemo(() => {
+    return scopedBarriers.filter(b => {
+      const s = (b.status || '').toLowerCase()
+      const matchesStatus = barrierStatusFilter === 'All Statuses' ||
+        (barrierStatusFilter === 'Reported' && s === 'reported') ||
+        (barrierStatusFilter === 'Investigating' && (s === 'investigating' || s === 'in_progress')) ||
+        (barrierStatusFilter === 'Resolved' && (s === 'resolved' || s === 'closed'))
+      const q = barrierSearchQuery.toLowerCase().trim()
+      const matchesSearch = !q ||
+        (b.report_code && b.report_code.toLowerCase().includes(q)) ||
+        (b.location_zone && b.location_zone.toLowerCase().includes(q)) ||
+        (b.description && b.description.toLowerCase().includes(q)) ||
+        (b.issue_type && b.issue_type.toLowerCase().includes(q)) ||
+        (b.traveler_name && b.traveler_name.toLowerCase().includes(q))
+      return matchesStatus && matchesSearch
+    })
+  }, [scopedBarriers, barrierStatusFilter, barrierSearchQuery])
+
+  const barrierPendingCount = scopedBarriers.filter(b => b.status === 'reported').length
+  const barrierInvestigatingCount = scopedBarriers.filter(b => b.status === 'investigating' || b.status === 'in_progress').length
+  const barrierResolvedCount = scopedBarriers.filter(b => b.status === 'resolved' || b.status === 'closed').length
+  const barrierSevereCount = scopedBarriers.filter(b => (b.severity || '').toLowerCase() === 'severe').length
+
+  const getBarrierStatusBadge = (status) => {
+    switch (status?.toLowerCase()) {
+      case 'reported':
+        return <span className="badge primary">Reported</span>
+      case 'investigating':
+      case 'in_progress':
+        return <span className="badge secondary">Investigating</span>
+      case 'resolved':
+      case 'closed':
+        return <span className="badge success">Resolved</span>
+      default:
+        return <span className="badge secondary">{status || 'Reported'}</span>
+    }
+  }
+
+  const getBarrierSeverityBadge = (severity) => {
+    switch (severity?.toLowerCase()) {
+      case 'minor':
+        return <span className="badge success">Minor</span>
+      case 'severe':
+        return <span className="badge emergency">Severe</span>
+      case 'moderate':
+      default:
+        return <span className="badge secondary">Moderate</span>
+    }
+  }
+
+  const getBarrierIssueLabel = (issueType) => {
+    switch (issueType?.toLowerCase()) {
+      case 'visual': return 'No Visual Announcement'
+      case 'queue': return 'Sound-Only Queue'
+      case 'sign': return 'No Sign Language'
+      case 'alert': return 'Missing Visual Alert'
+      case 'access': return 'Inaccessible Area'
+      case 'other': return 'Other Issue'
+      default: return issueType || 'General'
+    }
   }
 
   async function openAssignModal(req) {
@@ -108,6 +242,17 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
       showToast('Failed to assign staff. Please try again.')
     } finally {
       setSubmittingAssignId(null)
+    }
+  }
+
+  async function handleResolveRequest(req) {
+    try {
+      await assistanceRepository.updateRequestStatus(req.id, 'resolved')
+      showToast(`Request ${req.request_code} marked as resolved`)
+      await loadRequests()
+    } catch (err) {
+      console.error('Failed to resolve request:', err)
+      showToast('Failed to resolve request. Please try again.')
     }
   }
 
@@ -317,246 +462,532 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
       </div>
 
       <div className="page-body">
-        <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-icon secondary"><Clock size={22} color="var(--secondary-dark)" /></div>
-            <div>
-              <div className="stat-value">{pendingCount}</div>
-              <div className="stat-label">Pending Response</div>
-            </div>
+        {/* Navigation Tabs (Managers only: manage both requests and barrier reports) */}
+        {!staffOnly && (
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', borderBottom: '1px solid var(--border-color, #e2e8f0)', paddingBottom: '12px' }}>
+            <button
+              className={`btn ${mainTab === 'requests' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setMainTab('requests')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+            >
+              <LifeBuoy size={16} />
+              Immediate Assistance Requests
+              <span style={{
+                background: mainTab === 'requests' ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
+                padding: '2px 8px',
+                borderRadius: '12px',
+                fontSize: '11px',
+                fontWeight: 600
+              }}>
+                {baseRequests.length}
+              </span>
+            </button>
+            <button
+              className={`btn ${mainTab === 'barriers' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setMainTab('barriers')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+            >
+              <AlertTriangle size={16} />
+              Accessibility Barrier Reports
+              <span style={{
+                background: mainTab === 'barriers' ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
+                padding: '2px 8px',
+                borderRadius: '12px',
+                fontSize: '11px',
+                fontWeight: 600
+              }}>
+                {scopedBarriers.length}
+              </span>
+            </button>
           </div>
-          <div className="stat-card">
-            <div className="stat-icon primary"><MessageSquare size={22} color="var(--primary)" /></div>
-            <div>
-              <div className="stat-value">{inProgressCount}</div>
-              <div className="stat-label">In Progress (Active Chat)</div>
-            </div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-icon success"><CheckCircle2 size={22} color="var(--success)" /></div>
-            <div>
-              <div className="stat-value">{resolvedCount}</div>
-              <div className="stat-label">Resolved Today</div>
-            </div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-icon emergency"><AlertCircle size={22} color="var(--emergency)" /></div>
-            <div>
-              <div className="stat-value">{highPriorityCount}</div>
-              <div className="stat-label">High Priority / Urgent</div>
-            </div>
-          </div>
-        </div>
+        )}
 
-        <div className="card">
-          <div className="card-header">
-            <h3>Incoming Assistance Requests</h3>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <select
-                className="input"
-                style={{ width: '180px' }}
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option>All Statuses</option>
-                <option>Pending</option>
-                <option>Unassigned</option>
-                <option>Escalated</option>
-                <option>In Progress</option>
-                <option>Resolved</option>
-              </select>
-              <input
-                type="text"
-                className="input"
-                placeholder="Search ID, traveler..."
-                style={{ width: '200px' }}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+        {mainTab === 'requests' || staffOnly ? (
+          <>
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-icon secondary"><Clock size={22} color="var(--secondary-dark)" /></div>
+                <div>
+                  <div className="stat-value">{pendingCount}</div>
+                  <div className="stat-label">Pending Response</div>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon primary"><MessageSquare size={22} color="var(--primary)" /></div>
+                <div>
+                  <div className="stat-value">{inProgressCount}</div>
+                  <div className="stat-label">In Progress (Active Chat)</div>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon success"><CheckCircle2 size={22} color="var(--success)" /></div>
+                <div>
+                  <div className="stat-value">{resolvedCount}</div>
+                  <div className="stat-label">Resolved Today</div>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon emergency"><AlertCircle size={22} color="var(--emergency)" /></div>
+                <div>
+                  <div className="stat-value">{highPriorityCount}</div>
+                  <div className="stat-label">High Priority / Urgent</div>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Request ID</th>
-                <th>Traveler</th>
-                <th>Reach Method</th>
-                <th>Category</th>
-                <th>Location / Zone</th>
-                <th>Urgency</th>
-                <th>Assigned Staff</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan="9" style={{ textAlign: 'center', padding: '32px' }}>Loading requests from Supabase...</td>
-                </tr>
-              ) : filteredRequests.length === 0 ? (
-                <tr>
-                  <td colSpan="9" style={{ textAlign: 'center', padding: '32px' }}>No assistance requests match your filter.</td>
-                </tr>
-              ) : (
-                filteredRequests.map((req) => {
-                  const isUnassigned = !req.assigned_staff_name || req.assigned_staff_name === 'Unassigned'
-                  const isEscalated = req.is_escalated === true
-                  const minutesWaiting = req.created_at
-                    ? Math.floor((Date.now() - new Date(req.created_at).getTime()) / 60000)
-                    : 0
-                  const shouldEscalate = !isEscalated && req.status === 'pending' && minutesWaiting >= 10
-                  const showEscalationBadge = isEscalated || shouldEscalate
+            <div className="card">
+              <div className="card-header">
+                <h3>Incoming Assistance Requests</h3>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <select
+                    className="input"
+                    style={{ width: '180px' }}
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option>All Statuses</option>
+                    <option>Pending</option>
+                    <option>Unassigned</option>
+                    <option>Escalated</option>
+                    <option>In Progress</option>
+                    <option>Resolved</option>
+                  </select>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="Search traveler, code..."
+                    style={{ width: '220px' }}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
 
-                  return (
-                    <tr key={req.id} style={{ background: showEscalationBadge ? 'rgba(239, 68, 68, 0.02)' : undefined }}>
-                      <td>
-                        <strong>{req.request_code}</strong>
-                        {showEscalationBadge && (
-                          <div style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            background: 'rgba(239, 68, 68, 0.1)',
-                            color: '#ef4444',
-                            border: '1px solid rgba(239, 68, 68, 0.25)',
-                            borderRadius: '4px',
-                            padding: '2px 6px',
-                            fontSize: '10px',
-                            fontWeight: '700',
-                            marginTop: '4px',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            <AlertTriangle size={11} color="#ef4444" />
-                            <span>ESCALATED — Waiting {minutesWaiting} min</span>
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{req.traveler_name}</div>
-                      </td>
-                      <td>
-                        {getReachBadge(req.preferred_communication)}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'capitalize' }}>
-                          {getCategoryIcon(req.category)} {req.category}
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                          <span>{req.location_zone}</span>
-                          {req.share_location && (
-                            <button
-                              type="button"
-                              onClick={() => setDetailModalReq(req)}
-                              style={{
-                                background: 'rgba(22, 163, 74, 0.08)',
-                                border: '1px solid rgba(22, 163, 74, 0.25)',
-                                color: '#16a34a',
-                                borderRadius: '12px',
-                                padding: '2px 7px',
-                                fontSize: '10px',
-                                fontWeight: 600,
-                                cursor: 'pointer',
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Request Code</th>
+                    <th>Traveler</th>
+                    <th>Category</th>
+                    <th>Urgency</th>
+                    <th>Contact</th>
+                    <th>Location / Zone</th>
+                    {!staffOnly && <th>Assigned Staff</th>}
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={staffOnly ? "8" : "9"} style={{ textAlign: 'center', padding: '32px' }}>Loading requests from Supabase...</td>
+                    </tr>
+                  ) : filteredRequests.length === 0 ? (
+                    <tr>
+                      <td colSpan={staffOnly ? "8" : "9"} style={{ textAlign: 'center', padding: '32px' }}>No assistance requests match your filter.</td>
+                    </tr>
+                  ) : (
+                    filteredRequests.map((req) => {
+                      const isUnassigned = !req.assigned_staff_name || req.assigned_staff_name === 'Unassigned'
+                      const isEscalated = req.is_escalated === true
+                      const minutesWaiting = req.created_at
+                        ? Math.floor((Date.now() - new Date(req.created_at).getTime()) / 60000)
+                        : 0
+                      const shouldEscalate = !isEscalated && req.status === 'pending' && minutesWaiting >= 10
+                      const showEscalationBadge = isEscalated || shouldEscalate
+
+                      return (
+                        <tr key={req.id} style={{ background: showEscalationBadge ? 'rgba(239, 68, 68, 0.02)' : undefined }}>
+                          <td>
+                            <strong>{req.request_code}</strong>
+                            {showEscalationBadge && (
+                              <div style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '4px',
-                                width: 'fit-content'
-                              }}
-                              title="Click to view live FindMy map"
-                            >
-                              <Radio size={10} color="#16a34a" /> Live Tracking
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td>{getUrgencyBadge(req.urgency)}</td>
-                      <td>
-                        {!isUnassigned ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <ShieldCheck size={14} color="var(--primary)" />
-                            <span style={{ fontWeight: 500 }}>{req.assigned_staff_name}</span>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '2px' }}>
-                            <span
-                              className="badge emergency"
-                              style={{
-                                background: 'rgba(239, 68, 68, 0.08)',
+                                background: 'rgba(239, 68, 68, 0.1)',
                                 color: '#ef4444',
-                                border: '1px dashed #ef4444',
-                                padding: '3px 8px',
-                                fontSize: '11px',
-                                fontWeight: 600
-                              }}
-                            >
-                              Unassigned
-                            </span>
-                            {req.status === 'pending' && (
-                              <span style={{ fontSize: '10px', color: '#64748b' }}>
-                                Waiting {minutesWaiting} min
-                              </span>
+                                border: '1px solid rgba(239, 68, 68, 0.25)',
+                                borderRadius: '4px',
+                                padding: '2px 6px',
+                                fontSize: '10px',
+                                fontWeight: '700',
+                                marginTop: '4px',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                <AlertTriangle size={11} color="#ef4444" />
+                                <span>ESCALATED — Waiting {minutesWaiting} min</span>
+                              </div>
                             )}
-                          </div>
-                        )}
-                      </td>
-                      <td>{getStatusBadge(req.status)}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                          <button
-                            className="btn btn-outline btn-sm"
-                            onClick={() => setDetailModalReq(req)}
-                            title="View Details & Live Map"
-                            style={{ padding: '6px 8px', display: 'inline-flex', alignItems: 'center' }}
-                          >
-                            <Eye size={13} />
-                          </button>
-                          {req.status === 'pending' ? (
-                            !staffOnly && (
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{req.traveler_name}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                              {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {getCategoryIcon(req.category)}
+                              <span style={{ textTransform: 'capitalize' }}>{req.category}</span>
+                            </div>
+                          </td>
+                          <td>{getUrgencyBadge(req.urgency)}</td>
+                          <td>{getReachBadge(req.preferred_communication)}</td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <MapPin size={14} color="var(--accent)" />
+                              <span>{req.location_zone}</span>
+                            </div>
+                          </td>
+                          {!staffOnly && (
+                            <td>
+                              {isUnassigned ? (
+                                <span style={{
+                                  color: '#dc2626',
+                                  background: 'rgba(220, 38, 38, 0.08)',
+                                  border: '1px dashed rgba(220, 38, 38, 0.4)',
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: 500,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}>
+                                  <AlertCircle size={12} /> Unassigned
+                                </span>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                  <span style={{ fontWeight: 500 }}>{req.assigned_staff_name}</span>
+                                  {req.status === 'in_progress' && (
+                                    <span style={{
+                                      fontSize: '11px',
+                                      color: '#2563eb',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                      marginTop: '2px'
+                                    }}>
+                                      {req.preferred_communication === 'location'
+                                        ? <><MapPin size={10} /> On-Site Assistance</>
+                                        : <><MessageSquare size={10} /> Active in Chat</>}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          )}
+                          <td>{getStatusBadge(req.status)}</td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                               <button
-                                className="btn btn-primary btn-sm"
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                                onClick={() => openAssignModal(req)}
+                                className="btn btn-outline btn-sm"
+                                onClick={() => setDetailModalReq(req)}
+                                title="View Details & Live Map"
+                                style={{ padding: '6px 8px', display: 'inline-flex', alignItems: 'center' }}
                               >
-                                <UserCheck size={14} /> Assign Staff
+                                <Eye size={13} />
                               </button>
-                            )
-                          ) : req.status === 'in_progress' ? (
-                            staffOnly ? (
-                              <button
-                                className="btn btn-primary btn-sm"
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                                onClick={() => navigate('/chat', { state: { requestId: req.id } })}
-                              >
-                                <MessageSquare size={14} /> Open Chat
-                              </button>
-                            ) : (
-                              <button
-                                className="btn btn-secondary btn-sm"
-                                onClick={() => openAssignModal(req)}
-                              >
-                                Reassign
-                              </button>
-                            )
-                          ) : staffOnly ? (
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => navigate('/chat', { state: { requestId: req.id } })}
-                            >
-                              View Chat
-                            </button>
-                          ) : null}
-                        </div>
+                              {req.status === 'pending' ? (
+                                !staffOnly && (
+                                  <button
+                                    className="btn btn-primary btn-sm"
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                    onClick={() => openAssignModal(req)}
+                                  >
+                                    <UserCheck size={14} /> Assign Staff
+                                  </button>
+                                )
+                              ) : req.status === 'in_progress' ? (
+                                staffOnly ? (
+                                  req.preferred_communication === 'location' ? (
+                                    <>
+                                      <button
+                                        className="btn btn-secondary btn-sm"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                        onClick={() => setDetailModalReq(req)}
+                                      >
+                                        <MapPin size={14} /> View Location
+                                      </button>
+                                      <button
+                                        className="btn btn-sm"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--success)', color: '#ffffff' }}
+                                        onClick={() => handleResolveRequest(req)}
+                                      >
+                                        <CheckCircle2 size={14} /> Resolve
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        className="btn btn-primary btn-sm"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                        onClick={() => navigate('/chat', { state: { requestId: req.id } })}
+                                      >
+                                        <MessageSquare size={14} /> Open Chat
+                                      </button>
+                                      <button
+                                        className="btn btn-sm"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--success)', color: '#ffffff' }}
+                                        onClick={() => handleResolveRequest(req)}
+                                      >
+                                        <CheckCircle2 size={14} /> Resolve
+                                      </button>
+                                    </>
+                                  )
+                                ) : (
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => openAssignModal(req)}
+                                  >
+                                    Reassign
+                                  </button>
+                                )
+                              ) : staffOnly ? (
+                                req.preferred_communication !== 'location' && (
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => navigate('/chat', { state: { requestId: req.id } })}
+                                  >
+                                    View Chat
+                                  </button>
+                                )
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Barrier Stats Grid */}
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-icon primary"><AlertCircle size={22} color="var(--primary)" /></div>
+                <div>
+                  <div className="stat-value">{scopedBarriers.length}</div>
+                  <div className="stat-label">Total Barriers Filed</div>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon secondary"><Clock size={22} color="var(--secondary-dark)" /></div>
+                <div>
+                  <div className="stat-value">{barrierPendingCount}</div>
+                  <div className="stat-label">Reported (New)</div>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon warning"><AlertTriangle size={22} color="#f59e0b" /></div>
+                <div>
+                  <div className="stat-value">{barrierInvestigatingCount}</div>
+                  <div className="stat-label">Investigating / Action</div>
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-icon success"><CheckCircle2 size={22} color="var(--success)" /></div>
+                <div>
+                  <div className="stat-value">{barrierResolvedCount}</div>
+                  <div className="stat-label">Resolved Barriers</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <div>
+                  <h3>Reported Accessibility Barriers</h3>
+                  <div style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+                    Infrastructural and communication barriers reported by travelers. Review issues, inspect photos, and record processing results.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <select
+                    className="input"
+                    style={{ width: '170px' }}
+                    value={barrierStatusFilter}
+                    onChange={(e) => setBarrierStatusFilter(e.target.value)}
+                  >
+                    <option>All Statuses</option>
+                    <option>Reported</option>
+                    <option>Investigating</option>
+                    <option>Resolved</option>
+                  </select>
+                  <div style={{ position: 'relative' }}>
+                    <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '10px' }} />
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="Search code, zone, issue..."
+                      style={{ paddingLeft: '32px', width: '220px' }}
+                      value={barrierSearchQuery}
+                      onChange={(e) => setBarrierSearchQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Report Code</th>
+                    <th>Date & Time</th>
+                    <th>Issue Category</th>
+                    <th>Location Zone</th>
+                    <th>Severity</th>
+                    <th>Photo Evidence</th>
+                    <th>Description</th>
+                    <th>Status</th>
+                    <th>Processing Result</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingBarriers ? (
+                    <tr>
+                      <td colSpan="10" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
+                        Loading accessibility barrier reports...
                       </td>
                     </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                  ) : filteredBarriers.length === 0 ? (
+                    <tr>
+                      <td colSpan="10" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
+                        No barrier reports found matching your filter criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredBarriers.map((b) => {
+                      return (
+                        <tr key={b.id}>
+                          <td>
+                            <span style={{
+                              fontWeight: 'bold',
+                              color: 'var(--primary)',
+                              background: 'rgba(59, 130, 246, 0.08)',
+                              padding: '3px 7px',
+                              borderRadius: '5px',
+                              fontSize: '12px'
+                            }}>
+                              {b.report_code}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>
+                            {new Date(b.created_at).toLocaleDateString()} {new Date(b.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td>
+                            <span style={{ fontSize: '13px', fontWeight: 500, color: '#1e293b' }}>
+                              {getBarrierIssueLabel(b.issue_type)}
+                            </span>
+                          </td>
+                          <td>
+                            <span style={{ fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <MapPin size={13} color="#64748b" />
+                              {b.location_zone || b.venue_name || '—'}
+                            </span>
+                          </td>
+                          <td>{getBarrierSeverityBadge(b.severity)}</td>
+                          <td>
+                            {b.photo_url ? (
+                              <button
+                                type="button"
+                                onClick={() => setZoomPhotoUrl(b.photo_url)}
+                                title="Click to zoom photo"
+                                style={{
+                                  border: 'none',
+                                  background: 'transparent',
+                                  padding: 0,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  position: 'relative'
+                                }}
+                              >
+                                <img
+                                  src={b.photo_url}
+                                  alt="Barrier photo evidence"
+                                  style={{
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '6px',
+                                    objectFit: 'cover',
+                                    border: '1px solid #e2e8f0'
+                                  }}
+                                />
+                                <span style={{
+                                  position: 'absolute',
+                                  right: '2px',
+                                  bottom: '2px',
+                                  background: 'rgba(0,0,0,0.6)',
+                                  borderRadius: '3px',
+                                  padding: '1px'
+                                }}>
+                                  <ZoomIn size={10} color="#ffffff" />
+                                </span>
+                              </button>
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontSize: '12px' }}>None</span>
+                            )}
+                          </td>
+                          <td style={{ maxWidth: '220px' }}>
+                            <span
+                              title={b.description}
+                              style={{
+                                fontSize: '13px',
+                                color: '#334155',
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden'
+                              }}
+                            >
+                              {b.description || '—'}
+                            </span>
+                          </td>
+                          <td>{getBarrierStatusBadge(b.status)}</td>
+                          <td style={{ maxWidth: '180px' }}>
+                            {b.admin_notes ? (
+                              <span
+                                title={b.admin_notes}
+                                style={{
+                                  fontSize: '12px',
+                                  color: '#047857',
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden'
+                                }}
+                              >
+                                {b.admin_notes}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                                Awaiting review
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <button
+                              className="btn btn-outline btn-sm"
+                              onClick={() => openBarrierModal(b)}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
+                            >
+                              <Eye size={13} /> Review & Action
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Staff Assignment Modal */}
@@ -796,11 +1227,11 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                           ) : (
                             <button
                               className={`btn ${staff.status === 'available' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-                              disabled={isAssigning}
+                              disabled={isAssigning || staff.status !== 'available'}
                               style={{ minWidth: '100px' }}
                               onClick={() => handleAssignStaff(staff)}
                             >
-                              {isAssigning ? 'Assigning...' : staff.status === 'available' ? 'Assign Staff' : 'Assign (Busy)'}
+                              {isAssigning ? 'Assigning...' : staff.status === 'available' ? 'Assign Staff' : 'Busy'}
                             </button>
                           )}
                         </div>
@@ -971,7 +1402,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                     <UserCheck size={14} /> Assign Staff
                   </button>
                 )}
-                {staffOnly && detailModalReq.status === 'in_progress' && (
+                {staffOnly && detailModalReq.status === 'in_progress' && detailModalReq.preferred_communication !== 'location' && (
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={() => {
@@ -983,11 +1414,384 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                     <MessageSquare size={14} /> Open Chat
                   </button>
                 )}
+                {staffOnly && detailModalReq.status === 'in_progress' && (
+                  <button
+                    className="btn btn-sm"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'var(--success)', color: '#ffffff' }}
+                    onClick={() => {
+                      const req = detailModalReq
+                      setDetailModalReq(null)
+                      handleResolveRequest(req)
+                    }}
+                  >
+                    <CheckCircle2 size={14} /> Resolve
+                  </button>
+                )}
                 <button className="btn btn-secondary btn-sm" onClick={() => setDetailModalReq(null)}>
                   Close
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Barrier Review & Processing Modal (UC504 / Module 5 & 7) */}
+      {isBarrierModalOpen && selectedBarrier && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.6)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px'
+        }}>
+          <div style={{
+            background: 'var(--card-bg, #ffffff)',
+            borderRadius: '20px',
+            width: '100%',
+            maxWidth: '700px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
+            overflow: 'hidden',
+            border: '1px solid rgba(226, 232, 240, 0.8)'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '18px 24px',
+              borderBottom: '1px solid var(--border-color, #e2e8f0)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#f8fafc'
+            }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                    Barrier Report #{selectedBarrier.report_code || selectedBarrier.id?.slice(0, 8)}
+                  </span>
+                  {getBarrierStatusBadge(selectedBarrier.status)}
+                  {getBarrierSeverityBadge(selectedBarrier.severity)}
+                </div>
+                <h3 style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                  {getBarrierIssueLabel(selectedBarrier.issue_type)}
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsBarrierModalOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  borderRadius: '50%',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Meta Info Grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '12px',
+                padding: '14px 16px',
+                background: '#f8fafc',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0'
+              }}>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Venue</div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', marginTop: '2px' }}>
+                    {selectedBarrier.venue_name || 'TravelEase Venue'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Area / Location</div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <MapPin size={13} color="var(--primary)" />
+                    {selectedBarrier.location_zone || 'Not specified'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Reported At</div>
+                  <div style={{ fontSize: '13px', color: '#334155', marginTop: '2px' }}>
+                    {new Date(selectedBarrier.created_at).toLocaleString()}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Reporter</div>
+                  <div style={{ fontSize: '12px', color: '#334155', fontWeight: 500, marginTop: '2px' }}>
+                    {selectedBarrier.traveler_name || 'Anonymous'}
+                    <span style={{ fontSize: '11px', color: selectedBarrier.analytics_consent ? '#16a34a' : '#64748b', display: 'block' }}>
+                      {selectedBarrier.analytics_consent ? '✓ Consent for analytics' : 'Standard report'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '6px' }}>
+                  Barrier Description
+                </label>
+                <div style={{
+                  padding: '14px 16px',
+                  borderRadius: '10px',
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  fontSize: '14px',
+                  color: '#1e293b',
+                  lineHeight: 1.5,
+                  whiteSpace: 'pre-wrap'
+                }}>
+                  {selectedBarrier.description || 'No description provided.'}
+                </div>
+              </div>
+
+              {/* Photo Evidence */}
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>
+                  Photo Evidence
+                </label>
+                {selectedBarrier.photo_url ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div
+                      onClick={() => setZoomPhotoUrl(selectedBarrier.photo_url)}
+                      style={{
+                        position: 'relative',
+                        maxWidth: '320px',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        border: '1px solid #cbd5e1',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.06)'
+                      }}
+                      title="Click to zoom in"
+                    >
+                      <img
+                        src={selectedBarrier.photo_url}
+                        alt="Accessibility barrier evidence"
+                        style={{
+                          width: '100%',
+                          height: '180px',
+                          objectFit: 'cover',
+                          display: 'block'
+                        }}
+                      />
+                      <div style={{
+                        position: 'absolute',
+                        bottom: '8px',
+                        right: '8px',
+                        background: 'rgba(0,0,0,0.7)',
+                        color: '#ffffff',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}>
+                        <ZoomIn size={12} /> Click to zoom
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '14px 16px',
+                    borderRadius: '10px',
+                    background: '#f8fafc',
+                    border: '1px dashed #cbd5e1',
+                    fontSize: '13px',
+                    color: '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <ImageIcon size={16} /> No photo was uploaded with this report.
+                  </div>
+                )}
+              </div>
+
+              {/* Review & Status Processing (UC504) */}
+              <div style={{
+                borderTop: '1px solid #e2e8f0',
+                paddingTop: '18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px'
+              }}>
+                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                  Review & Processing (Visible to Traveler in History)
+                </h4>
+
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '6px' }}>
+                    Update Status
+                  </label>
+                  <select
+                    className="form-control"
+                    value={barrierNewStatus}
+                    onChange={(e) => setBarrierNewStatus(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '14px',
+                      background: '#ffffff'
+                    }}
+                  >
+                    <option value="reported">Reported (Pending Review)</option>
+                    <option value="investigating">Investigating (Staff dispatched / under active review)</option>
+                    <option value="resolved">Resolved (Barrier addressed / cleared)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '6px' }}>
+                    Processing Notes & Resolution Details
+                  </label>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>
+                    Provide details on the investigation, scheduled fix, or workaround. This will be shown directly to the traveler under their report's <strong>Processing Result</strong> on the mobile app.
+                  </div>
+                  <textarea
+                    className="form-control"
+                    rows={4}
+                    value={barrierNewNotes}
+                    onChange={(e) => setBarrierNewNotes(e.target.value)}
+                    placeholder="e.g., Facility team dispatched at 14:15. Obstacle removed from tactile paving pathway. Access restored."
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '14px',
+                      lineHeight: 1.5,
+                      resize: 'vertical'
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '16px 24px',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setIsBarrierModalOpen(false)}
+                disabled={savingBarrier}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveBarrier}
+                disabled={savingBarrier}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                {savingBarrier ? (
+                  'Saving...'
+                ) : (
+                  <>
+                    <Check size={14} /> Save Processing Results
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Fullscreen Zoom Modal */}
+      {zoomPhotoUrl && (
+        <div
+          onClick={() => setZoomPhotoUrl(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 1200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'relative',
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center'
+            }}
+          >
+            <button
+              onClick={() => setZoomPhotoUrl(null)}
+              style={{
+                position: 'absolute',
+                top: '-40px',
+                right: '0',
+                background: 'rgba(255, 255, 255, 0.2)',
+                border: 'none',
+                color: '#ffffff',
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              title="Close zoom"
+            >
+              <X size={20} />
+            </button>
+            <img
+              src={zoomPhotoUrl}
+              alt="Barrier zoom preview"
+              style={{
+                maxWidth: '90vw',
+                maxHeight: '85vh',
+                objectFit: 'contain',
+                borderRadius: '12px',
+                boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+                border: '1px solid rgba(255,255,255,0.2)'
+              }}
+            />
           </div>
         </div>
       )}

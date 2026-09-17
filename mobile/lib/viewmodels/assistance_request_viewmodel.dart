@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import '../models/repositories/assistance_repository.dart';
 import '../services/live_location_service.dart';
+import '../services/venue_session_service.dart';
 
 class AssistanceRequestViewModel extends ChangeNotifier {
   final AssistanceRepository _repository = AssistanceRepository();
@@ -62,6 +63,13 @@ class AssistanceRequestViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Label shown in the "requesting help from" header: the institution plus
+  /// its service area when the homepage venue session provides one.
+  String get venueDisplayLabel =>
+      locationZone.isEmpty || locationZone == venueName
+          ? venueName
+          : '$venueName — $locationZone';
+
   String get urgencyLabel {
     switch (urgencyLevel) {
       case 0:
@@ -82,6 +90,17 @@ class AssistanceRequestViewModel extends ChangeNotifier {
   Future<void> fetchCurrentLocation() async {
     isFetchingLocation = true;
     notifyListeners();
+
+    // The venue session established on the homepage is the default
+    // "requesting help from" location (Module 2 → Module 5 handoff).
+    final session = VenueSessionService.instance.session;
+    if (session != null) {
+      venueName = session.institutionName;
+      locationZone = session.serviceAreaName ?? session.branch ?? '';
+      isFetchingLocation = false;
+      notifyListeners();
+      return;
+    }
 
     try {
       LocationPermission permission = await Geolocator.checkPermission();

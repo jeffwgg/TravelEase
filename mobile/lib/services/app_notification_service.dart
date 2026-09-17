@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/repositories/notification_repository.dart';
+import 'flash_alert_service.dart';
 import 'notification_settings.dart';
 
 /// Central local-notification helper. Every alert relevant to a deaf
@@ -375,7 +378,11 @@ class AppNotificationService {
     );
     if (!await NotificationSettings.generalPushEnabled()) return;
     final vibration = await NotificationSettings.generalVibrationEnabled();
+    final flash = await NotificationSettings.generalFlashEnabled();
     _rememberEntry(notificationId, entryId);
+    if (flash) {
+      unawaited(FlashAlertService.instance.blinkTwice());
+    }
     return _plugin.show(
       id: notificationId,
       title: '💬 $senderName',
@@ -388,6 +395,7 @@ class AppNotificationService {
           importance: Importance.high,
           priority: Priority.high,
           enableVibration: vibration,
+          enableLights: flash,
           icon: '@mipmap/ic_launcher',
           actions: [_markReadAction],
         ),

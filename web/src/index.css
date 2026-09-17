@@ -344,12 +344,14 @@ body {
 .shortcut-desc { font-size: 12px; color: var(--text-secondary); }
 
 /* Tables */
-.data-table {
+.data-table,
+.table {
   width: 100%;
   border-collapse: collapse;
 }
 
-.data-table th {
+.data-table th,
+.table th {
   text-align: left;
   font-size: 12px;
   font-weight: 600;
@@ -360,13 +362,15 @@ body {
   border-bottom: 1px solid var(--divider);
 }
 
-.data-table td {
+.data-table td,
+.table td {
   padding: 14px 16px;
   font-size: 14px;
   border-bottom: 1px solid var(--divider);
 }
 
-.data-table tr:hover {
+.data-table tr:hover,
+.table tr:hover {
   background: var(--surface-variant);
 }
 

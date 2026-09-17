@@ -49,10 +49,18 @@ export const assistanceRepository = {
       console.error('Error updating assistance request status:', error)
       throw error
     }
+
+    if ((status === 'resolved' || status === 'closed') && data.assigned_staff_id) {
+      await this.setStaffStatus(data.assigned_staff_id, 'free')
+    }
+
     return data
   },
 
   // Institution Staff Management
+  // Availability is derived from active assistance_requests so it stays
+  // accurate even when the institution_staff.status column cannot be updated
+  // (e.g. RLS constraints on the web client).
   async getInstitutionStaff(institutionId = null) {
     let query = supabase
       .from('institution_staff')
@@ -70,11 +78,20 @@ export const assistanceRepository = {
       console.error('Error fetching institution staff:', error)
       return []
     }
-    // Keep the existing request page compatible while the staff table now
-    // stores its availability source of truth as free/assigned.
+
+    // Fetch all currently in-progress requests to determine real busy state.
+    const { data: activeRequests } = await supabase
+      .from('assistance_requests')
+      .select('assigned_staff_id')
+      .eq('status', 'in_progress')
+
+    const busyStaffIds = new Set(
+      (activeRequests || []).map((r) => r.assigned_staff_id).filter(Boolean)
+    )
+
     return data.map((staff) => ({
       ...staff,
-      status: staff.status === 'free' ? 'available' : staff.status === 'assigned' ? 'busy' : staff.status,
+      status: busyStaffIds.has(staff.id) ? 'busy' : 'available',
     }))
   },
 
@@ -92,7 +109,26 @@ export const assistanceRepository = {
     }
   },
 
+  // Staff availability source of truth lives on institution_staff.status
+  // ('free' / 'assigned'); the request page maps those to available/busy.
+  async setStaffStatus(staffId, status) {
+    const { error } = await supabase
+      .from('institution_staff')
+      .update({ status })
+      .eq('id', staffId)
+
+    if (error) {
+      console.error('Error updating staff status:', error)
+    }
+  },
+
   async assignStaffToRequest(requestId, staffId, staffName) {
+    const { data: existing } = await supabase
+      .from('assistance_requests')
+      .select('assigned_staff_id')
+      .eq('id', requestId)
+      .single()
+
     const updatePayload = {
       assigned_staff_id: staffId,
       assigned_staff_name: staffName,
@@ -111,6 +147,11 @@ export const assistanceRepository = {
       console.error('Error assigning staff to request:', error)
       throw error
     }
+
+    if (existing?.assigned_staff_id && existing.assigned_staff_id !== staffId) {
+      await this.setStaffStatus(existing.assigned_staff_id, 'free')
+    }
+    await this.setStaffStatus(staffId, 'assigned')
 
     await this.maybeSetAcknowledgedAt(requestId)
 
@@ -164,6 +205,44 @@ export const assistanceRepository = {
       return []
     }
     return data
+  },
+
+  // Module 5 & 7: Update Accessibility Issue Report (status and staff admin notes / processing result)
+  async updateAccessibilityReport(reportId, { status, adminNotes }) {
+    const updates = {
+      updated_at: new Date().toISOString()
+    }
+    if (status !== undefined) updates.status = status
+    if (adminNotes !== undefined) updates.admin_notes = adminNotes
+
+    const { data, error } = await supabase
+      .from('accessibility_issue_reports')
+      .update(updates)
+      .eq('id', reportId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating accessibility report:', error)
+      return null
+    }
+    return data
+  },
+
+  // Subscribe to live accessibility report updates
+  subscribeToAccessibilityReports(callback) {
+    const channel = supabase
+      .channel('public:accessibility_issue_reports')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'accessibility_issue_reports' },
+        callback
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   },
 
   // Module 7: Analytics Metrics

@@ -136,7 +136,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                                   )
                                 else if (_viewModel.venueName.isNotEmpty)
                                   Text(
-                                    _viewModel.venueName,
+                                    _viewModel.venueDisplayLabel,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w600,
                                       fontSize: 15,
@@ -606,7 +606,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
   void _showSubmitted(BuildContext context) {
     final request = _viewModel.submittedRequest;
     final requestCode = request?['request_code'] ?? 'N/A';
-    final venue = _viewModel.venueName;
+    final venue = _viewModel.venueDisplayLabel;
 
     showDialog(
       context: context,

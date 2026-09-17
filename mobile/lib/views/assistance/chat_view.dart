@@ -604,8 +604,10 @@ class _ChatViewState extends State<ChatView> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(text, style: TextStyle(color: isUser ? Colors.white : AppColors.textPrimary, fontSize: 14)),
-                  const SizedBox(height: 4),
-                  Text(time, textAlign: TextAlign.right, style: TextStyle(fontSize: 10, color: isUser ? Colors.white54 : AppColors.textMuted)),
+                  if (time.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(time, textAlign: TextAlign.right, style: TextStyle(fontSize: 10, color: isUser ? Colors.white54 : AppColors.textMuted)),
+                  ],
                 ],
               ),
             ),
