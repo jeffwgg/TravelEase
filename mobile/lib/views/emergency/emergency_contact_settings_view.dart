@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../../core/theme.dart';
 import '../../models/emergency_contact.dart';
 import '../../viewmodels/emergency_contact_viewmodel.dart';
+import '../../services/app_tour_controller.dart';
+import '../../widgets/app_tour_coachmark.dart';
 
 class EmergencyContactSettingsView extends StatefulWidget {
   const EmergencyContactSettingsView({super.key});
@@ -16,6 +18,7 @@ class EmergencyContactSettingsView extends StatefulWidget {
 class _EmergencyContactSettingsViewState
     extends State<EmergencyContactSettingsView> {
   late final EmergencyContactViewModel _viewModel;
+  final _tourAddKey = GlobalKey();
 
   @override
   void initState() {
@@ -33,125 +36,147 @@ class _EmergencyContactSettingsViewState
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: _viewModel,
-      builder: (context, _) => Scaffold(
-        appBar: AppBar(
-          title: const Text('Emergency Contacts'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => Navigator.pop(context),
-          ),
-          actions: [
-            TextButton.icon(
-              onPressed: _viewModel.isSaving ? null : () => _showContactForm(),
-              icon: const Icon(Icons.add, size: 20),
-              label: const Text('Add'),
+      builder: (context, _) => Stack(
+        fit: StackFit.expand,
+        children: [
+          Scaffold(
+            appBar: AppBar(
+              title: const Text('Emergency Contacts'),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+              ),
+              actions: [
+                TextButton.icon(
+                  key: _tourAddKey,
+                  onPressed: _viewModel.isSaving
+                      ? null
+                      : () => _showContactForm(),
+                  icon: const Icon(Icons.add, size: 20),
+                  label: const Text('Add'),
+                ),
+              ],
             ),
-          ],
-        ),
-        body: _viewModel.isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  Container(
+            body: _viewModel.isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : ListView(
                     padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppColors.secondaryLight.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.secondaryLight.withValues(alpha: 0.4),
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.secondaryLight.withValues(
+                            alpha: 0.15,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.secondaryLight.withValues(
+                              alpha: 0.4,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.info_outline,
+                              color: AppColors.secondaryDark,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'These contacts will be notified during SOS emergencies with your location and emergency info.',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: AppColors.secondaryDark),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.info_outline,
-                          color: AppColors.secondaryDark,
-                          size: 20,
+                      const SizedBox(height: 24),
+                      Text(
+                        'Emergency Contacts (${_viewModel.contacts.length}/5)',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      ..._viewModel.contacts.map(_buildContactCard),
+                      if (_viewModel.errorMessage != null) ...[
+                        Text(
+                          _viewModel.errorMessage!,
+                          style: const TextStyle(color: AppColors.emergency),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'These contacts will be notified during SOS emergencies with your location and emergency info.',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: AppColors.secondaryDark),
-                          ),
-                        ),
+                        const SizedBox(height: 12),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Emergency Contacts (${_viewModel.contacts.length}/5)',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  ..._viewModel.contacts.map(_buildContactCard),
-                  if (_viewModel.errorMessage != null) ...[
-                    Text(
-                      _viewModel.errorMessage!,
-                      style: const TextStyle(color: AppColors.emergency),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  const SizedBox(height: 24),
-                  Text(
-                    'SOS Message Preview',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.emergencyLight.withValues(
-                                alpha: 0.2,
-                              ),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text(
-                              '🚨 EMERGENCY',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.emergency,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'I am deaf/hard-of-hearing and need help. I am at KLIA Terminal 1, Gate A5. Please contact me via text message.',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
+                      const SizedBox(height: 24),
+                      Text(
+                        'SOS Message Preview',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(
-                                Icons.location_on,
-                                size: 14,
-                                color: AppColors.textMuted,
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.emergencyLight.withValues(
+                                    alpha: 0.2,
+                                  ),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  '🚨 EMERGENCY',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.emergency,
+                                  ),
+                                ),
                               ),
-                              const SizedBox(width: 4),
+                              const SizedBox(height: 12),
                               Text(
-                                'Location will be shared',
-                                style: Theme.of(context).textTheme.bodySmall,
+                                'I am deaf/hard-of-hearing and need help. I am at KLIA Terminal 1, Gate A5. Please contact me via text message.',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.location_on,
+                                    size: 14,
+                                    color: AppColors.textMuted,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Location will be shared',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
-              ),
+          ),
+          Positioned.fill(
+            child: AppTourCoachmark(
+              feature: AppTourFeature.emergencyContacts,
+              targetKey: _tourAddKey,
+              title: 'Emergency Contacts',
+              message: 'Use Add to create and verify a contact for SOS alerts.',
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -242,7 +242,7 @@ class TwoWayDialogueViewModel extends ChangeNotifier {
     final fromLang = role == 'traveler' ? _sourceLang : _targetLang;
     final toLang = role == 'traveler' ? _targetLang : _sourceLang;
 
-    // FR-M3-14: translate into the other party's selected language via Google Translate
+    // FR-M3-14: translate into the other party's selected language.
     _isTranslating = true;
     notifyListeners();
 

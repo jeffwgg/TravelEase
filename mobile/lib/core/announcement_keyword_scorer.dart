@@ -1,5 +1,6 @@
 /// Scores a speech-recognition transcript for how likely it is a
 /// public-address announcement rather than conversation or noise (FR-M2-08).
+/// This is deterministic, in-process classification logic.
 ///
 /// Signals combine into a composite confidence:
 ///  - keyword score: English and Bahasa Melayu public-address and transport
@@ -93,6 +94,10 @@ class AnnouncementKeywordScorer {
     'kastam', 'tuntutan bagasi', 'karusel', 'bagasi tidak dijaga',
     'barangan tidak dijaga', 'kita memohon maaf', 'memohon maaf',
     'terima kasih atas kesabaran', 'sila menuju ke',
+    // Malaysia Airlines-style bilingual boarding announcements.
+    'sedia berlepas', 'pesawat', 'pintu a', 'pintu b',
+    'kelas perniagaan', 'bantuan khas', 'memerlukan bantuan',
+    'pengumuman seterusnya', 'lain-lain penumpang',
     // Bahasa Melayu — rail / bus
     'tren seterusnya', 'bas seterusnya', 'perkhidmatan seterusnya',
     'tiba dalam', 'akan tiba', 'sedang tiba', 'sedang menghampiri',

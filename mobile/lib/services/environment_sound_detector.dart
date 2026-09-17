@@ -2,10 +2,15 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
+
 import '../models/entities/environment_sound.dart';
+import '../models/repositories/environment_sound_repository.dart';
+import 'app_notification_service.dart';
+import 'flash_alert_service.dart';
 
 class EnvironmentSoundDetector {
   factory EnvironmentSoundDetector() => _instance;
@@ -26,9 +31,12 @@ class EnvironmentSoundDetector {
       StreamController.broadcast();
   final StreamController<String> _errorController =
       StreamController.broadcast();
+  final EnvironmentSoundPreferences _preferences =
+      EnvironmentSoundPreferences();
 
   Interpreter? _interpreter;
   StreamSubscription<Uint8List>? _audioSubscription;
+  StreamSubscription<EnvironmentSoundDetection>? _monitoringSubscription;
   List<String> _labels = const [];
   Set<EnvironmentSoundType> _enabledTypes = EnvironmentSoundType.values.toSet();
   SoundSensitivity _sensitivity = SoundSensitivity.balanced;
@@ -42,6 +50,40 @@ class EnvironmentSoundDetector {
   Stream<EnvironmentSoundDetection> get alerts => _alertController.stream;
   Stream<String> get errors => _errorController.stream;
   bool get isMonitoring => _audioSubscription != null;
+
+  /// Restores saved monitoring settings at app start and keeps the app-scoped
+  /// alert delivery active while the detector is running in the background.
+  Future<void> initializeMonitoring() async {
+    _monitoringSubscription ??= alerts.listen(_handleMonitoringAlert);
+    if (!await _preferences.loadEnabled()) return;
+    final types = await _preferences.loadTypes();
+    if (types.isEmpty) return;
+    try {
+      await start(
+        enabledTypes: types,
+        sensitivity: await _preferences.loadSensitivity(),
+      );
+    } catch (_) {
+      // The settings page reports permission and microphone errors to the user.
+    }
+  }
+
+  void _handleMonitoringAlert(EnvironmentSoundDetection detection) {
+    // Spoken announcements continue through the dedicated speech-to-text
+    // pipeline. The capture service sends the transcript notification.
+    if (detection.type == EnvironmentSoundType.speechAnnouncement) return;
+    unawaited(
+      FlashAlertService.instance
+          .blinkTwice(alert: true)
+          .then(
+            (_) => AppNotificationService.instance.showImportantSound(
+              title: '${detection.type.title} detected',
+              details:
+                  'TravelEase heard ${detection.modelLabel.toLowerCase()} nearby.',
+            ),
+          ),
+    );
+  }
 
   Future<void> initialize() async {
     if (_interpreter != null) return;

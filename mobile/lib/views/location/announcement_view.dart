@@ -65,7 +65,7 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                 tooltip: 'Announcement language',
                 icon: const Icon(Icons.translate),
                 initialValue: _language,
-                onSelected: _viewModel.selectLanguage,
+                onSelected: (value) => _viewModel.selectLanguage(value),
                 itemBuilder: (_) => const [
                   PopupMenuItem(value: 'en', child: Text('English')),
                   PopupMenuItem(value: 'ms', child: Text('Bahasa Melayu')),
@@ -243,11 +243,15 @@ class _AnnouncementViewState extends State<AnnouncementView> {
   Widget _buildAnnouncement(BuildContext context, Announcement announcement) {
     final captured = announcement.isCaptured;
     final color = captured ? AppColors.accent : _colorFor(announcement);
-    final translation = announcement.translations[_language];
+    final translation = _viewModel.translationFor(announcement);
     final title =
         _language == 'en' || translation == null || translation.title.isEmpty
         ? announcement.title
         : translation.title;
+    final caption =
+        _language == 'en' || translation == null || translation.message.isEmpty
+        ? announcement.messageEn
+        : translation.message;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: Card(
@@ -289,48 +293,6 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                         children: [
                           Row(
                             children: [
-                              if (captured)
-                                Container(
-                                  margin: const EdgeInsets.only(right: 8),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.accent.withValues(
-                                      alpha: 0.12,
-                                    ),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    'CAPTURED • ${((announcement.confidence ?? 0) * 100).round()}%',
-                                    style: const TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.accent,
-                                    ),
-                                  ),
-                                )
-                              else
-                                Container(
-                                  margin: const EdgeInsets.only(right: 8),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: color.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    announcement.priorityLabel,
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w700,
-                                      color: color,
-                                    ),
-                                  ),
-                                ),
                               Expanded(
                                 child: Text(
                                   title,
@@ -346,10 +308,6 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                                 size: 20,
                               ),
                             ],
-                          ),
-                          Text(
-                            _relativeTime(announcement.publishedAt),
-                            style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
                       ),
@@ -371,6 +329,45 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                       captured
                           ? 'Captured on this device'
                           : announcement.serviceAreaName ?? 'All service areas',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  caption,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        captured
+                            ? 'CAPTURED • ${((announcement.confidence ?? 0) * 100).round()}%'
+                            : announcement.priorityLabel,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      _relativeTime(announcement.publishedAt),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
