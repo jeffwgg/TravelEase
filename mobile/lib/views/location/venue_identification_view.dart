@@ -1,10 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme.dart';
 import '../../models/entities/announcement.dart';
@@ -18,7 +16,8 @@ import '../../models/repositories/spoken_announcement_repository.dart';
 import '../../models/repositories/feature_usage_repository.dart';
 import '../../services/app_tour_controller.dart';
 import '../../models/repositories/venue_repository.dart';
-import '../../services/venue_session_service.dart';
+import '../../services/app_tour_controller.dart';
+import '../../viewmodels/venue_identification_viewmodel.dart';
 import '../../widgets/app_message_banner.dart';
 import '../../widgets/home_guidance_overlay.dart';
 import '../widgets/notification_bell_button.dart';
@@ -54,6 +53,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   final _venueRepository = VenueRepository();
   final _announcementRepository = AnnouncementRepository();
   final _authRepository = AuthRepository();
+  final _viewModel = VenueIdentificationViewModel();
+  int _appliedSearchInputResetVersion = 0;
 
   final _quickActionsKey = GlobalKey();
   final _locationCardKey = GlobalKey();
@@ -64,36 +65,32 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   final _officialAnnouncementsKey = GlobalKey();
   final _queueTrackingKey = GlobalKey();
 
-  Timer? _searchDebounce;
-
-  /// Catch-up refresh for the announcement feed: scheduled announcements are
-  /// published when their time arrives without any database change, so
-  /// realtime delivers no event and the list must re-fetch on its own.
-  Timer? _feedRefreshTimer;
-  List<VenueSearchResult> _searchResults = const [];
-  bool _searching = false;
-  String? _searchError;
+  List<VenueSearchResult> get _searchResults => _viewModel.searchResults;
+  bool get _searching => _viewModel.searching;
+  String? get _searchError => _viewModel.searchError;
 
   // Location detection (reuses the request-help module's detection settings).
-  bool _locating = false;
-  bool _matching = false;
-  String? _locationStatus;
-  String? _locationError;
+  bool get _locating => _viewModel.locating;
+  bool get _matching => _viewModel.matching;
+  String? get _locationStatus => _viewModel.locationStatus;
+  String? get _locationError => _viewModel.locationError;
 
   /// Location-based results retain their service-area match, so selecting an
   /// overlapping area can go straight to the normal session confirmation.
-  List<VenueLocationMatch> _detectedVenues = const [];
-  List<VenueLocationMatch> _manualServiceAreaOptions = const [];
+  List<VenueLocationMatch> get _detectedVenues => _viewModel.detectedVenues;
+  List<VenueLocationMatch> get _manualServiceAreaOptions =>
+      _viewModel.manualServiceAreaOptions;
 
   // Kept separate so captured speech never appears as an official broadcast.
-  List<Announcement> _recentSpokenAnnouncements = [];
-  List<Announcement> _recentOfficialAnnouncements = [];
-  RealtimeChannel? _announcementChannel;
+  List<Announcement> get _recentSpokenAnnouncements =>
+      _viewModel.recentSpokenAnnouncements;
+  List<Announcement> get _recentOfficialAnnouncements =>
+      _viewModel.recentOfficialAnnouncements;
 
-  VenueSession? _session;
-  VenuePublicInformation? _venueInformation;
-  VenueServiceArea? _activeServiceArea;
-  bool _loadingVenueInformation = false;
+  VenueSession? get _session => _viewModel.session;
+  VenuePublicInformation? get _venueInformation => _viewModel.venueInformation;
+  VenueServiceArea? get _activeServiceArea => _viewModel.activeServiceArea;
+  bool get _loadingVenueInformation => _viewModel.loadingVenueInformation;
   _HomeTourStep? _tourStep;
   bool _tourCheckStarted = false;
 
@@ -101,15 +98,8 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _session = VenueSessionService.instance.session;
-    unawaited(_loadVenueInformation(_session));
-    VenueSessionService.instance.addListener(_onSessionChanged);
-    CapturedAnnouncementStore.instance.version.addListener(_onSessionChanged);
-    _refreshAnnouncementFeed();
-    _feedRefreshTimer = Timer.periodic(
-      const Duration(seconds: 60),
-      (_) => _refreshAnnouncementFeed(),
-    );
+    _viewModel.addListener(_syncSearchInput);
+    unawaited(_viewModel.initialize());
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadHomeTour());
   }
 
@@ -126,289 +116,34 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Tapping an announcement notification resumes the app after the
     // background poller raised it; the feed must catch up on return.
-    if (state == AppLifecycleState.resumed) _refreshAnnouncementFeed();
+    if (state == AppLifecycleState.resumed) _viewModel.onAppResumed();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _feedRefreshTimer?.cancel();
-    VenueSessionService.instance.removeListener(_onSessionChanged);
-    CapturedAnnouncementStore.instance.version.removeListener(
-      _onSessionChanged,
-    );
-    _searchDebounce?.cancel();
+    _viewModel.removeListener(_syncSearchInput);
     _searchController.dispose();
     _scrollController.dispose();
-    final channel = _announcementChannel;
-    if (channel != null) _announcementRepository.removeSubscription(channel);
+    _viewModel.dispose();
     super.dispose();
   }
 
-  void _onSessionChanged() {
-    if (!mounted) return;
-    setState(() => _session = VenueSessionService.instance.session);
-    unawaited(_loadVenueInformation(_session));
-    _refreshAnnouncementFeed();
-  }
-
-  Future<void> _loadVenueInformation(VenueSession? session) async {
-    if (session == null) {
-      if (mounted) {
-        setState(() {
-          _venueInformation = null;
-          _activeServiceArea = null;
-          _loadingVenueInformation = false;
-        });
-      }
-      return;
-    }
-    if (mounted) setState(() => _loadingVenueInformation = true);
-    try {
-      final values = await Future.wait([
-        _venueRepository.getPublicInformation(session.institutionId),
-        _venueRepository.getActiveServiceAreas(session.institutionId),
-      ]);
-      if (!mounted || _session?.institutionId != session.institutionId) return;
-      final areas = values[1] as List<VenueServiceArea>;
-      VenueServiceArea? selectedArea;
-      for (final area in areas) {
-        if (area.id == session.serviceAreaId) {
-          selectedArea = area;
-          break;
-        }
-      }
-      setState(() {
-        _venueInformation = values[0] as VenuePublicInformation?;
-        _activeServiceArea = selectedArea;
-        _loadingVenueInformation = false;
-      });
-    } catch (_) {
-      // Venue matching still works if the optional public profile cannot be
-      // retrieved. Do not disrupt the traveller's active session.
-      if (mounted) setState(() => _loadingVenueInformation = false);
-    }
-  }
-
-  void _refreshAnnouncementFeed() {
-    _loadRecentAnnouncements();
-    _resubscribeToAnnouncements();
-  }
-
-  Future<void> _loadRecentAnnouncements() async {
-    try {
-      final session = VenueSessionService.instance.session;
-      final spoken = await CapturedAnnouncementStore.instance.announcements();
-      final official = session == null
-          ? const <Announcement>[]
-          : await _announcementRepository.getActiveAnnouncements(
-              institutionId: session.institutionId,
-              serviceAreaId: session.serviceAreaId,
-            );
-      if (mounted) {
-        setState(() {
-          _recentSpokenAnnouncements = spoken.take(2).toList();
-          _recentOfficialAnnouncements = official.take(2).toList();
-        });
-      }
-    } catch (_) {
-      // The full announcement page exposes official-feed errors. Keep the home
-      // preview quiet while any source is temporarily unavailable.
-    }
-  }
-
-  Future<void> _resubscribeToAnnouncements() async {
-    final institutionId = VenueSessionService.instance.session?.institutionId;
-    final previous = _announcementChannel;
-    _announcementChannel = null;
-    if (previous != null) {
-      await _announcementRepository.removeSubscription(previous);
-    }
-    if (institutionId == null || !mounted) return;
-    _announcementChannel = _announcementRepository.subscribeToAnnouncements(
-      _loadRecentAnnouncements,
-      institutionId: institutionId,
-    );
-  }
-
-  void _onSearchChanged(String value) {
-    _searchDebounce?.cancel();
-    final query = value.trim();
-    if (query.isEmpty) {
-      setState(() {
-        _searchResults = const [];
-        _manualServiceAreaOptions = const [];
-        _searchError = null;
-        _searching = false;
-      });
-      return;
-    }
-    setState(() {
-      _searching = true;
-      _searchError = null;
+  void _syncSearchInput() {
+    final revision = _viewModel.searchInputResetVersion;
+    if (revision == _appliedSearchInputResetVersion) return;
+    _appliedSearchInputResetVersion = revision;
+    scheduleMicrotask(() {
+      if (mounted) _searchController.clear();
     });
-    _searchDebounce = Timer(
-      const Duration(milliseconds: 350),
-      () => _searchVenues(query),
-    );
   }
 
-  Future<void> _searchVenues(String query) async {
-    try {
-      final results = await _venueRepository.search(query);
-      if (!mounted || _searchController.text.trim() != query) return;
-      setState(() {
-        _searchResults = results;
-        _manualServiceAreaOptions = const [];
-        _searching = false;
-      });
-    } catch (_) {
-      if (!mounted || _searchController.text.trim() != query) return;
-      setState(() {
-        _searchResults = const [];
-        _searching = false;
-        _searchError = 'Unable to search registered institutions right now.';
-      });
-    }
-  }
-
-  /// Detects the traveller's position with the same permission flow and
-  /// accuracy settings used by the request-help location picker (FR-M2-02).
-  Future<void> _detectCurrentLocation() async {
-    if (_locating || _matching) return;
-    FeatureUsageTracker.instance.opened(TrackedFeature.gpsLocation);
-    setState(() {
-      _locating = true;
-      _locationStatus = 'Detecting your location…';
-      _locationError = null;
-      _detectedVenues = const [];
-      _manualServiceAreaOptions = const [];
-    });
-    try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        if (!mounted) return;
-        setState(() {
-          _locating = false;
-          _locationStatus = null;
-          _locationError =
-              'Location permission is required to detect nearby institutions. '
-              'Search for your institution instead.';
-        });
-        return;
-      }
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
-      FeatureUsageTracker.instance.completed(TrackedFeature.gpsLocation);
-      if (!mounted) return;
-      setState(
-        () => _locationStatus = 'Matching against registered institutions…',
-      );
-      await _handleDetectedPosition(position.latitude, position.longitude);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _locating = false;
-        _locationStatus = null;
-        _locationError = 'Unable to detect your current location. Search for your institution instead.';
-      });
-    }
-  }
-
-  /// Compares the detected position against service areas first. Institutions
-  /// are only matched directly when they have not configured service areas.
-  Future<void> _handleDetectedPosition(
-    double latitude,
-    double longitude,
-  ) async {
-    setState(() {
-      _locating = false;
-      _matching = true;
-      _searchResults = const [];
-      _searchController.clear();
-      _manualServiceAreaOptions = const [];
-      _searchError = null;
-    });
-    try {
-      final matches = await _venueRepository.matchLocations(
-        latitude: latitude,
-        longitude: longitude,
-      );
-      if (!mounted) return;
-      if (matches.isNotEmpty) {
-        setState(() {
-          _matching = false;
-          _locationStatus = null;
-          _detectedVenues = matches;
-        });
-        return;
-      }
-      final nearby = await _venueRepository.nearby(
-        latitude: latitude,
-        longitude: longitude,
-      );
-      if (!mounted) return;
-      setState(() {
-        _matching = false;
-        _locationStatus = null;
-        _detectedVenues = nearby
-            .map((venue) => VenueLocationMatch(venue: venue))
-            .toList();
-        _locationError = nearby.isEmpty
-            ? 'No registered institution was found near this location. '
-                  'Search for your institution manually instead.'
-            : null;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _matching = false;
-        _locationStatus = null;
-        _locationError = 'Unable to match your location against the institution list right now.';
-      });
-    }
-  }
-
-  /// A manual institution selection expands service-area choices directly in
-  /// the location card instead of opening a second selection dialog.
+  /// A manual institution selection can either open service-area choices or
+  /// proceed to the existing view-owned confirmation dialog.
   Future<void> _selectInstitution(VenueSearchResult venue) async {
-    if (_matching) return;
-    setState(() {
-      _matching = true;
-      _searchError = null;
-      _locationError = null;
-    });
-    List<VenueServiceArea> serviceAreas;
-    try {
-      serviceAreas = await _venueRepository.getActiveServiceAreas(venue.id);
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _matching = false;
-          _searchError = 'Unable to load this institution\'s service areas.';
-        });
-      }
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _matching = false);
-    if (serviceAreas.isEmpty) {
+    if (await _viewModel.selectInstitution(venue) && mounted) {
       await _confirmAndEstablish(venue);
-      return;
     }
-    setState(() {
-      _manualServiceAreaOptions = serviceAreas
-          .map((area) => VenueLocationMatch(venue: venue, serviceArea: area))
-          .toList();
-    });
   }
 
   /// Requires the traveller to confirm the resolved session before it starts.
@@ -444,16 +179,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       ),
     );
     if (confirmed != true || !mounted) return;
-    await VenueSessionService.instance.establish(
-      VenueSession(
-        institutionId: venue.id,
-        institutionName: venue.name,
-        branch: venue.branch,
-        serviceAreaId: serviceArea?.id,
-        serviceAreaName: serviceArea?.name,
-        startedAt: DateTime.now(),
-      ),
-    );
+    await _viewModel.establishSession(venue, serviceArea: serviceArea);
   }
 
   /// Ends the active venue session (FR-M2-06, manual end).
@@ -481,7 +207,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       ),
     );
     if (confirmed != true) return;
-    await VenueSessionService.instance.quit();
+    await _viewModel.quitSession();
   }
 
   /// First word of the signed-in traveller's full name, kept in sync with the
@@ -506,9 +232,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
 
   _HomeTourStep _initialTourStep() =>
       switch (AppTourController.instance.homeSection) {
-        HomeGuideSection.location => _session == null
-            ? _HomeTourStep.locationSearch
-            : _HomeTourStep.activeVenueSession,
+        HomeGuideSection.location =>
+          _session == null
+              ? _HomeTourStep.locationSearch
+              : _HomeTourStep.activeVenueSession,
         HomeGuideSection.spokenAnnouncements =>
           _HomeTourStep.spokenAnnouncements,
         HomeGuideSection.officialAnnouncements =>
@@ -550,9 +277,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       return;
     }
     final nextStep = switch (_tourStep) {
-      _HomeTourStep.quickActions => _session == null
-          ? _HomeTourStep.locationSearch
-          : _HomeTourStep.activeVenueSession,
+      _HomeTourStep.quickActions =>
+        _session == null
+            ? _HomeTourStep.locationSearch
+            : _HomeTourStep.activeVenueSession,
       _HomeTourStep.activeVenueSession => _HomeTourStep.quitVenueSession,
       _HomeTourStep.quitVenueSession => _HomeTourStep.spokenAnnouncements,
       _HomeTourStep.locationSearch => _HomeTourStep.locationGps,
@@ -590,15 +318,13 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         return _buildTourStepOverlay(
           targetKey: _locationCardKey,
           title: 'Active Venue Session',
-          message:
-              'You are connected to this venue and service area. Official announcements and queue information are matched to this session.',
+          message: 'You are connected to this venue and service area. Official announcements and queue information are matched to this session.',
         );
       case _HomeTourStep.quitVenueSession:
         return _buildTourStepOverlay(
           targetKey: _quitVenueSessionKey,
           title: 'End Venue Session',
-          message:
-              'Use this when you leave the venue. You will stop receiving its location-based announcements.',
+          message: 'Use this when you leave the venue. You will stop receiving its location-based announcements.',
         );
       case _HomeTourStep.locationSearch:
         return _buildTourStepOverlay(
@@ -666,34 +392,79 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Scaffold(
-          body: SafeArea(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: Image.asset(
-                                    'assets/logo.png',
-                                    width: 38,
-                                    height: 38,
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) => Stack(
+        fit: StackFit.expand,
+        children: [
+          Scaffold(
+            body: SafeArea(
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image.asset(
+                                      'assets/logo.png',
+                                      width: 38,
+                                      height: 38,
+                                    ),
                                   ),
+                                  const SizedBox(width: 12),
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Hello, Jeff',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .headlineLarge,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Where are you traveling today?',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium,
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const NotificationBellButton(),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'Quick Actions',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            key: _quickActionsKey,
+                            height: 100,
+                            child: ListView(
+                              scrollDirection: Axis.horizontal,
+                              children: [
+                                _buildQuickAction(
+                                  Icons.sign_language_rounded,
+                                  'Sign\nTranslate',
+                                  AppColors.primary,
+                                  () => context.push('/sign-camera'),
                                 ),
                                 const SizedBox(width: 12),
                                 Column(
@@ -713,120 +484,97 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                                           .bodyMedium,
                                     ),
                                   ],
+                                _buildQuickAction(
+                                  Icons.forum_rounded,
+                                  'Two-Way\nDialogue',
+                                  AppColors.secondary,
+                                  () => context.push('/dialogue'),
+                                ),
+                                _buildQuickAction(
+                                  Icons.menu_book_rounded,
+                                  'Sign\nDictionary',
+                                  AppColors.success,
+                                  () => context.push('/sign-dictionary'),
+                                ),
+                                _buildQuickAction(
+                                  Icons.help_outline_rounded,
+                                  'Request\nHelp',
+                                  AppColors.emergency,
+                                  () => context.go('/assistance-request'),
                                 ),
                               ],
                             ),
-                            const NotificationBellButton(),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          'Quick Actions',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          key: _quickActionsKey,
-                          height: 100,
-                          child: ListView(
-                            scrollDirection: Axis.horizontal,
-                            children: [
-                              _buildQuickAction(
-                                Icons.sign_language_rounded,
-                                'Sign\nTranslate',
-                                AppColors.primary,
-                                () => context.push('/sign-camera'),
-                              ),
-                              _buildQuickAction(
-                                Icons.forum_rounded,
-                                'Two-Way\nDialogue',
-                                AppColors.secondary,
-                                () => context.push('/dialogue'),
-                              ),
-                              _buildQuickAction(
-                                Icons.menu_book_rounded,
-                                'Sign\nDictionary',
-                                AppColors.success,
-                                () => context.push('/sign-dictionary'),
-                              ),
-                              _buildQuickAction(
-                                Icons.help_outline_rounded,
-                                'Request\nHelp',
-                                AppColors.emergency,
-                                () => context.go('/assistance-request'),
-                              ),
-                            ],
                           ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Venue session: active session card replaces the identification section
+                    Padding(
+                      key: _locationCardKey,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: _session != null
+                          ? _buildActiveSessionCard(context, _session!)
+                          : _buildIdentifyLocationCard(context),
+                    ),
+                    const SizedBox(height: 24),
+
+                    Padding(
+                      key: _spokenAnnouncementsKey,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: _buildHomeFeatureCard(
+                        context,
+                        icon: Icons.mic_outlined,
+                        title: 'Spoken Announcements',
+                        description: _announcementSummary(
+                          _recentSpokenAnnouncements,
+                          emptyMessage:
+                              'No spoken announcements have been captured yet.',
+                          itemLabel: 'captured announcement',
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Venue session: active session card replaces the identification section
-                  Padding(
-                    key: _locationCardKey,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _session != null
-                        ? _buildActiveSessionCard(context, _session!)
-                        : _buildIdentifyLocationCard(context),
-                  ),
-                  const SizedBox(height: 24),
-
-                  Padding(
-                    key: _spokenAnnouncementsKey,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildHomeFeatureCard(
-                      context,
-                      icon: Icons.mic_outlined,
-                      title: 'Spoken Announcements',
-                      description: _announcementSummary(
-                        _recentSpokenAnnouncements,
-                        emptyMessage:
-                            'No spoken announcements have been captured yet.',
-                        itemLabel: 'captured announcement',
-                      ),
-                      color: AppColors.accent,
-                      onTap: () => context.push('/announcements?type=spoken'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    key: _officialAnnouncementsKey,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildHomeFeatureCard(
-                      context,
-                      icon: Icons.campaign_outlined,
-                      title: 'Official Announcements',
-                      description: _session == null
-                          ? 'Start a venue session to view official announcements.'
-                          : _announcementSummary(
-                              _recentOfficialAnnouncements,
-                              emptyMessage: 'No active official announcements in this service area.',
-                              itemLabel: 'active announcement',
-                            ),
-                      color: AppColors.primary,
-                      onTap: () => _openVenueFeature(
-                        featureName: 'Official Announcements',
-                        route: '/announcements?type=official',
+                        color: AppColors.accent,
+                        onTap: () => context.push('/announcements?type=spoken'),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Padding(
-                    key: _queueTrackingKey,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _buildQueueTrackingCard(context),
-                  ),
-                  const SizedBox(height: 100),
-                ],
+                    const SizedBox(height: 16),
+                    Padding(
+                      key: _officialAnnouncementsKey,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: _buildHomeFeatureCard(
+                        context,
+                        icon: Icons.campaign_outlined,
+                        title: 'Official Announcements',
+                        description: _session == null
+                            ? 'Start a venue session to view official announcements.'
+                            : _announcementSummary(
+                                _recentOfficialAnnouncements,
+                                emptyMessage: 'No active official announcements in this service area.',
+                                itemLabel: 'active announcement',
+                              ),
+                        color: AppColors.primary,
+                        onTap: () => _openVenueFeature(
+                          featureName: 'Official Announcements',
+                          route: '/announcements?type=official',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      key: _queueTrackingKey,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: _buildQueueTrackingCard(context),
+                    ),
+                    const SizedBox(height: 100),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        if (_tourStep != null)
-          Positioned.fill(child: _buildHomeGuidanceOverlay()),
-      ],
+          if (_tourStep != null)
+            Positioned.fill(child: _buildHomeGuidanceOverlay()),
+        ],
+      ),
     );
   }
 
@@ -851,7 +599,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
             TextField(
               key: _locationSearchKey,
               controller: _searchController,
-              onChanged: _onSearchChanged,
+              onChanged: _viewModel.searchVenues,
               decoration: const InputDecoration(
                 hintText: 'Search institution, airport, hotel...',
                 prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
@@ -865,7 +613,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                 style: _venueActionStyle(),
                 onPressed: _locating || _matching
                     ? null
-                    : _detectCurrentLocation,
+                    : _viewModel.detectCurrentLocation,
                 child: _venueActionContent(
                   _locating ? Icons.location_searching : Icons.near_me_outlined,
                   _locating ? 'Detecting…' : 'Use Current Location',

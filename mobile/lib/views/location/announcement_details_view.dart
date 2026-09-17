@@ -3,10 +3,8 @@ import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../models/entities/announcement.dart';
 import '../../models/entities/spoken_announcement.dart';
-import '../../models/repositories/announcement_repository.dart';
 import '../../models/repositories/spoken_announcement_repository.dart';
-import '../../models/repositories/feature_usage_repository.dart';
-import '../../services/translation_service.dart';
+import '../../viewmodels/announcement_details_viewmodel.dart';
 import '../../widgets/app_message_banner.dart';
 
 /// Full content of a single announcement reached from the home preview or the
@@ -22,107 +20,81 @@ class AnnouncementDetailsView extends StatefulWidget {
 }
 
 class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
-  final _repository = AnnouncementRepository();
-  final _translator = TranslationService();
-  final Map<String, AnnouncementTranslation> _deviceTranslations = {};
-  Announcement? _announcement;
-  CapturedAnnouncement? _capture;
-  bool _loading = true;
-  String? _error;
-  String _language = 'en';
-  bool _translating = false;
-  String? _translationError;
+  final _viewModel = AnnouncementDetailsViewModel();
+  Announcement? get _announcement => _viewModel.announcement;
+  CapturedAnnouncement? get _capture => _viewModel.capture;
+  bool get _loading => _viewModel.isLoading;
+  String? get _error => _viewModel.error;
+  String get _language => _viewModel.language;
+  bool get _translating => _viewModel.isTranslating;
+  String? get _translationError => _viewModel.translationError;
+  Map<String, AnnouncementTranslation> get _deviceTranslations =>
+      _viewModel.deviceTranslations;
 
   @override
   void initState() {
     super.initState();
-    _loadAnnouncement();
+    _viewModel.load(widget.id);
   }
 
-  Future<void> _loadAnnouncement() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      // A captured id uses the local `cap-...` format, not Supabase's UUID
-      // format. Resolve locally first so the remote query cannot throw before
-      // this page gets its fallback.
-      final capture = await CapturedAnnouncementStore.instance.byId(widget.id);
-      final resolved =
-          capture?.toAnnouncement() ??
-          await _repository.getAnnouncementById(widget.id);
-      if (!mounted) return;
-      setState(() {
-        _announcement = resolved;
-        _capture = capture;
-        _loading = false;
-        if (resolved == null) {
-          _error = 'This announcement is no longer available.';
-        }
-      });
-      if (resolved != null) {
-        FeatureUsageTracker.instance.completed(TrackedFeature.announcements);
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = 'Announcement could not be loaded.';
-      });
-    }
-  }
+  Future<void> _loadAnnouncement() => _viewModel.load(widget.id);
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Announcement Details'),
-        actions: [
-          if (_announcement != null)
-            PopupMenuButton<String>(
-              tooltip: 'Announcement language',
-              icon: const Icon(Icons.translate),
-              initialValue: _language,
-              onSelected: _selectLanguage,
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'en', child: Text('English')),
-                PopupMenuItem(value: 'ms', child: Text('Bahasa Melayu')),
-                PopupMenuItem(value: 'zh', child: Text('Chinese (Simplified)')),
-              ],
-            ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadAnnouncement,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(40),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_error != null || _announcement == null)
-              Column(
-                children: [
-                  AppMessageBanner(
-                    message: _error ?? 'Announcement could not be loaded.',
-                    type: AppMessageType.error,
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: _loadAnnouncement,
-                      child: const Text('Try Again'),
-                    ),
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) => Scaffold(
+        appBar: AppBar(
+          title: const Text('Announcement Details'),
+          actions: [
+            if (_announcement != null)
+              PopupMenuButton<String>(
+                tooltip: 'Announcement language',
+                icon: const Icon(Icons.translate),
+                initialValue: _language,
+                onSelected: _selectLanguage,
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'en', child: Text('English')),
+                  PopupMenuItem(value: 'ms', child: Text('Bahasa Melayu')),
+                  PopupMenuItem(
+                    value: 'zh',
+                    child: Text('Chinese (Simplified)'),
                   ),
                 ],
-              )
-            else
-              _buildDetails(context, _announcement!),
+              ),
           ],
+        ),
+        body: RefreshIndicator(
+          onRefresh: _loadAnnouncement,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.all(40),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_error != null || _announcement == null)
+                Column(
+                  children: [
+                    AppMessageBanner(
+                      message: _error ?? 'Announcement could not be loaded.',
+                      type: AppMessageType.error,
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: _loadAnnouncement,
+                        child: const Text('Try Again'),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                _buildDetails(context, _announcement!),
+            ],
+          ),
         ),
       ),
     );
@@ -307,63 +279,8 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
     );
   }
 
-  Future<void> _selectLanguage(String language) async {
-    setState(() {
-      _language = language;
-      _translationError = null;
-    });
-
-    final announcement = _announcement;
-    if (announcement == null ||
-        language == 'en' ||
-        _deviceTranslations.containsKey(language) ||
-        (announcement.translations[language]?.title.isNotEmpty == true &&
-            announcement.translations[language]?.message.isNotEmpty == true)) {
-      return;
-    }
-
-    setState(() => _translating = true);
-    try {
-      // Captures and official announcements without an institution-provided
-      // translation both use the phone's translation service on demand. The
-      // result remains only in this detail page; it never overwrites the
-      // official announcement supplied by the institution.
-      final capture = _capture;
-      final sourceTitle = capture == null
-          ? announcement.title
-          : CapturedAnnouncement.deriveTitle(capture.transcript);
-      final sourceMessage = capture?.transcript ?? announcement.messageEn;
-      final sourceLanguage = capture == null
-          ? 'en'
-          : await _translator.detectLanguage(sourceMessage);
-      final translated = await Future.wait([
-        _translator.translateText(
-          text: sourceTitle,
-          fromLang: sourceLanguage,
-          toLang: language,
-        ),
-        _translator.translateText(
-          text: sourceMessage,
-          fromLang: sourceLanguage,
-          toLang: language,
-        ),
-      ]);
-      if (!mounted) return;
-      setState(() {
-        _deviceTranslations[language] = AnnouncementTranslation(
-          title: translated[0],
-          message: translated[1],
-        );
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _translationError = 'Translation failed — showing recognised text.';
-      });
-    } finally {
-      if (mounted) setState(() => _translating = false);
-    }
-  }
+  Future<void> _selectLanguage(String language) =>
+      _viewModel.selectLanguage(language);
 
   Widget _buildMetaRow(IconData icon, String label) {
     return Padding(

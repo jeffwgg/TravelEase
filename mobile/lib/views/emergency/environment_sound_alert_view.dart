@@ -5,11 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
 import '../../models/entities/environment_sound.dart';
-import '../../models/repositories/spoken_announcement_repository.dart';
-import '../../models/repositories/environment_sound_repository.dart';
-import '../../services/environment_sound_detector.dart';
-import '../../services/public_announcement_capture_service.dart';
-import '../../services/app_notification_service.dart';
+import '../../viewmodels/environment_sound_alert_viewmodel.dart';
 import '../../widgets/app_message_banner.dart';
 
 class EnvironmentSoundAlertView extends StatefulWidget {
@@ -29,182 +25,34 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     EnvironmentSoundType.speechAnnouncement,
   ];
 
-  final _detector = EnvironmentSoundDetector();
-  final _preferences = EnvironmentSoundPreferences();
-  final Set<EnvironmentSoundType> _enabledTypes = {};
-  final List<EnvironmentSoundDetection> _history = [];
-  StreamSubscription<SoundDetectionSnapshot>? _snapshotSubscription;
-  StreamSubscription<EnvironmentSoundDetection>? _alertSubscription;
-  StreamSubscription<String>? _errorSubscription;
+  final _viewModel = EnvironmentSoundAlertViewModel();
+  Set<EnvironmentSoundType> get _enabledTypes => _viewModel.enabledTypes;
+  List<EnvironmentSoundDetection> get _history => _viewModel.history;
+  StreamSubscription<EnvironmentSoundDetection>? _displayAlertSubscription;
 
-  SoundSensitivity _sensitivity = SoundSensitivity.balanced;
-  SoundDetectionSnapshot _snapshot = SoundDetectionSnapshot.idle;
-  bool _enabled = false;
-  bool _loading = true;
-  bool _changingMonitoring = false;
-  String? _message;
-  AppMessageType _messageType = AppMessageType.information;
+  SoundSensitivity get _sensitivity => _viewModel.sensitivity;
+  SoundDetectionSnapshot get _snapshot => _viewModel.snapshot;
+  bool get _enabled => _viewModel.enabled;
+  bool get _loading => _viewModel.loading;
+  bool get _changingMonitoring => _viewModel.changingMonitoring;
+  String? get _message => _viewModel.message;
+  AppMessageType get _messageType => switch (_viewModel.messageType) {
+    EnvironmentSoundMessageType.error => AppMessageType.error,
+    EnvironmentSoundMessageType.success => AppMessageType.success,
+    EnvironmentSoundMessageType.information => AppMessageType.information,
+  };
 
   @override
   void initState() {
     super.initState();
-    _snapshotSubscription = _detector.snapshots.listen((snapshot) {
-      if (mounted) setState(() => _snapshot = snapshot);
-    });
-    _alertSubscription = _detector.alerts.listen(_handleDetection);
-    _errorSubscription = _detector.errors.listen((message) {
-      if (!mounted) return;
-      setState(() {
-        _enabled = false;
-        _changingMonitoring = false;
-        _message = message;
-        _messageType = AppMessageType.error;
-      });
-    });
-    CapturedAnnouncementStore.instance.version.addListener(
-      _showLatestCapturedAnnouncement,
+    _displayAlertSubscription = _viewModel.displayAlerts.listen(
+      _showDetectionAlert,
     );
-    _loadPreferences();
+    _viewModel.initialize();
   }
 
-  Future<void> _showLatestCapturedAnnouncement() async {
-    final captures = await CapturedAnnouncementStore.instance.all();
-    if (!mounted || captures.isEmpty) return;
-    setState(() {
-      _message = 'Announcement: ${captures.first.transcript}';
-      _messageType = AppMessageType.success;
-    });
-  }
-
-  Future<void> _loadPreferences() async {
-    final values = await Future.wait([
-      _preferences.loadEnabled(),
-      _preferences.loadTypes(),
-      _preferences.loadSensitivity(),
-      _preferences.loadHistory(),
-    ]);
+  Future<void> _showDetectionAlert(EnvironmentSoundDetection detection) async {
     if (!mounted) return;
-    final savedHistory = values[3] as List<EnvironmentSoundDetection>;
-    final alertHistory = savedHistory
-        .where(
-          (detection) =>
-              detection.type != EnvironmentSoundType.speechAnnouncement,
-        )
-        .toList();
-    final shouldStart = values[0] as bool;
-    setState(() {
-      _enabledTypes
-        ..clear()
-        ..addAll(values[1] as Set<EnvironmentSoundType>);
-      _sensitivity = values[2] as SoundSensitivity;
-      _history
-        ..clear()
-        ..addAll(alertHistory);
-      _loading = false;
-    });
-    if (alertHistory.length != savedHistory.length) {
-      unawaited(_preferences.saveHistory(alertHistory));
-    }
-    if (shouldStart) await _setMonitoring(true);
-  }
-
-  Future<void> _setMonitoring(bool enabled) async {
-    if (_changingMonitoring) return;
-    if (enabled && _enabledTypes.isEmpty) {
-      setState(() {
-        _message = 'Select at least one sound to detect.';
-        _messageType = AppMessageType.information;
-      });
-      return;
-    }
-    setState(() => _changingMonitoring = true);
-    try {
-      if (enabled) {
-        await AppNotificationService.instance.requestPermission();
-        await _detector.start(
-          enabledTypes: _enabledTypes,
-          sensitivity: _sensitivity,
-        );
-      } else {
-        await PublicAnnouncementCaptureService.instance.cancelPendingCapture();
-        await _detector.stop();
-      }
-      if (!mounted) return;
-      setState(() {
-        _enabled = enabled;
-        _message = enabled
-            ? 'Important sound monitoring is active.'
-            : 'Important sound monitoring is off.';
-        _messageType = enabled
-            ? AppMessageType.success
-            : AppMessageType.information;
-      });
-      await _saveSettings();
-    } on EnvironmentSoundException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _enabled = false;
-        _message =
-            '${error.message} Allow microphone access in device settings, then try again.';
-        _messageType = AppMessageType.error;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _enabled = false;
-        _message = 'Unable to start sound detection: $error';
-        _messageType = AppMessageType.error;
-      });
-    } finally {
-      if (mounted) setState(() => _changingMonitoring = false);
-    }
-  }
-
-  Future<void> _saveSettings() {
-    return _preferences.saveSettings(
-      enabled: _enabled,
-      types: _enabledTypes,
-      sensitivity: _sensitivity,
-    );
-  }
-
-  void _setSoundEnabled(EnvironmentSoundType type, bool value) {
-    setState(() {
-      if (value) {
-        _enabledTypes.add(type);
-      } else {
-        _enabledTypes.remove(type);
-      }
-    });
-    _detector.updateConfiguration(
-      enabledTypes: _enabledTypes,
-      sensitivity: _sensitivity,
-    );
-    if (type == EnvironmentSoundType.speechAnnouncement && !value) {
-      unawaited(
-        PublicAnnouncementCaptureService.instance.cancelPendingCapture(),
-      );
-    }
-    unawaited(_saveSettings());
-  }
-
-  void _setSensitivity(SoundSensitivity? value) {
-    if (value == null) return;
-    setState(() => _sensitivity = value);
-    _detector.updateConfiguration(
-      enabledTypes: _enabledTypes,
-      sensitivity: _sensitivity,
-    );
-    unawaited(_saveSettings());
-  }
-
-  Future<void> _handleDetection(EnvironmentSoundDetection detection) async {
-    if (!mounted) return;
-    // Announcement capture owns this event. It appears in Announcements and
-    // Notifications, never in the generic alert history or modal alerts.
-    if (detection.type == EnvironmentSoundType.speechAnnouncement) return;
-    setState(() => _history.insert(0, detection));
-    await _preferences.saveHistory(_history);
     for (var pulse = 0; pulse < 3; pulse++) {
       await HapticFeedback.heavyImpact();
       await Future<void>.delayed(const Duration(milliseconds: 180));
@@ -244,137 +92,132 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
     );
   }
 
-  Future<void> _clearHistory() async {
-    await _preferences.clearHistory();
-    if (mounted) setState(_history.clear);
-  }
-
   @override
   void dispose() {
-    CapturedAnnouncementStore.instance.version.removeListener(
-      _showLatestCapturedAnnouncement,
-    );
-    unawaited(_snapshotSubscription?.cancel());
-    unawaited(_alertSubscription?.cancel());
-    unawaited(_errorSubscription?.cancel());
+    unawaited(_displayAlertSubscription?.cancel());
+    _viewModel.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Environment Sound Detection')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                _buildIntroduction(),
-                if (_message != null) ...[
-                  const SizedBox(height: 12),
-                  AppMessageBanner(
-                    message: _message!,
-                    type: _messageType,
-                    onDismiss: () => setState(() => _message = null),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                _buildMonitoringCard(),
-                const SizedBox(height: 12),
-                _buildAnnouncementCaptureGuide(),
-                const SizedBox(height: 20),
-                _sectionTitle('Sounds to Detect'),
-                const SizedBox(height: 10),
-                Card(
-                  child: Column(
-                    children: _alertTypes.indexed.map((entry) {
-                      final (index, type) = entry;
-                      return Column(
-                        children: [
-                          if (index > 0) const Divider(height: 1),
-                          SwitchListTile(
-                            value: _enabledTypes.contains(type),
-                            onChanged: (value) => _setSoundEnabled(type, value),
-                            secondary: Icon(
-                              _iconFor(type),
-                              color: _enabledTypes.contains(type)
-                                  ? AppColors.primary
-                                  : AppColors.textMuted,
-                            ),
-                            title: Text(type.title),
-                            subtitle: Text(type.description),
-                          ),
-                        ],
-                      );
-                    }).toList(),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                _sectionTitle('Detection Sensitivity'),
-                const SizedBox(height: 10),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 6,
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) => Scaffold(
+        appBar: AppBar(title: const Text('Environment Sound Detection')),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _buildIntroduction(),
+                  if (_message != null) ...[
+                    const SizedBox(height: 12),
+                    AppMessageBanner(
+                      message: _message!,
+                      type: _messageType,
+                      onDismiss: _viewModel.dismissMessage,
                     ),
-                    child: DropdownButtonFormField<SoundSensitivity>(
-                      initialValue: _sensitivity,
-                      decoration: const InputDecoration(
-                        border: InputBorder.none,
-                        filled: false,
-                      ),
-                      items: SoundSensitivity.values
-                          .map(
-                            (value) => DropdownMenuItem(
-                              value: value,
-                              child: Text('${value.title} sensitivity'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: _setSensitivity,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _sectionTitle('Recent Alerts'),
-                    if (_history.isNotEmpty)
-                      TextButton(
-                        onPressed: _clearHistory,
-                        child: const Text('Clear'),
-                      ),
                   ],
-                ),
-                const SizedBox(height: 8),
-                if (_history.isEmpty)
-                  const Card(
+                  const SizedBox(height: 16),
+                  _buildMonitoringCard(),
+                  const SizedBox(height: 12),
+                  _buildAnnouncementCaptureGuide(),
+                  const SizedBox(height: 20),
+                  _sectionTitle('Sounds to Detect'),
+                  const SizedBox(height: 10),
+                  Card(
+                    child: Column(
+                      children: _alertTypes.indexed.map((entry) {
+                        final (index, type) = entry;
+                        return Column(
+                          children: [
+                            if (index > 0) const Divider(height: 1),
+                            SwitchListTile(
+                              value: _enabledTypes.contains(type),
+                              onChanged: (value) =>
+                                  _viewModel.setSoundEnabled(type, value),
+                              secondary: Icon(
+                                _iconFor(type),
+                                color: _enabledTypes.contains(type)
+                                    ? AppColors.primary
+                                    : AppColors.textMuted,
+                              ),
+                              title: Text(type.title),
+                              subtitle: Text(type.description),
+                            ),
+                          ],
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _sectionTitle('Detection Sensitivity'),
+                  const SizedBox(height: 10),
+                  Card(
                     child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Row(
-                        children: [
-                          Icon(Icons.history, color: AppColors.textMuted),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text('Detected sounds will appear here.'),
-                          ),
-                        ],
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
+                      child: DropdownButtonFormField<SoundSensitivity>(
+                        initialValue: _sensitivity,
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          filled: false,
+                        ),
+                        items: SoundSensitivity.values
+                            .map(
+                              (value) => DropdownMenuItem(
+                                value: value,
+                                child: Text('${value.title} sensitivity'),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: _viewModel.setSensitivity,
                       ),
                     ),
-                  )
-                else
-                  ..._history.take(10).map(_buildHistoryItem),
-                const SizedBox(height: 20),
-                Text(
-                  'Sound recognition runs on this device and does not save microphone recordings. Monitoring continues while the app is in the background, but stops if the operating system terminates the app. Detection may be affected by background noise and should not replace official safety systems.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _sectionTitle('Recent Alerts'),
+                      if (_history.isNotEmpty)
+                        TextButton(
+                          onPressed: _viewModel.clearHistory,
+                          child: const Text('Clear'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (_history.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Row(
+                          children: [
+                            Icon(Icons.history, color: AppColors.textMuted),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Text('Detected sounds will appear here.'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    ..._history.take(10).map(_buildHistoryItem),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Sound recognition runs on this device and does not save microphone recordings. Monitoring continues while the app is in the background, but stops if the operating system terminates the app. Detection may be affected by background noise and should not replace official safety systems.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+      ),
     );
   }
 
@@ -430,7 +273,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _enabled,
-              onChanged: _changingMonitoring ? null : _setMonitoring,
+              onChanged: _changingMonitoring ? null : _viewModel.setMonitoring,
               secondary: _changingMonitoring
                   ? const SizedBox(
                       width: 28,

@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme.dart';
 import '../../models/entities/announcement.dart';
-import '../../models/repositories/announcement_repository.dart';
-import '../../models/repositories/spoken_announcement_repository.dart';
 import '../../models/repositories/feature_usage_repository.dart';
-import '../../services/venue_session_service.dart';
+import '../../viewmodels/announcement_viewmodel.dart';
 import '../../widgets/app_message_banner.dart';
 
 enum AnnouncementFeed { spoken, official }
@@ -22,198 +19,101 @@ class AnnouncementView extends StatefulWidget {
 }
 
 class _AnnouncementViewState extends State<AnnouncementView> {
-  final _repository = AnnouncementRepository();
-  List<Announcement> _announcements = [];
-  RealtimeChannel? _channel;
-  bool _loading = true;
+  final _viewModel = AnnouncementViewModel();
+  List<Announcement> get _announcements => _viewModel.announcements;
+  bool get _loading => _viewModel.loading;
   final bool _urgentOnly = false;
-  String _language = 'en';
-  String? _error;
-  String? _institutionId;
-  String? _institutionName;
-  String? _serviceAreaId;
-  String? _serviceAreaName;
+  String get _language => _viewModel.language;
+  String? get _error => _viewModel.error;
+  String? get _institutionId => _viewModel.institutionId;
+  String? get _institutionName => _viewModel.institutionName;
+  String? get _serviceAreaName => _viewModel.serviceAreaName;
 
   @override
   void initState() {
     super.initState();
     FeatureUsageTracker.instance.opened(TrackedFeature.announcements);
-    if (widget.feed == AnnouncementFeed.official) {
-      _syncSession(reload: true);
-      VenueSessionService.instance.addListener(_onSessionChanged);
-    } else {
-      _loadSpokenAnnouncements();
-      CapturedAnnouncementStore.instance.version.addListener(
-        _onCapturedAnnouncementsChanged,
-      );
-    }
+    _viewModel.initialize(isSpokenFeed: widget.feed == AnnouncementFeed.spoken);
   }
 
   @override
   void dispose() {
-    VenueSessionService.instance.removeListener(_onSessionChanged);
-    CapturedAnnouncementStore.instance.version.removeListener(
-      _onCapturedAnnouncementsChanged,
-    );
-    final channel = _channel;
-    if (channel != null) _repository.removeSubscription(channel);
+    _viewModel.dispose();
     super.dispose();
   }
 
-  void _onSessionChanged() {
-    if (!mounted) return;
-    _syncSession(reload: true);
-  }
-
-  void _onCapturedAnnouncementsChanged() {
-    if (!mounted) return;
-    _loadSpokenAnnouncements();
-  }
-
-  /// Official announcements are institution-scoped, so this feed follows the
-  /// active venue session and resubscribes when the session changes.
-  Future<void> _syncSession({required bool reload}) async {
-    final session = VenueSessionService.instance.session;
-    final institutionId = session?.institutionId;
-    final serviceAreaId = session?.serviceAreaId;
-    final changed =
-        institutionId != _institutionId || serviceAreaId != _serviceAreaId;
-    setState(() {
-      _institutionId = institutionId;
-      _institutionName = session?.institutionName;
-      _serviceAreaId = serviceAreaId;
-      _serviceAreaName = session?.serviceAreaName;
-    });
-    final previous = _channel;
-    _channel = null;
-    if (previous != null) await _repository.removeSubscription(previous);
-    if (institutionId == null) {
-      if (mounted) {
-        setState(() {
-          _announcements = const [];
-          _loading = false;
-          _error = null;
-        });
-      }
-      return;
-    }
-    _channel = _repository.subscribeToAnnouncements(
-      _loadAnnouncements,
-      institutionId: institutionId,
-    );
-    if (reload || changed) await _loadAnnouncements();
-  }
-
-  Future<void> _loadAnnouncements() async {
-    final institutionId = _institutionId;
-    if (institutionId == null) return;
-    try {
-      final official = await _repository.getActiveAnnouncements(
-        institutionId: institutionId,
-        serviceAreaId: _serviceAreaId,
-      );
-      if (!mounted) return;
-      setState(() {
-        _announcements = official;
-        _error = null;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error = error.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _loadSpokenAnnouncements() async {
-    try {
-      final spoken = await CapturedAnnouncementStore.instance.announcements();
-      if (!mounted) return;
-      setState(() {
-        _announcements = spoken;
-        _error = null;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error = error.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _reload() => widget.feed == AnnouncementFeed.spoken
-      ? _loadSpokenAnnouncements()
-      : _loadAnnouncements();
-
   @override
   Widget build(BuildContext context) {
-    final isSpokenFeed = widget.feed == AnnouncementFeed.spoken;
-    final visible = _urgentOnly
-        ? _announcements.where((item) => item.isUrgent).toList()
-        : _announcements;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          isSpokenFeed ? 'Spoken Announcements' : 'Official Announcements',
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          PopupMenuButton<String>(
-            tooltip: 'Announcement language',
-            icon: const Icon(Icons.translate),
-            initialValue: _language,
-            onSelected: (value) => setState(() => _language = value),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'en', child: Text('English')),
-              PopupMenuItem(value: 'ms', child: Text('Bahasa Melayu')),
-              PopupMenuItem(value: 'zh', child: Text('Chinese (Simplified)')),
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) {
+        final isSpokenFeed = widget.feed == AnnouncementFeed.spoken;
+        final visible = _urgentOnly
+            ? _announcements.where((item) => item.isUrgent).toList()
+            : _announcements;
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              isSpokenFeed ? 'Spoken Announcements' : 'Official Announcements',
+            ),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.pop(context),
+            ),
+            actions: [
+              PopupMenuButton<String>(
+                tooltip: 'Announcement language',
+                icon: const Icon(Icons.translate),
+                initialValue: _language,
+                onSelected: _viewModel.selectLanguage,
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'en', child: Text('English')),
+                  PopupMenuItem(value: 'ms', child: Text('Bahasa Melayu')),
+                  PopupMenuItem(
+                    value: 'zh',
+                    child: Text('Chinese (Simplified)'),
+                  ),
+                ],
+              ),
             ],
           ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _reload,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (isSpokenFeed)
-              _buildSpokenHeader(context)
-            else
-              _buildVenueHeader(context),
-            const SizedBox(height: 20),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(40),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            if (!_loading && !isSpokenFeed && _institutionId == null)
-              _buildNoSession(context),
-            if (!_loading &&
-                _error != null &&
-                (isSpokenFeed || _institutionId != null))
-              _buildError(context),
-            if (!_loading &&
-                _error == null &&
-                (isSpokenFeed || _institutionId != null) &&
-                visible.isEmpty)
-              _buildEmpty(context, isSpokenFeed: isSpokenFeed),
-            if (!_loading &&
-                _error == null &&
-                (isSpokenFeed || _institutionId != null))
-              ...visible.map(
-                (announcement) => _buildAnnouncement(context, announcement),
-              ),
-          ],
-        ),
-      ),
+          body: RefreshIndicator(
+            onRefresh: _viewModel.reload,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (isSpokenFeed)
+                  _buildSpokenHeader(context)
+                else
+                  _buildVenueHeader(context),
+                const SizedBox(height: 20),
+                if (_loading)
+                  const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                if (!_loading && !isSpokenFeed && _institutionId == null)
+                  _buildNoSession(context),
+                if (!_loading &&
+                    _error != null &&
+                    (isSpokenFeed || _institutionId != null))
+                  _buildError(context),
+                if (!_loading &&
+                    _error == null &&
+                    (isSpokenFeed || _institutionId != null) &&
+                    visible.isEmpty)
+                  _buildEmpty(context, isSpokenFeed: isSpokenFeed),
+                if (!_loading &&
+                    _error == null &&
+                    (isSpokenFeed || _institutionId != null))
+                  ...visible.map(
+                    (announcement) => _buildAnnouncement(context, announcement),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -308,7 +208,7 @@ class _AnnouncementViewState extends State<AnnouncementView> {
         SizedBox(
           width: double.infinity,
           child: OutlinedButton(
-            onPressed: _loadAnnouncements,
+            onPressed: _viewModel.loadOfficialAnnouncements,
             child: const Text('Try Again'),
           ),
         ),
