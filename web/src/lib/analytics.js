@@ -365,10 +365,10 @@ export function communicationStats(sessions, messages) {
 }
 
 export function ratingDistribution(requests) {
-  const dist = toList(countBy(requests.filter((r) => r.user_rating != null), (r) => Math.round(Number(r.user_rating))))
+  const dist = toList(countBy(requests.filter((r) => r.user_rating != null), (r) => String(Math.round(Number(r.user_rating)))))
   return [5, 4, 3, 2, 1].map((star) => ({
     key: String(star),
     label: `${star} star${star > 1 ? 's' : ''}`,
-    count: dist.find((d) => d.key === String(star))?.count || 0
+    count: dist.find((d) => String(d.key) === String(star))?.count || 0
   }))
 }
