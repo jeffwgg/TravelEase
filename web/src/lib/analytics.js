@@ -314,11 +314,13 @@ export function queueStats(lines, numbers) {
     const mid = Math.floor(s.length / 2)
     return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
   }
-  const terminal = numbers.filter((n) => n.status === 'completed' || n.status === 'cancelled')
   const perLine = lines.map((l) => {
-    const rows = terminal.filter((n) => n.queue_line_id === l.id)
-    const completed = rows.filter((n) => n.status === 'completed' && n.called_at)
-    const waits = completed.map((n) => (new Date(n.called_at) - new Date(n.created_at)) / 1000)
+    const rows = numbers.filter((n) => n.queue_line_id === l.id)
+    const completed = rows.filter((n) => n.status === 'completed')
+    const cancelled = rows.filter((n) => n.status === 'cancelled')
+    const waits = rows
+      .filter((n) => n.called_at && n.created_at)
+      .map((n) => Math.max(0, (new Date(n.called_at) - new Date(n.created_at)) / 1000))
     const sorted = [...waits].sort((a, b) => a - b)
     const p95 = sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : null
     return {
@@ -328,23 +330,24 @@ export function queueStats(lines, numbers) {
       serviceArea: l.service_area,
       total: rows.length,
       completed: completed.length,
-      cancelled: rows.length - completed.length,
-      abandonmentPct: pct(rows.length - completed.length, rows.length),
+      cancelled: cancelled.length,
+      abandonmentPct: pct(cancelled.length, rows.length),
       // median is robust to a few stale numbers with multi-hour/day gaps
       medianWaitSec: median(waits),
       p95WaitSec: p95
     }
   })
-  const allWaits = terminal
-    .filter((n) => n.status === 'completed' && n.called_at)
-    .map((n) => (new Date(n.called_at) - new Date(n.created_at)) / 1000)
+  const allWaits = numbers
+    .filter((n) => n.called_at && n.created_at)
+    .map((n) => Math.max(0, (new Date(n.called_at) - new Date(n.created_at)) / 1000))
   return {
     perLine,
-    total: terminal.length,
-    cancelled: terminal.filter((n) => n.status === 'cancelled').length,
-    abandonmentPct: pct(terminal.filter((n) => n.status === 'cancelled').length, terminal.length),
+    total: numbers.length,
+    completed: numbers.filter((n) => n.status === 'completed').length,
+    cancelled: numbers.filter((n) => n.status === 'cancelled').length,
+    abandonmentPct: pct(numbers.filter((n) => n.status === 'cancelled').length, numbers.length),
     medianWaitSec: median(allWaits),
-    hourly: hourlyTrend(terminal, 'created_at')
+    hourly: hourlyTrend(numbers, 'created_at')
   }
 }
 

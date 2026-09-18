@@ -47,8 +47,8 @@ export default function UsageInsightsPage() {
     setLoading(true)
     const institutionId = staffContext?.institution_id
     const [lines, numbers, sess, msgs, requestsData, areasData, slaData] = await Promise.all([
-      analyticsRepository.getQueueLines(),
-      analyticsRepository.getQueueNumbers(),
+      institutionId ? analyticsRepository.getQueueLines(institutionId) : Promise.resolve([]),
+      institutionId ? analyticsRepository.getQueueNumbers(institutionId) : Promise.resolve([]),
       analyticsRepository.getDialogueSessions(),
       analyticsRepository.getDialogueMessages(),
       assistanceRepository.getAssistanceRequests(),
@@ -184,7 +184,7 @@ export default function UsageInsightsPage() {
         metaLines: [...base.metaLines, ['Note', 'Aggregate counts only — no personal data.']],
         kpis: [
           { label: 'Queue numbers issued', value: queue.total },
-          { label: 'Completed', value: queue.total - queue.cancelled },
+          { label: 'Completed', value: queue.completed },
           { label: 'Median wait before call', value: fmtDuration(queue.medianWaitSec) },
           { label: 'Abandonment rate', value: `${queue.abandonmentPct}% (${queue.cancelled})` }
         ],
@@ -428,7 +428,7 @@ export default function UsageInsightsPage() {
                 tone="primary"
                 label="Queue Numbers Issued"
                 value={queue.total}
-                sub={queue.total ? `${queue.total - queue.cancelled} completed • n = ${queue.total}` : 'No numbers issued in this period'}
+                sub={queue.total ? `${queue.completed} completed • n = ${queue.total}` : 'No numbers issued in this period'}
               />
               <KpiCard
                 loading={loading}

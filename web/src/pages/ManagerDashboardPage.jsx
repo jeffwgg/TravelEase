@@ -58,7 +58,7 @@ export default function ManagerDashboardPage() {
       setSos(sosRows || [])
       setWaitingNumbers(
         (lines || []).flatMap((l) => l.queue_numbers || [])
-          .filter((n) => n.status === 'waiting' || n.status === 'called').length
+          .filter((n) => n.status === 'waiting').length
       )
       setLiveAnnouncements((anns || []).filter((a) => a.status === 'active').length)
       setLoading(false)
@@ -159,9 +159,9 @@ export default function ManagerDashboardPage() {
             loading={loading}
             icon={<MessageSquare size={22} />}
             tone="accent"
-            label="Queue Waiting"
-            value={waitingNumbers}
-            sub={`${liveAnnouncements} live announcement${liveAnnouncements === 1 ? '' : 's'}`}
+            label={`active announcement${liveAnnouncements === 1 ? '' : 's'}`}
+            value={liveAnnouncements}
+            sub={`${waitingNumbers} traveller${waitingNumbers === 1 ? ' is' : 's are'} tracking the queue line`}
           />
         </div>
 
