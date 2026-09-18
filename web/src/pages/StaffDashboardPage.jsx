@@ -49,7 +49,11 @@ export default function StaffDashboardPage() {
   const pending    = useMemo(() => requests.filter(r => ['pending', 'assigned'].includes(r.status)), [requests])
   const inProgress = useMemo(() => requests.filter(r => ['in_progress', 'en_route'].includes(r.status)), [requests])
   const resolved   = useMemo(() => requests.filter(r => r.status === 'resolved' || r.status === 'closed'), [requests])
+  const cancelled  = useMemo(() => requests.filter(r => r.status === 'cancelled'), [requests])
   const highPrio   = useMemo(() => requests.filter(r => r.urgency === 'high' || r.urgency === 'urgent'), [requests])
+
+  // Exclude cancelled requests from the resolution baseline
+  const serviceableRequests = useMemo(() => requests.filter(r => r.status !== 'cancelled'), [requests])
 
   const categoryBreakdown = useMemo(() => {
     const map = {}
@@ -67,8 +71,8 @@ export default function StaffDashboardPage() {
     [requests]
   )
 
-  const resolutionRate = requests.length > 0
-    ? Math.round((resolved.length / requests.length) * 100)
+  const resolutionRate = serviceableRequests.length > 0
+    ? Math.round((resolved.length / serviceableRequests.length) * 100)
     : 0
 
   const categoryLabel = cat => ({
@@ -132,7 +136,8 @@ export default function StaffDashboardPage() {
             </div>
             <div className="stat-row" style={{ marginBottom: '12px' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                {resolved.length} of {requests.length} requests resolved
+                {resolved.length} of {serviceableRequests.length} requests resolved
+                {cancelled.length > 0 && ` (${cancelled.length} cancelled excluded)`}
               </span>
               <strong style={{ fontSize: '28px', color: 'var(--success)', lineHeight: 1 }}>{resolutionRate}%</strong>
             </div>

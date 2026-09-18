@@ -26,6 +26,7 @@ const _pollInterval = Duration(seconds: 15);
 
 /// Freshness window for announcement alerts, matching the foreground service.
 const _freshWindow = Duration(minutes: 30);
+const _foregroundKey = 'travelease_app_is_foreground';
 
 bool _backgroundServiceStarted = false;
 
@@ -109,11 +110,21 @@ Future<void> backgroundNotificationEntryPoint(ServiceInstance service) async {
 }
 
 Future<void> _poll() async {
+  final preferences = await SharedPreferences.getInstance();
+  await preferences.reload();
+  // Keep the announcement poll active in both foreground and background.
+  // A lifecycle transition can be frozen by Android before the UI isolate
+  // persists its new state; using that state to skip announcements would make
+  // a background service believe the app was still open indefinitely.
   try {
     await _pollAnnouncements();
   } catch (error) {
     debugPrint('[BackgroundAlerts] announcement poll failed: $error');
   }
+  // Queue events have a foreground realtime subscription. Only defer this
+  // poll while that subscription is live, otherwise both isolates may alert
+  // for the same queue event at once.
+  if (preferences.getBool(_foregroundKey) ?? false) return;
   try {
     await _pollQueue();
   } catch (error) {
@@ -168,7 +179,7 @@ Future<void> _pollAnnouncements() async {
   final query = <String, String>{
     'select': 'id,title,message_en,published_at,expires_at',
     'institution_id': 'eq.$institutionId',
-    'status': 'eq.active',
+    'status': 'in.(active,scheduled)',
     'order': 'published_at.desc',
     'limit': '15',
   };
@@ -264,7 +275,8 @@ Future<void> _pollQueue() async {
     final event = row as Map<String, dynamic>;
     final eventId = event['id']?.toString();
     final eventNumber = event['event_number']?.toString().trim().toUpperCase();
-    if (eventId == null || eventNumber == null ||
+    if (eventId == null ||
+        eventNumber == null ||
         !trackedCandidates.contains(eventNumber)) {
       continue;
     }

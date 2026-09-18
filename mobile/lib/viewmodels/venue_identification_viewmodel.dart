@@ -170,6 +170,12 @@ class VenueIdentificationViewModel extends ChangeNotifier {
       _notify();
       return;
     }
+    // Manual search and nearby-location results are different choice flows.
+    // Hide the previous GPS suggestions as soon as the traveller starts typing
+    // so only the manual search result list is presented.
+    detectedVenues = const [];
+    locationStatus = null;
+    locationError = null;
     searching = true;
     searchError = null;
     _notify();

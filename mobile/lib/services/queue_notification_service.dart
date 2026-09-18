@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -31,6 +33,10 @@ class QueueNotificationService {
   final QueueRepository _repository = QueueRepository();
   RealtimeChannel? _channel;
   QueueTrackingData? _current;
+  Timer? _refreshTimer;
+  bool _refreshing = false;
+
+  static const _refreshInterval = Duration(seconds: 15);
 
   QueueTrackingData? get current => _current;
 
@@ -50,6 +56,7 @@ class QueueNotificationService {
       }
       _current = result;
       await _subscribe(result.line.id);
+      _ensureRefreshTimer();
     } catch (_) {
       // A temporary network failure must not prevent the app from opening.
     }
@@ -80,6 +87,7 @@ class QueueNotificationService {
     }
     await AppNotificationService.instance.requestPermission();
     await _subscribe(tracking.line.id);
+    _ensureRefreshTimer();
     await evaluateAlerts(tracking);
   }
 
@@ -117,9 +125,10 @@ class QueueNotificationService {
     final preferences = await SharedPreferences.getInstance();
     await preferences.reload();
     if (preferences.getString('venue_session_institution_id') == null) return;
-    final seen = (preferences.getStringList(_manualNotificationEventIdsKey) ??
-            const <String>[])
-        .toSet();
+    final seen =
+        (preferences.getStringList(_manualNotificationEventIdsKey) ??
+                const <String>[])
+            .toSet();
     if (seen.contains(eventId)) return;
     seen.add(eventId);
     final ids = seen.toList();
@@ -137,7 +146,8 @@ class QueueNotificationService {
 
   Future<void> _refresh() async {
     final tracked = _current;
-    if (tracked == null) return;
+    if (tracked == null || _refreshing) return;
+    _refreshing = true;
     try {
       final refreshed = await _repository.trackNumber(
         number: tracked.number,
@@ -149,7 +159,16 @@ class QueueNotificationService {
       await evaluateAlerts(refreshed);
     } catch (_) {
       // Keep the last known state during transient realtime refresh failures.
+    } finally {
+      _refreshing = false;
     }
+  }
+
+  /// Realtime updates are immediate when the socket is healthy. This small
+  /// foreground fallback keeps tracking and alerts working after a temporary
+  /// socket disconnect, without relying on the background isolate.
+  void _ensureRefreshTimer() {
+    _refreshTimer ??= Timer.periodic(_refreshInterval, (_) => _refresh());
   }
 
   /// Raises the one-time queue alerts for the given tracking state. Also used
@@ -199,6 +218,9 @@ class QueueNotificationService {
     await preferences.remove(_manualNotificationEventIdsKey);
     final previous = _channel;
     _channel = null;
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+    _refreshing = false;
     if (previous != null) await _repository.removeSubscription(previous);
     _current = null;
   }

@@ -86,6 +86,18 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                   _buildSpokenHeader(context)
                 else
                   _buildVenueHeader(context),
+                if (isSpokenFeed) ...[
+                  const SizedBox(height: 12),
+                  const AppMessageBanner(
+                    message: 'Spoken captions may be incomplete or inaccurate. Verify important details with official information.',
+                    type: AppMessageType.information,
+                  ),
+                ],
+                if (_viewModel.translating) ...[
+                  const SizedBox(height: 12),
+                  _buildTranslationProgress(context),
+                ],
+
                 const SizedBox(height: 20),
                 if (_loading)
                   const Padding(
@@ -171,14 +183,61 @@ class _AnnouncementViewState extends State<AnnouncementView> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.mic_outlined, color: AppColors.accent, size: 18),
+          Icon(
+            _viewModel.isSoundMonitoring &&
+                    _viewModel.isSpokenAnnouncementEnabled
+                ? Icons.mic_outlined
+                : Icons.mic_off_outlined,
+            color: AppColors.accent,
+            size: 18,
+          ),
           const SizedBox(width: 8),
-          const Expanded(
-            child: Text('Captured on this device — no venue session needed.'),
+          Expanded(
+            child: Text(
+              _viewModel.isSoundMonitoring &&
+                      _viewModel.isSpokenAnnouncementEnabled
+                  ? 'Monitoring is on and spoken announcements are enabled.'
+                  : 'Spoken announcements are off. Enable it in settings.',
+            ),
           ),
           TextButton(
             onPressed: () => context.push('/environment-sound-alert'),
             child: const Text('Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTranslationProgress(BuildContext context) {
+    final languageName = switch (_language) {
+      'ms' => 'Bahasa Melayu',
+      'zh' => 'Chinese',
+      _ => 'English',
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            height: 18,
+            width: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Translating to $languageName '
+              '(${_viewModel.translatedCount}/${_viewModel.translationTotal})',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
@@ -338,9 +397,8 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                   caption,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 10),
                 Row(

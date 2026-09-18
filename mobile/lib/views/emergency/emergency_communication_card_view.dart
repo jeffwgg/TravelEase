@@ -57,15 +57,19 @@ class _EmergencyCommunicationCardViewState
                   ) &&
                   !_inputScrollScheduled) {
                 _inputScrollScheduled = true;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
                   final inputContext = _tourTargetKey.currentContext;
                   if (!mounted || inputContext == null) return;
-                  Scrollable.ensureVisible(
+                  await Scrollable.ensureVisible(
                     inputContext,
                     alignment: 0.14,
                     duration: const Duration(milliseconds: 280),
                     curve: Curves.easeOutCubic,
                   );
+                  // The coachmark calculates its target rectangle during its
+                  // build. Rebuild after scrolling so its highlight follows
+                  // the Card Information section instead of its old position.
+                  if (mounted) setState(() {});
                 });
               }
               return ListView(

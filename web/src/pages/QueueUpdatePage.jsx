@@ -4,8 +4,10 @@ import { useAuth } from '../context/AuthContext'
 import { queueRepository } from '../repositories/queueRepository'
 import { serviceAreaRepository } from '../repositories/serviceAreaRepository'
 import { useAutoDismiss } from '../hooks/useAutoDismiss'
+import ListPagination, { ListFilterSearchField } from '../components/ListPagination'
 
 const labelStatus = (status) => status ? status[0].toUpperCase() + status.slice(1) : ''
+const pageSize = 5
 
 const numericQueueValue = (value) => {
   const match = String(value || '').match(/(\d+)\s*$/)
@@ -52,7 +54,9 @@ export default function QueueUpdatePage() {
   const [lookupResult, setLookupResult] = useState(null)
   const [lookupError, setLookupError] = useState('')
   const [lineStatusFilter, setLineStatusFilter] = useState('active')
-  const [serviceAreaFilter, setServiceAreaFilter] = useState('all')
+  const [pageServiceAreaFilter, setPageServiceAreaFilter] = useState('all')
+  const [lineNameFilter, setLineNameFilter] = useState('')
+  const [linePage, setLinePage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState('')
   const [error, setError] = useState('')
@@ -62,15 +66,30 @@ export default function QueueUpdatePage() {
   useAutoDismiss(editingError, () => setEditingError(''))
   useAutoDismiss(success, () => setSuccess(''))
   useAutoDismiss(lookupError, () => setLookupError(''))
-  const filteredLines = lines.filter((line) => {
+  const activeServiceAreas = serviceAreas.filter((area) => area.active)
+  const scopedLines = pageServiceAreaFilter === 'all'
+    ? lines
+    : lines.filter((line) => line.service_area_id === pageServiceAreaFilter)
+  const filteredLines = scopedLines.filter((line) => {
+    const matchesName = !lineNameFilter.trim() || line.name.toLowerCase().includes(lineNameFilter.trim().toLowerCase())
     const matchesStatus = lineStatusFilter === 'all' || line.status === lineStatusFilter
-    const matchesServiceArea = serviceAreaFilter === 'all' || line.service_area_id === serviceAreaFilter
-    return matchesStatus && matchesServiceArea && line.status !== 'reset'
+    return matchesName && matchesStatus && line.status !== 'reset'
   })
+  useEffect(() => { setLinePage(1) }, [lineNameFilter, lineStatusFilter, pageServiceAreaFilter])
+  const linePageCount = Math.max(1, Math.ceil(filteredLines.length / pageSize))
+  const currentLinePage = Math.min(linePage, linePageCount)
+  const visibleLines = filteredLines.slice((currentLinePage - 1) * pageSize, currentLinePage * pageSize)
+  useEffect(() => {
+    if (lookupLineId && !scopedLines.some((line) => line.id === lookupLineId)) {
+      setLookupLineId('')
+      setLookupResult(null)
+      setLookupError('')
+    }
+  }, [lookupLineId, scopedLines])
   // The call controls are operationally important, so they always remain at
   // the top of the page. Filters below apply only to the Queue Lines table;
   // otherwise choosing e.g. "Closed" would hide queues staff can still call.
-  const activeLines = lines.filter((line) => line.status === 'active')
+  const activeLines = scopedLines.filter((line) => line.status === 'active')
 
   // A line is exhausted once its upcoming number would exceed the maximum
   // queue number; calling and notifying must stop there.
@@ -118,7 +137,7 @@ export default function QueueUpdatePage() {
     let active = true
     serviceAreaRepository.list(staffContext)
       .then((areas) => {
-        if (active) setServiceAreas(areas.filter((area) => area.active))
+        if (active) setServiceAreas(areas)
       })
       .catch((loadError) => {
         if (active) setError(loadError.message || 'Unable to load service areas.')
@@ -133,9 +152,11 @@ export default function QueueUpdatePage() {
   }
 
   const saveLine = async () => {
-    const serviceArea = serviceAreas.find((area) => area.id === editing.service_area_id)
-    if (!editing.name.trim() || !serviceArea) {
-      setEditingError('Queue line name and an active service area are required.')
+    const serviceArea = editing.service_area_id
+      ? activeServiceAreas.find((area) => area.id === editing.service_area_id)
+      : null
+    if (!editing.name.trim() || (editing.service_area_id && !serviceArea)) {
+      setEditingError('Queue line name is required, and a selected service area must be active.')
       return
     }
     if (editing.status !== editing.originalStatus) {
@@ -153,8 +174,8 @@ export default function QueueUpdatePage() {
     try {
       await queueRepository.updateQueueLine(editing.id, {
         name: editing.name.trim(),
-        service_area_id: serviceArea.id,
-        service_area: serviceArea.name,
+        service_area_id: serviceArea?.id || null,
+        service_area: serviceArea?.name || 'All service areas',
         status: editing.status,
         estimated_service_minutes: Number(editing.estimated_service_minutes),
         max_tracking_number: Number(editing.max_tracking_number) > 0 ? Number(editing.max_tracking_number) : 100,
@@ -291,7 +312,7 @@ export default function QueueUpdatePage() {
     <div>
       <div className="page-header">
         <div><h2>Queue Management</h2><div className="header-subtitle">Create queue lines, update serving information and notify travelers visually.</div></div>
-        <Link to="/queue/add" className="btn btn-primary">+ Add Queue Line</Link>
+        <div className="page-header-actions"><select className="input page-service-area-filter" value={pageServiceAreaFilter} onChange={(event) => setPageServiceAreaFilter(event.target.value)} aria-label="Filter the page by service area"><option value="all">All service areas</option>{serviceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select><Link to="/queue/add" className="btn btn-primary">+ Add Queue Line</Link></div>
       </div>
 
       <div className="page-body">
@@ -343,7 +364,7 @@ export default function QueueUpdatePage() {
             <div className="card queue-lookup-card queue-tool-card">
             <div className="card-header"><div><h3>Queue Number Status Lookup</h3><div className="header-subtitle">Search a queue number to view its latest status and service information.</div></div></div>
             <div className="queue-lookup-form">
-              <div className="form-group"><label htmlFor="lookup-queue-line">Queue Line (Optional)</label><select id="lookup-queue-line" className="input" value={lookupLineId} onChange={(event) => { setLookupLineId(event.target.value); setLookupResult(null); setLookupError('') }}><option value="">Search all queue lines</option>{lines.filter((line) => line.status !== 'reset').map((line) => <option key={line.id} value={line.id}>{line.name} — {line.service_area}</option>)}</select></div>
+              <div className="form-group"><label htmlFor="lookup-queue-line">Queue Line (Optional)</label><select id="lookup-queue-line" className="input" value={lookupLineId} onChange={(event) => { setLookupLineId(event.target.value); setLookupResult(null); setLookupError('') }}><option value="">Search all queue lines</option>{scopedLines.filter((line) => line.status !== 'reset').map((line) => <option key={line.id} value={line.id}>{line.name} — {line.service_area}</option>)}</select></div>
               <div className="form-group"><label htmlFor="queue-status-number">Queue Number</label><input id="queue-status-number" className={`input ${lookupError ? 'invalid' : ''}`} value={lookupNumber} onChange={(event) => { setLookupNumber(event.target.value); setLookupResult(null); setLookupError('') }} onKeyDown={(event) => { if (event.key === 'Enter') searchNumberStatus() }} placeholder={lookupLineId ? 'e.g. 071, A071 or A-071' : 'e.g. A071 or A-071'} /></div>
               <button className="btn btn-outline" disabled={busyId === 'lookup'} onClick={searchNumberStatus}>{busyId === 'lookup' ? 'Searching…' : 'Search Status'}</button>
             </div>
@@ -371,17 +392,18 @@ export default function QueueUpdatePage() {
             </div>
           </div> : <></>}
 
-          <div className="card">
-            <div className="card-header"><div><h3>Queue Lines</h3><div className="header-subtitle">Filter queue lines by status or service area. Reset lines are archived and excluded from lookup.</div></div><div className="queue-line-filters"><select className="input" value={lineStatusFilter} onChange={(event) => setLineStatusFilter(event.target.value)} aria-label="Filter queue lines by status"><option value="all">All statuses</option><option value="active">Active</option><option value="closed">Closed</option></select><select className="input" value={serviceAreaFilter} onChange={(event) => setServiceAreaFilter(event.target.value)} aria-label="Filter queue lines by service area"><option value="all">All service areas</option>{serviceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></div></div>
-            {!filteredLines.length ? <div className="table-message">No queue lines match these filters.</div> : <table className="data-table">
+          <div className="announcement-list-card card queue-lines-list-card">
+            <div className="queue-lines-list-header announcement-list-header"><div><h3>Queue Lines</h3><p>Review and manage queue lines for your service areas.</p></div><div className="queue-line-filters"><ListFilterSearchField value={lineNameFilter} onChange={setLineNameFilter} placeholder="Filter by queue name" label="Filter queue lines by name" /><select className="input" value={lineStatusFilter} onChange={(event) => setLineStatusFilter(event.target.value)} aria-label="Filter queue lines by status"><option value="all">All statuses</option><option value="active">Active</option><option value="closed">Closed</option></select></div></div>
+            {!filteredLines.length ? <div className="table-message">No queue lines match these filters.</div> : <div className="table-scroll"><table className="data-table">
               <thead><tr><th>Queue Line</th><th>Current</th><th>Upcoming</th><th>Status</th><th>Action</th></tr></thead>
-              <tbody>{filteredLines.map((line) => <tr key={line.id}>
-                <td><strong>{line.name}</strong><br/><span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{line.service_area}</span></td>
+              <tbody>{visibleLines.map((line) => <tr key={line.id}>
+                <td><strong>{line.name}</strong></td>
                 <td><span className="badge primary">{line.current_number}</span></td><td>{line.upcoming_number}</td>
                 <td><span className={`badge ${line.status === 'active' ? 'success' : 'muted'}`}>{labelStatus(line.status)}</span></td>
                 <td><button className="btn btn-outline btn-sm" onClick={() => openManage(line)}>Manage</button></td>
               </tr>)}</tbody>
-            </table>}
+            </table></div>}
+            <ListPagination page={currentLinePage} totalItems={filteredLines.length} pageSize={pageSize} onPageChange={setLinePage} label="Queue lines" />
           </div>
         </>}
       </div>
@@ -394,7 +416,7 @@ export default function QueueUpdatePage() {
             <div className="form-group"><label>Queue Line Name</label><input className="input" disabled={editing.was_closed} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></div>
             <div className="form-group"><label>Current Number</label><div className="input queue-readonly-value" aria-label="Current Number">{editing.current_number}</div></div>
             <div className="form-group"><label>Upcoming Number</label><div className="input queue-readonly-value" aria-label="Upcoming Number">{editing.upcoming_number}</div></div>
-            <div className="form-group"><label>Service Area</label><select className="input" disabled={editing.was_closed} value={editing.service_area_id || ''} onChange={(event) => setEditing({ ...editing, service_area_id: event.target.value })}><option value="">Select an active service area</option>{serviceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select>{!editing.was_closed && serviceAreas.length === 0 && <div className="field-note">No active service areas are available. Create one in the institution profile first.</div>}</div>
+            <div className="form-group"><label>Service Area</label><select className="input" disabled={editing.was_closed} value={editing.service_area_id || ''} onChange={(event) => setEditing({ ...editing, service_area_id: event.target.value || null })}><option value="">All service areas</option>{activeServiceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></div>
             <div className="form-group"><label>Estimated Service Time (Minutes)</label><input type="number" min="1" max="240" className="input" disabled={editing.was_closed} value={editing.estimated_service_minutes} onChange={(event) => setEditing({ ...editing, estimated_service_minutes: event.target.value })} /></div>
             <div className="form-group"><label>Maximum Queue Number</label><input type="number" min="1" max="500" step="1" className="input" disabled={editing.was_closed} value={editing.max_tracking_number ?? 100} onChange={(event) => setEditing({ ...editing, max_tracking_number: event.target.value })} /><div className="field-note">Queue numbers stop at this value; no larger numbers can be called or tracked.</div></div>
             <div className="form-group"><label>Operating Hours</label><input className="input" disabled={editing.was_closed} value={editing.operating_hours || ''} onChange={(event) => setEditing({ ...editing, operating_hours: event.target.value })} placeholder="e.g. 6:00 AM – 11:00 PM" /></div>
