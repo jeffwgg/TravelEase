@@ -15,6 +15,7 @@
     <!-- Venue alert notifications while the app is in the background -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
@@ -81,7 +82,7 @@
              other apps) and adds the dataSync type required by targetSdk 34+. -->
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="dataSync|microphone"
             android:exported="false"
             tools:replace="android:exported"/>
         <!-- Required by flutter_local_notifications for action buttons such

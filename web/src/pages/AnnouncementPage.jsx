@@ -26,11 +26,13 @@ function formatDate(value) {
 
 // Scheduled = active row whose publish time is still in the future.
 function isScheduled(item) {
-  return item.status === 'active' && Boolean(item.published_at) && new Date(item.published_at) > new Date()
+  return item.status === 'scheduled'
+    || (item.status === 'active' && Boolean(item.published_at) && new Date(item.published_at) > new Date())
 }
 
 function isExpired(item) {
-  return item.status === 'active' && Boolean(item.expires_at) && new Date(item.expires_at) <= new Date()
+  return item.status === 'expired'
+    || (item.status === 'active' && Boolean(item.expires_at) && new Date(item.expires_at) <= new Date())
 }
 
 function displayStatus(item) {

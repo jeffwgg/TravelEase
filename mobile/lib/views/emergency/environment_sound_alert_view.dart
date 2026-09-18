@@ -29,6 +29,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   Set<EnvironmentSoundType> get _enabledTypes => _viewModel.enabledTypes;
   List<EnvironmentSoundDetection> get _history => _viewModel.history;
   StreamSubscription<EnvironmentSoundDetection>? _displayAlertSubscription;
+  bool _alertDialogVisible = false;
 
   SoundSensitivity get _sensitivity => _viewModel.sensitivity;
   SoundDetectionSnapshot get _snapshot => _viewModel.snapshot;
@@ -52,44 +53,72 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   }
 
   Future<void> _showDetectionAlert(EnvironmentSoundDetection detection) async {
-    if (!mounted) return;
-    for (var pulse = 0; pulse < 3; pulse++) {
-      await HapticFeedback.heavyImpact();
-      await Future<void>.delayed(const Duration(milliseconds: 180));
-    }
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: _colorFor(detection.type),
-        icon: Icon(_iconFor(detection.type), color: Colors.white, size: 52),
-        title: Text(
-          '${detection.type.title.toUpperCase()} DETECTED',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        content: Text(
-          'TravelEase heard ${detection.modelLabel.toLowerCase()} nearby. Check your surroundings and follow visible safety instructions.',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: _colorFor(detection.type),
+    // A new detection while an alert is on screen is intentionally discarded.
+    // It must never stack a second modal behind the traveller's response.
+    if (!mounted || _alertDialogVisible) return;
+    _alertDialogVisible = true;
+    try {
+      for (var pulse = 0; pulse < 3; pulse++) {
+        await HapticFeedback.heavyImpact();
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+      }
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          backgroundColor: _colorFor(detection.type),
+          icon: Icon(_iconFor(detection.type), color: Colors.white, size: 52),
+          title: Text(
+            '${detection.type.title.toUpperCase()} DETECTED',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
             ),
-            child: const Text('I understand'),
           ),
-        ],
-      ),
-    );
+          content: Text(
+            'TravelEase heard ${detection.modelLabel.toLowerCase()} nearby. Check your surroundings and follow visible safety instructions.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: _colorFor(detection.type),
+                    ),
+                    child: const Text('I understand'),
+                  ),
+                  const SizedBox(height: 4),
+                  TextButton(
+                    onPressed: () {
+                      _viewModel.setSoundEnabled(detection.type, false);
+                      Navigator.pop(context);
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      textStyle: const TextStyle(
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                    child: Text('Turn off ${detection.type.title}'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      _alertDialogVisible = false;
+    }
   }
 
   @override
