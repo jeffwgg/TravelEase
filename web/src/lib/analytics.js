@@ -316,6 +316,11 @@ export function queueStats(lines, numbers) {
   }
   const perLine = lines.map((l) => {
     const rows = numbers.filter((n) => n.queue_line_id === l.id)
+    // A completed number was necessarily called earlier. Prefer called_at so
+    // an explicitly called-then-cancelled number is also counted correctly.
+    const called = rows.filter((n) =>
+      n.called_at || n.status === 'called' || n.status === 'completed'
+    )
     const completed = rows.filter((n) => n.status === 'completed')
     const cancelled = rows.filter((n) => n.status === 'cancelled')
     const waits = rows
@@ -329,6 +334,7 @@ export function queueStats(lines, numbers) {
       prefix: l.prefix,
       serviceArea: l.service_area,
       total: rows.length,
+      called: called.length,
       completed: completed.length,
       cancelled: cancelled.length,
       abandonmentPct: pct(cancelled.length, rows.length),
@@ -343,6 +349,9 @@ export function queueStats(lines, numbers) {
   return {
     perLine,
     total: numbers.length,
+    called: numbers.filter((n) =>
+      n.called_at || n.status === 'called' || n.status === 'completed'
+    ).length,
     completed: numbers.filter((n) => n.status === 'completed').length,
     cancelled: numbers.filter((n) => n.status === 'cancelled').length,
     abandonmentPct: pct(numbers.filter((n) => n.status === 'cancelled').length, numbers.length),

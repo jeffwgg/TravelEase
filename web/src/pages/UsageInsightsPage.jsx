@@ -183,7 +183,7 @@ export default function UsageInsightsPage() {
         title: 'Queue Service Analytics Export',
         metaLines: [...base.metaLines, ['Note', 'Aggregate counts only — no personal data.']],
         kpis: [
-          { label: 'Queue numbers issued', value: queue.total },
+          { label: 'Queue numbers called', value: queue.called },
           { label: 'Completed', value: queue.completed },
           { label: 'Median wait before call', value: fmtDuration(queue.medianWaitSec) },
           { label: 'Abandonment rate', value: `${queue.abandonmentPct}% (${queue.cancelled})` }
@@ -191,8 +191,8 @@ export default function UsageInsightsPage() {
         tables: [
           {
             title: 'Queue line performance',
-            headers: ['Line', 'Issued', 'Completed', 'Median wait', 'P95 wait', 'Abandoned'],
-            rows: queue.perLine.map((l) => [l.name, l.total, l.completed, fmtDuration(l.medianWaitSec), fmtDuration(l.p95WaitSec), `${l.cancelled} (${l.abandonmentPct}%)`])
+            headers: ['Line', 'Called', 'Completed', 'Median wait', 'P95 wait', 'Abandoned'],
+            rows: queue.perLine.map((l) => [l.name, l.called, l.completed, fmtDuration(l.medianWaitSec), fmtDuration(l.p95WaitSec), `${l.cancelled} (${l.abandonmentPct}%)`])
           },
           { title: 'Queue arrivals by hour of day', headers: ['Hour', 'Arrivals'], rows: queue.hourly.map((c, h) => [`${String(h).padStart(2, '0')}:00`, c]) }
         ]
@@ -426,9 +426,9 @@ export default function UsageInsightsPage() {
                 loading={loading}
                 icon={<ListOrdered size={22} />}
                 tone="primary"
-                label="Queue Numbers Issued"
-                value={queue.total}
-                sub={queue.total ? `${queue.completed} completed • n = ${queue.total}` : 'No numbers issued in this period'}
+                label="Queue Numbers Called"
+                value={queue.called}
+                sub={queue.called ? `${queue.completed} completed` : 'No numbers called in this period'}
               />
               <KpiCard
                 loading={loading}
@@ -436,7 +436,7 @@ export default function UsageInsightsPage() {
                 tone="accent"
                 label="Median Wait Before Call"
                 value={fmtDuration(queue.medianWaitSec)}
-                sub="issued → called"
+                sub="called → completed"
               />
               <KpiCard
                 loading={loading}
@@ -456,7 +456,7 @@ export default function UsageInsightsPage() {
                 <thead>
                   <tr>
                     <th>Queue Line</th>
-                    <th>Issued</th>
+                    <th>Called</th>
                     <th>Completed</th>
                     <th>Median Wait</th>
                     <th>Abandonment</th>
