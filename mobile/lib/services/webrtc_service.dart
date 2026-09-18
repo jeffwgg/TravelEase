@@ -248,14 +248,7 @@ class WebRTCService extends ChangeNotifier {
       await _sendSignal('call_offer', {
         'sdp': offer.sdp,
         'callType': type == CallType.video ? 'video' : 'voice',
-        'callerName':
-            (_client.auth.currentUser?.userMetadata?['full_name'] as String?)
-                    ?.trim()
-                    .isNotEmpty ==
-                true
-            ? (_client.auth.currentUser!.userMetadata!['full_name'] as String)
-                  .trim()
-            : 'Guest',
+        'callerName': travelerName,
         'callerSide': 'mobile',
         'requestId': requestId,
       });
@@ -498,7 +491,7 @@ class WebRTCService extends ChangeNotifier {
       );
     }
     try {
-      final globalChannel = _client.channel('call_room_global');
+      final globalChannel = _globalChannel ?? _client.channel('call_room_global');
       await globalChannel.sendBroadcastMessage(
         event: event,
         payload: fullPayload,

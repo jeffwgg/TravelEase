@@ -3112,6 +3112,7 @@ a.btn:focus { text-decoration: none; }
 .heat-zone { cursor: pointer; outline: none; }
 .heat-zone circle { transition: fill-opacity 0.15s ease; }
 .heat-zone:hover circle { fill-opacity: 0.9; }
+.heat-zone:hover text { fill: #ffffff; }
 .heat-zone:focus-visible circle { stroke: var(--primary-light, #5EEAD4); stroke-width: 1.4; }
 .heatmap-legend {
   display: flex;

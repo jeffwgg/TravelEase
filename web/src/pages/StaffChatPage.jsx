@@ -2,24 +2,18 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { 
   MapPin, 
-  Mic, 
-  MicOff, 
   Zap, 
   Send, 
   CheckCircle2, 
   Video, 
-  VideoOff, 
-  PhoneCall, 
-  PhoneOff, 
   Phone, 
-  PhoneIncoming, 
   X, 
-  AlertTriangle,
-  Star,
-  AlertCircle,
-  Paperclip,
-  Loader2,
-  Radio
+  AlertTriangle, 
+  Star, 
+  AlertCircle, 
+  Paperclip, 
+  Loader2, 
+  Radio 
 } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import { useWebRTC } from '../hooks/useWebRTC'
@@ -71,34 +65,8 @@ export default function StaffChatPage() {
     return () => setActiveChatId(null)
   }, [selectedReq?.id, setActiveChatId])
 
-  const handleIncomingCall = React.useCallback((reqId) => {
-    setRequests((prev) => {
-      const match = prev.find((r) => r.id === reqId)
-      if (match) setSelectedReq(match)
-      return prev
-    })
-  }, [])
-
-  // WebRTC hook — wired to the selected request's ID
-  const {
-    callState,
-    callType,
-    incomingCallerName,
-    isMicMuted,
-    isCameraOff,
-    localVideoRef,
-    remoteVideoRef,
-    startCall,
-    acceptCall,
-    rejectCall,
-    hangup,
-    toggleMic,
-    toggleCamera,
-    subscribeToSignaling,
-  } = useWebRTC(selectedReq?.id ?? null, handleIncomingCall)
-
-  // Track the cleanup function for signaling subscription
-  const unsubscribeSignalingRef = useRef(null)
+  // Global WebRTC calling
+  const { callState, startCall } = useWebRTC()
 
   // ── Load requests & realtime subscription ─────────────────────────────────
   useEffect(() => {
@@ -177,23 +145,6 @@ export default function StaffChatPage() {
     }
   }, [filteredChatRequests.length, chatFilter, targetRequestId, requests])
 
-  // ── Subscribe to WebRTC signaling whenever selected request changes ────────
-  useEffect(() => {
-    // Cleanup previous signaling subscription
-    if (unsubscribeSignalingRef.current) {
-      unsubscribeSignalingRef.current()
-      unsubscribeSignalingRef.current = null
-    }
-
-    // Subscribe even with no chat selected: the global channel still needs
-    // its call_offer handler so incoming calls from travelers can ring.
-    const cleanup = subscribeToSignaling()
-    unsubscribeSignalingRef.current = cleanup
-
-    return () => {
-      if (cleanup) cleanup()
-    }
-  }, [selectedReq?.id, subscribeToSignaling])
 
   // ── Load messages when request changes ────────────────────────────────────
   useEffect(() => {
@@ -313,8 +264,6 @@ export default function StaffChatPage() {
     }
   }
 
-  const isInCall = callState === 'connected' || callState === 'calling'
-
   // Once the request is resolved (or closed), the conversation becomes read-only
   const isChatLocked =
     !!selectedReq && (selectedReq.status === 'resolved' || selectedReq.status === 'closed')
@@ -327,232 +276,13 @@ export default function StaffChatPage() {
     if (fresh && fresh !== selectedReq) setSelectedReq(fresh)
   }, [requests, selectedReq])
 
-  // ── Call summary log ("Video call · 1:23") ─────────────────────────────────
-  // Only the side that DIALED writes the summary row, so each call is logged
-  // exactly once (the other side receives it via the realtime message feed).
-  const prevCallStateRef = useRef('idle')
-  const initiatedCallRef = useRef(false)
-  const connectedAtRef = useRef(null)
-
   function handleStartCall(type) {
-    initiatedCallRef.current = true
-    startCall(type)
+    if (!selectedReq?.id) return
+    startCall(type, selectedReq.id, selectedReq.traveler_name)
   }
-
-  useEffect(() => {
-    const prev = prevCallStateRef.current
-    if (callState === 'connected' && prev !== 'connected') {
-      connectedAtRef.current = Date.now()
-    }
-    if (callState === 'idle' && prev !== 'idle') {
-      if (initiatedCallRef.current && connectedAtRef.current && selectedReq?.id) {
-        const seconds = Math.round((Date.now() - connectedAtRef.current) / 1000)
-        if (seconds > 0) {
-          assistanceRepository.sendChatMessage({
-            request_id: selectedReq.id,
-            sender_type: 'staff',
-            sender_name: 'Call Log',
-            content: `${callType}|${seconds}`,
-            message_type: 'call',
-            is_read: true,
-            created_at: new Date().toISOString(),
-          }).catch((err) => console.error('Failed to log call summary:', err))
-        }
-      }
-      initiatedCallRef.current = false
-      connectedAtRef.current = null
-    }
-    prevCallStateRef.current = callState
-  }, [callState, callType, selectedReq?.id])
 
   return (
     <div style={{ padding: '0' }}>
-
-      {/* ── Incoming Call Banner (Mobile → Web) ─────────────────────────────── */}
-      {callState === 'incoming' && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.75)',
-          backdropFilter: 'blur(6px)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          <div style={{
-            background: '#1e293b',
-            borderRadius: '24px',
-            padding: '40px 48px',
-            textAlign: 'center',
-            boxShadow: '0 32px 80px rgba(0,0,0,0.5)',
-            minWidth: '320px',
-          }}>
-            {/* Animated avatar ring */}
-            <div style={{
-              width: '80px', height: '80px',
-              borderRadius: '50%',
-              background: 'rgba(59,130,246,0.2)',
-              border: '2px solid rgba(59,130,246,0.5)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 20px',
-              animation: 'pulse 1.5s infinite',
-            }}>
-              <PhoneIncoming size={36} color="#60a5fa" />
-            </div>
-            <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              Incoming {callType === 'video' ? 'Video' : 'Voice'} Call
-            </div>
-            <div style={{ fontSize: '22px', fontWeight: '700', color: '#f1f5f9', marginBottom: '8px' }}>
-              {incomingCallerName}
-            </div>
-            <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '32px' }}>
-              {selectedReq?.request_code} · {selectedReq?.location_zone}
-            </div>
-            <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
-              <button
-                onClick={rejectCall}
-                style={{
-                  width: '56px', height: '56px', borderRadius: '50%',
-                  background: '#ef4444', border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(239,68,68,0.4)',
-                }}
-              >
-                <PhoneOff size={22} color="white" />
-              </button>
-              <button
-                onClick={acceptCall}
-                style={{
-                  width: '56px', height: '56px', borderRadius: '50%',
-                  background: '#22c55e', border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(34,197,94,0.4)',
-                }}
-              >
-                {callType === 'video' ? <Video size={22} color="white" /> : <Phone size={22} color="white" />}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Active Call Overlay ──────────────────────────────────────────────── */}
-      {isInCall && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          background: '#0f172a',
-          zIndex: 9998,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          {/* Remote video (large) */}
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            style={{
-              position: 'absolute', inset: 0,
-              width: '100%', height: '100%',
-              objectFit: 'cover',
-              opacity: callType === 'video' ? 1 : 0,
-            }}
-          />
-
-          {/* Calling state overlay */}
-          {callState === 'calling' && (
-            <div style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center',
-              color: 'white',
-            }}>
-              <PhoneCall size={60} color="#60a5fa" style={{ marginBottom: '16px' }} />
-              <div style={{ fontSize: '20px', fontWeight: '600', marginBottom: '8px' }}>
-                Calling {selectedReq?.traveler_name}...
-              </div>
-              <div style={{ color: '#94a3b8', fontSize: '14px' }}>Waiting for traveler to accept</div>
-            </div>
-          )}
-
-          {/* Local video PIP */}
-          {callType === 'video' && (
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{
-                position: 'absolute',
-                bottom: '120px', right: '24px',
-                width: '180px', height: '130px',
-                objectFit: 'cover',
-                borderRadius: '12px',
-                border: '2px solid rgba(255,255,255,0.2)',
-                zIndex: 1,
-              }}
-            />
-          )}
-
-          {/* Call controls bar */}
-          <div style={{
-            position: 'absolute',
-            bottom: '32px',
-            display: 'flex',
-            gap: '16px',
-            alignItems: 'center',
-            background: 'rgba(255,255,255,0.1)',
-            backdropFilter: 'blur(12px)',
-            borderRadius: '50px',
-            padding: '12px 24px',
-          }}>
-            <button
-              onClick={toggleMic}
-              style={{
-                width: '48px', height: '48px', borderRadius: '50%',
-                background: isMicMuted ? '#ef4444' : 'rgba(255,255,255,0.15)',
-                border: 'none', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-              title={isMicMuted ? 'Unmute' : 'Mute'}
-            >
-              {isMicMuted ? <MicOff size={20} color="white" /> : <Mic size={20} color="white" />}
-            </button>
-
-            {callType === 'video' && (
-              <button
-                onClick={toggleCamera}
-                style={{
-                  width: '48px', height: '48px', borderRadius: '50%',
-                  background: isCameraOff ? '#ef4444' : 'rgba(255,255,255,0.15)',
-                  border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-                title={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
-              >
-                {isCameraOff ? <VideoOff size={20} color="white" /> : <Video size={20} color="white" />}
-              </button>
-            )}
-
-            <button
-              onClick={() => hangup()}
-              style={{
-                width: '56px', height: '56px', borderRadius: '50%',
-                background: '#ef4444', border: 'none', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 4px 16px rgba(239,68,68,0.5)',
-              }}
-              title="End Call"
-            >
-              <PhoneOff size={24} color="white" />
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* ── Page Header ──────────────────────────────────────────────────────── */}
       <div className="page-header" style={{ padding: '16px 32px' }}>
         <div>

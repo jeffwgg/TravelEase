@@ -182,6 +182,49 @@ export function Donut({ items, size = 150, thickness = 16 }) {
   )
 }
 
+function truncateLabel(str, max = 24) {
+  if (!str || str.length <= max) return str
+  return str.slice(0, max - 1).trim() + '…'
+}
+
+function formatLabelLines(name, maxSingleLine = 20) {
+  if (!name) return []
+  const trimmed = name.trim()
+  if (trimmed.length <= maxSingleLine) return [trimmed]
+
+  // If there is an opening parenthesis, prefer splitting right before it
+  const parenIdx = trimmed.indexOf(' (')
+  if (parenIdx > 0) {
+    const part1 = trimmed.slice(0, parenIdx).trim()
+    const part2 = trimmed.slice(parenIdx).trim()
+    if (part1.length <= 22 && part2.length <= 26) {
+      return [part1, truncateLabel(part2, 24)]
+    }
+  }
+
+  const words = trimmed.split(/\s+/)
+  if (words.length <= 1) return [truncateLabel(trimmed, 24)]
+
+  let bestSplit = 1
+  let minDiff = Infinity
+
+  for (let i = 1; i < words.length; i++) {
+    const line1 = words.slice(0, i).join(' ')
+    const line2 = words.slice(i).join(' ')
+    const penalty = (line1.length > 22 ? 30 : 0) + (line2.length > 22 ? 30 : 0)
+    const diff = Math.abs(line1.length - line2.length) + penalty
+    if (diff < minDiff) {
+      minDiff = diff
+      bestSplit = i
+    }
+  }
+
+  return [
+    truncateLabel(words.slice(0, bestSplit).join(' '), 24),
+    truncateLabel(words.slice(bestSplit).join(' '), 24),
+  ]
+}
+
 // FR-M7-04 spatial heatmap: bubbles positioned by each service area's
 // lat/lng (normalised onto the canvas), sized/colored by issue count.
 export function ServiceAreaHeatmap({ areas, selected, onSelect }) {
@@ -189,10 +232,12 @@ export function ServiceAreaHeatmap({ areas, selected, onSelect }) {
   if (!mapped.length) {
     return <div className="chart-placeholder">No active service areas with coordinates yet. Add them under Profile → Service Areas to enable the geographic heatmap.</div>
   }
-  const max = Math.max(1, mapped.reduce((m, a) => Math.max(m, a.issueCount), 0))
+  const max = Math.max(1, mapped.reduce((m, a) => Math.max(m, a.issueCount || 0), 0))
   const W = 100
-  const H = 60
-  const PAD = 10
+  const H = 65
+  const PAD_X = 18
+  const PAD_TOP = 15
+  const PAD_BOTTOM = 13
   // Project lat/lng into the viewBox; single point (or identical coords)
   // centres all bubbles.
   const lats = mapped.map((a) => a.latitude)
@@ -202,11 +247,11 @@ export function ServiceAreaHeatmap({ areas, selected, onSelect }) {
   const spanLat = maxLat - minLat
   const spanLng = maxLng - minLng
   const project = (a) => ({
-    x: spanLng > 0 ? PAD + ((a.longitude - minLng) / spanLng) * (W - 2 * PAD) : W / 2,
+    x: spanLng > 0 ? PAD_X + ((a.longitude - minLng) / spanLng) * (W - 2 * PAD_X) : W / 2,
     // higher latitude = higher on screen
-    y: spanLat > 0 ? H - PAD - ((a.latitude - minLat) / spanLat) * (H - 2 * PAD) : H / 2,
+    y: spanLat > 0 ? H - PAD_BOTTOM - ((a.latitude - minLat) / spanLat) * (H - PAD_TOP - PAD_BOTTOM) : H / 2,
   })
-  const intensity = (c) => c / max
+  const intensity = (c) => (c || 0) / max
   const bubbleColor = (t) => (t > 0.66 ? '#ef4444' : t > 0.33 ? '#f59e0b' : '#10b981')
   const select = (a) => onSelect && onSelect(a)
   return (
@@ -216,15 +261,24 @@ export function ServiceAreaHeatmap({ areas, selected, onSelect }) {
         {Array.from({ length: 9 }, (_, i) => (
           <line key={`v${i}`} x1={(i + 1) * 10} y1="0" x2={(i + 1) * 10} y2={H} stroke="rgba(148,163,184,0.12)" strokeWidth="0.25" />
         ))}
-        {Array.from({ length: 5 }, (_, i) => (
+        {Array.from({ length: 6 }, (_, i) => (
           <line key={`h${i}`} x1="0" y1={(i + 1) * 10} x2={W} y2={(i + 1) * 10} stroke="rgba(148,163,184,0.12)" strokeWidth="0.25" />
         ))}
-        <text x="2.5" y="5" fontSize="2.6" fill="rgba(148,163,184,0.7)">Service Areas — Barrier Density</text>
+        <text x="3" y="4.5" fontSize="2.2" fill="rgba(148,163,184,0.7)" fontWeight="500">Service Areas — Barrier Density</text>
         {mapped.map((a) => {
           const { x, y } = project(a)
           const t = intensity(a.issueCount)
-          const radius = 4 + 6 * Math.sqrt(t)
+          const radius = 3.6 + 4.6 * Math.sqrt(t)
           const isSel = selected && selected.id === a.id
+          const lines = formatLabelLines(a.name)
+          const maxLineChars = Math.max(...lines.map((l) => l.length), 1)
+          const approxHalfWidth = (maxLineChars * 1.15) / 2
+          const labelX = Math.max(approxHalfWidth + 2.5, Math.min(W - approxHalfWidth - 2.5, x))
+          const placeAbove = (y > H * 0.52 || y + radius + (lines.length > 1 ? 6.5 : 4.0) > H - 2) && (y - radius - 6 > 5)
+          const labelY = placeAbove
+            ? y - radius - 1.8 - (lines.length > 1 ? 2.5 : 0)
+            : y + radius + 2.7
+
           return (
             <g
               key={a.id}
@@ -249,8 +303,24 @@ export function ServiceAreaHeatmap({ areas, selected, onSelect }) {
               >
                 <title>{`${a.name}${a.radiusM ? ` (r = ${a.radiusM} m)` : ''} — ${a.issueCount} barriers, ${a.requestCount} assistance requests`}</title>
               </circle>
-              <text x={x} y={y + radius + 2.8} fontSize="2.4" textAnchor="middle" fill={isSel ? '#fff' : 'rgba(226,232,240,0.85)'}>
-                {a.name}
+              <text
+                x={labelX}
+                y={labelY}
+                fontSize="2.2"
+                textAnchor="middle"
+                fill={isSel ? '#ffffff' : 'rgba(241, 245, 249, 0.92)'}
+                fontWeight={isSel ? '600' : '500'}
+                paintOrder="stroke fill"
+                stroke="#0b1329"
+                strokeWidth="0.8"
+                strokeLinejoin="round"
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
+                {lines.map((line, idx) => (
+                  <tspan key={idx} x={labelX} dy={idx === 0 ? 0 : '1.25em'}>
+                    {line}
+                  </tspan>
+                ))}
               </text>
             </g>
           )
