@@ -39,6 +39,7 @@ import StaffDashboardPage from './pages/StaffDashboardPage'
 import StaffProfilePage from './pages/StaffProfilePage'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { NotificationProvider, useNotifications } from './context/NotificationContext'
+import { WebRTCProvider } from './context/WebRTCContext'
 
 function Sidebar() {
   const { session, staffContext, signOut } = useAuth()
@@ -109,9 +110,8 @@ function Sidebar() {
             </NavLink>
           </div>
         </>}
-
         {!isManager && <div className="sidebar-section"><div className="sidebar-section-title">Account</div><NavLink to="/profile" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}><span className="link-icon"><UserRound size={18} /></span> My Profile</NavLink></div>}
-        {permission === 'default' && (
+        {!isManager && permission === 'default' && (
           <div style={{ padding: '8px 12px', marginTop: '12px' }}>
             <button
               onClick={requestBrowserPermission}
@@ -218,7 +218,9 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <NotificationProvider>
-          <AppRoutes />
+          <WebRTCProvider>
+            <AppRoutes />
+          </WebRTCProvider>
         </NotificationProvider>
       </AuthProvider>
     </BrowserRouter>

@@ -380,5 +380,51 @@ class AssistanceRepository {
         )
         .subscribe();
   }
+
+  // Realtime subscription for traveler's barrier reports
+  RealtimeChannel subscribeToAccessibilityReports(void Function() onReportsChanged) {
+    final userId = _client.auth.currentUser?.id;
+    final channelName = 'mobile_barrier_reports_${userId ?? "all"}_${DateTime.now().millisecondsSinceEpoch}';
+    return _client
+        .channel(channelName)
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'accessibility_issue_reports',
+          callback: (payload) {
+            final newUserId = payload.newRecord['user_id'] as String?;
+            final oldUserId = payload.oldRecord['user_id'] as String?;
+            if (userId == null || newUserId == userId || oldUserId == userId) {
+              onReportsChanged();
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  // Realtime subscription for traveler's assistance requests
+  RealtimeChannel subscribeToAssistanceRequests(void Function() onRequestsChanged) {
+    final userId = _client.auth.currentUser?.id;
+    final channelName = 'mobile_requests_${userId ?? "all"}_${DateTime.now().millisecondsSinceEpoch}';
+    return _client
+        .channel(channelName)
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'assistance_requests',
+          callback: (payload) {
+            final newUserId = payload.newRecord['user_id'] as String?;
+            final oldUserId = payload.oldRecord['user_id'] as String?;
+            if (userId == null || newUserId == userId || oldUserId == userId) {
+              onRequestsChanged();
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  void unsubscribeRealtimeChannel(RealtimeChannel channel) {
+    _client.removeChannel(channel);
+  }
 }
 

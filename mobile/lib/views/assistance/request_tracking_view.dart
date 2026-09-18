@@ -20,6 +20,7 @@ class _RequestTrackingViewState extends State<RequestTrackingView> {
   void initState() {
     super.initState();
     _viewModel.addListener(_onChanged);
+    _viewModel.subscribeToRealtime();
     _viewModel.loadAll().then((_) {
       // After loading, auto-prompt for any resolved requests needing confirmation
       if (mounted && _viewModel.pendingResolution.isNotEmpty) {
