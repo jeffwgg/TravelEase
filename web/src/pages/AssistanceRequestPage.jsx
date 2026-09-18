@@ -638,7 +638,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                           <td>
                             <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{req.traveler_name}</div>
                             <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                              {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {req.created_at ? `${new Date(req.created_at).toLocaleDateString()} ${new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '—'}
                             </div>
                           </td>
                           <td>

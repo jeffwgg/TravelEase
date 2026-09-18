@@ -278,7 +278,7 @@ export default function StaffChatPage() {
 
   function handleStartCall(type) {
     if (!selectedReq?.id) return
-    startCall(type, selectedReq.id, selectedReq.traveler_name)
+    startCall(type, selectedReq.id, selectedReq.traveler_name, selectedReq.user_id)
   }
 
   return (
@@ -445,7 +445,7 @@ export default function StaffChatPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
                       <strong style={{ fontSize: '14px' }}>{req.traveler_name}</strong>
                       <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {req.created_at ? `${new Date(req.created_at).toLocaleDateString()} ${new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
                       </span>
                     </div>
                     {(isEscalated || shouldEscalate) && (
