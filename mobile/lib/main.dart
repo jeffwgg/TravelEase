@@ -23,6 +23,7 @@ import 'viewmodels/profile_viewmodel.dart';
 
 import 'services/webrtc_service.dart';
 import 'views/widgets/incoming_call_overlay.dart';
+import 'widgets/environment_sound_fullscreen_alert.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -163,7 +164,11 @@ class _TravelEaseAppState extends State<TravelEaseApp>
       theme: AppTheme.lightTheme,
       routerConfig: appRouter,
       builder: (context, child) {
-        return IncomingCallOverlay(child: child ?? const SizedBox.shrink());
+        return IncomingCallOverlay(
+          child: EnvironmentSoundFullscreenAlert(
+            child: child ?? const SizedBox.shrink(),
+          ),
+        );
       },
     );
   }

@@ -152,7 +152,7 @@ class QueueTrackingViewModel extends ChangeNotifier {
     error = null;
     _notify();
     try {
-      final result = await _repository.trackNumber(
+      final found = await _repository.trackNumber(
         number: number,
         queueLineId: selectedLineId,
         queuePrefix: line?.prefix,
@@ -160,10 +160,16 @@ class QueueTrackingViewModel extends ChangeNotifier {
         serviceAreaId: serviceAreaId,
       );
       if (_disposed) return;
-      if (result == null) {
+      if (found == null) {
         error = 'Queue number not found. Check the number and queue line.';
         return;
       }
+      final result = await _repository.storeTrackedWaitingNumber(
+        found,
+        institutionId: institutionId,
+        serviceAreaId: serviceAreaId,
+      );
+      if (_disposed) return;
       await _replaceTrackingSubscription(result.line.id);
       if (_disposed) return;
       tracking = result;

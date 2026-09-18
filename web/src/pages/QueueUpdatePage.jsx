@@ -324,6 +324,8 @@ export default function QueueUpdatePage() {
             {activeLines.map((line) => {
               const waiting = realWaitingCount(line)
               const pastRecords = recentPastRecords(line)
+              const currentRecord = (line.queue_numbers || []).find((record) => record.number === line.current_number)
+              const currentIsTerminal = ['completed', 'cancelled'].includes(currentRecord?.status)
               return <div key={line.id} className="card queue-call-card" style={{ background: 'linear-gradient(135deg, var(--dark-bg), var(--dark-surface))', color: '#fff' }}>
                 <div className="queue-card-heading">
                   <span>{line.name}</span>
@@ -335,8 +337,8 @@ export default function QueueUpdatePage() {
                 </div>
                 <div className="queue-current-actions">
                   <button className="btn btn-outline btn-sm" disabled={busyId === `notify-${line.id}-current` || busyId === `status-${line.id}` || line.status !== 'active'} onClick={() => notifyQueueNumber(line, { id: 'current', number: line.current_number })}>{busyId === `notify-${line.id}-current` ? 'Notifying…' : 'Notify'}</button>
-                  <button className="btn btn-outline btn-sm" disabled={busyId === `status-${line.id}` || line.status !== 'active'} onClick={() => markNumber(line.id, line.current_number, 'completed')}>Complete</button>
-                  <button className="btn btn-danger btn-sm" disabled={busyId === `status-${line.id}` || line.status !== 'active'} onClick={() => markNumber(line.id, line.current_number, 'cancelled')}>Cancel</button>
+                  <button className="btn btn-outline btn-sm" disabled={busyId === `status-${line.id}` || line.status !== 'active' || currentIsTerminal} onClick={() => markNumber(line.id, line.current_number, 'completed')}>Complete</button>
+                  <button className="btn btn-danger btn-sm" disabled={busyId === `status-${line.id}` || line.status !== 'active' || currentIsTerminal} onClick={() => markNumber(line.id, line.current_number, 'cancelled')}>Cancel</button>
                 </div>
                 {pastRecords.length > 0 && <div className="queue-past-records">
                   <div className="queue-past-records-title">Recent records</div>

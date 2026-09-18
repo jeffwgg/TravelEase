@@ -1,7 +1,4 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
 import '../../models/entities/environment_sound.dart';
@@ -28,8 +25,6 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   final _viewModel = EnvironmentSoundAlertViewModel();
   Set<EnvironmentSoundType> get _enabledTypes => _viewModel.enabledTypes;
   List<EnvironmentSoundDetection> get _history => _viewModel.history;
-  StreamSubscription<EnvironmentSoundDetection>? _displayAlertSubscription;
-  bool _alertDialogVisible = false;
 
   SoundSensitivity get _sensitivity => _viewModel.sensitivity;
   SoundDetectionSnapshot get _snapshot => _viewModel.snapshot;
@@ -46,84 +41,11 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
   @override
   void initState() {
     super.initState();
-    _displayAlertSubscription = _viewModel.displayAlerts.listen(
-      _showDetectionAlert,
-    );
     _viewModel.initialize();
-  }
-
-  Future<void> _showDetectionAlert(EnvironmentSoundDetection detection) async {
-    // A new detection while an alert is on screen is intentionally discarded.
-    // It must never stack a second modal behind the traveller's response.
-    if (!mounted || _alertDialogVisible) return;
-    _alertDialogVisible = true;
-    try {
-      for (var pulse = 0; pulse < 3; pulse++) {
-        await HapticFeedback.heavyImpact();
-        await Future<void>.delayed(const Duration(milliseconds: 180));
-      }
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          backgroundColor: _colorFor(detection.type),
-          icon: Icon(_iconFor(detection.type), color: Colors.white, size: 52),
-          title: Text(
-            '${detection.type.title.toUpperCase()} DETECTED',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          content: Text(
-            'TravelEase heard ${detection.modelLabel.toLowerCase()} nearby. Check your surroundings and follow visible safety instructions.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white),
-          ),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: [
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FilledButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: _colorFor(detection.type),
-                    ),
-                    child: const Text('I understand'),
-                  ),
-                  const SizedBox(height: 4),
-                  TextButton(
-                    onPressed: () {
-                      _viewModel.setSoundEnabled(detection.type, false);
-                      Navigator.pop(context);
-                    },
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      textStyle: const TextStyle(
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                    child: Text('Turn off ${detection.type.title}'),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      _alertDialogVisible = false;
-    }
   }
 
   @override
   void dispose() {
-    unawaited(_displayAlertSubscription?.cancel());
     _viewModel.dispose();
     super.dispose();
   }

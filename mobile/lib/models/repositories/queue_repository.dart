@@ -85,13 +85,13 @@ class QueueRepository {
     String? queuePrefix,
     String? serviceAreaId,
   }) async {
-    final match = RegExp(r'^(?:([A-Z]+)[-\\s]?)?(\\d+)$')
+    final match = RegExp(r'^(?:([A-Z]+)[-\s]?)?(\d+)$')
         .firstMatch(number.trim().toUpperCase());
     if (match == null) return null;
     final value = int.tryParse(match.group(2)!);
     if (value == null || value < 1) return null;
     final requestedPrefix = (queuePrefix ?? match.group(1) ?? '')
-        .replaceAll(RegExp(r'[\\s-]'), '')
+        .replaceAll(RegExp(r'[\s-]'), '')
         .toUpperCase();
     var lines = _client
         .from('queue_lines')
@@ -111,7 +111,7 @@ class QueueRepository {
         .cast<Map<String, dynamic>>()
         .where((row) {
           final linePrefix = (row['prefix'] as String? ?? '')
-              .replaceAll(RegExp(r'[\\s-]'), '')
+              .replaceAll(RegExp(r'[\s-]'), '')
               .toUpperCase();
           return row['status'] == 'active' &&
               linePrefix == requestedPrefix &&
@@ -133,6 +133,31 @@ class QueueRepository {
       status: 'waiting',
       line: line,
     );
+  }
+
+  /// Materialises a virtual waiting number only after the traveller confirms
+  /// they want to track it. Lookup alone never creates database rows.
+  Future<QueueTrackingData> storeTrackedWaitingNumber(
+    QueueTrackingData tracking, {
+    required String institutionId,
+    required String? serviceAreaId,
+  }) async {
+    if (!tracking.id.startsWith('virtual-')) return tracking;
+    await _client.rpc(
+      'queue_track_waiting_number',
+      params: {
+        'p_queue_line_id': tracking.line.id,
+        'p_number': tracking.number,
+      },
+    );
+    return await trackNumber(
+          number: tracking.number,
+          queueLineId: tracking.line.id,
+          queuePrefix: tracking.line.prefix,
+          institutionId: institutionId,
+          serviceAreaId: serviceAreaId,
+        ) ??
+        tracking;
   }
 
   /// The maximum queue number configured on the web portal is a hard cap:
@@ -200,8 +225,8 @@ class QueueRepository {
   /// channel names, which silently stopped one of the callbacks firing.
   /// Marks the tracked queue number as held by this traveller (traveler_id)
   /// so the staff console can show how many real people are waiting instead
-  /// of counting pre-registered future numbers. Best-effort and idempotent:
-  /// once claimed, the update matches no rows and raises no realtime event.
+  /// of counting pre-registered future numbers. A virtual waiting number is
+  /// created only at this point — never in bulk when the line is created.
   Future<void> claimNumber({
     required String number,
     required String queueLineId,
@@ -210,12 +235,13 @@ class QueueRepository {
     try {
       final user = _client.auth.currentUser;
       if (user == null) return;
-      await _client
-          .from('queue_numbers')
-          .update({'traveler_id': user.id})
-          .eq('queue_line_id', queueLineId)
-          .inFilter('number', numberCandidates(number, queuePrefix))
-          .filter('traveler_id', 'is', null);
+      await _client.rpc(
+        'queue_claim_number',
+        params: {
+          'p_queue_line_id': queueLineId,
+          'p_number': number.trim().toUpperCase(),
+        },
+      );
     } catch (_) {
       // Claiming is best-effort; tracking must keep working without it.
     }
