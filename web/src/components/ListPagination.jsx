@@ -1,8 +1,8 @@
 import React from 'react'
 import { Search, X } from 'lucide-react'
 
-export function ListFilterSearchField({ value, onChange, placeholder, label, className = '' }) {
-  return <label className={`list-filter-search ${className}`.trim()}>
+export function ListFilterSearchField({ value, onChange, placeholder, label, className = '', style }) {
+  return <label className={`list-filter-search ${className}`.trim()} style={style}>
     <Search size={17} aria-hidden="true" />
     <input className="input" type="text" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} aria-label={label} />
     {value && <button type="button" className="list-filter-search-clear" onClick={() => onChange('')} aria-label={`Clear ${label}`} title="Clear"><X size={16} /></button>}
