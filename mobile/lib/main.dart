@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:go_router/go_router.dart';
+
 import 'core/theme.dart';
 import 'core/router.dart';
 import 'core/supabase_client.dart';
@@ -9,7 +10,7 @@ import 'services/announcement_notification_service.dart';
 import 'services/app_notification_service.dart';
 import 'services/background_notification_service.dart';
 import 'services/chat_notification_service.dart';
-import 'services/environment_sound_monitoring_service.dart';
+import 'services/environment_sound_detector.dart';
 import 'services/notification_settings.dart';
 import 'services/queue_notification_service.dart';
 import 'services/startup_permission_service.dart';
@@ -107,7 +108,7 @@ class _TravelEaseAppState extends State<TravelEaseApp>
           .consumeLaunchPayload();
       if (launchRoute != null) _handleNotificationTap(launchRoute);
       await StartupPermissionService.requestOnFirstEntry();
-      await EnvironmentSoundMonitoringService.instance.initialize();
+      await EnvironmentSoundDetector().initializeMonitoring();
       // The foreground service must start once the activity is actually in
       // the foreground: Android 12+ rejects startForegroundService() issued
       // from main() during cold start.

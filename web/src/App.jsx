@@ -5,15 +5,14 @@ import {
   ListOrdered,
   LifeBuoy,
   MessageSquare,
-  BarChart3,
-  Zap,
   Activity,
   FileText,
   Building2,
   Bell,
   Siren,
   Users,
-  UserRound
+  UserRound,
+  BarChart3
 } from 'lucide-react'
 import './index.css'
 import './staff-workspace.css'
@@ -30,8 +29,8 @@ import AddQueueLinePage from './pages/AddQueueLinePage'
 import AssistanceRequestPage from './pages/AssistanceRequestPage'
 import StaffChatPage from './pages/StaffChatPage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import ManagerDashboardPage from './pages/ManagerDashboardPage'
 import UsageInsightsPage from './pages/UsageInsightsPage'
-import ServicePerformancePage from './pages/ServicePerformancePage'
 import ReportGenerationPage from './pages/ReportGenerationPage'
 import SosRequestsPage from './pages/SosRequestsPage'
 import StaffManagementPage from './pages/StaffManagementPage'
@@ -94,13 +93,10 @@ function Sidebar() {
           <div className="sidebar-section">
             <div className="sidebar-section-title">Analytics</div>
             <NavLink to="/analytics" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <span className="link-icon"><BarChart3 size={18} /></span> Accessibility
+              <span className="link-icon"><BarChart3 size={18} /></span> Accessibility Analytics
             </NavLink>
             <NavLink to="/usage" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <span className="link-icon"><Activity size={18} /></span> Usage Insights
-            </NavLink>
-            <NavLink to="/performance" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <span className="link-icon"><Zap size={18} /></span> Performance
+              <span className="link-icon"><Activity size={18} /></span> Service Analytics
             </NavLink>
             <NavLink to="/reports" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
               <span className="link-icon"><FileText size={18} /></span> Reports
@@ -194,7 +190,7 @@ function AppRoutes() {
     <DashboardLayout>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={staffContext?.role === 'staff' ? <StaffDashboardPage /> : <AnalyticsPage />} />
+        <Route path="/dashboard" element={staffContext?.role === 'staff' ? <StaffDashboardPage /> : <ManagerDashboardPage />} />
         <Route path="/profile" element={isManager ? <ProfilePage /> : <StaffProfilePage />} />
         <Route path="/announcements" element={<AnnouncementPage />} />
         <Route path="/announcements/create" element={<CreateAnnouncementPage />} />
@@ -206,9 +202,11 @@ function AppRoutes() {
         <Route path="/sos" element={<SosRequestsPage />} />
         <Route path="/chat" element={staffContext?.role === 'staff' ? <StaffChatPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/staff" element={isManager ? <StaffManagementPage /> : <Navigate to="/dashboard" replace />} />
+        {/* Accessibility analytics (barriers & hotspots); the dashboard is now an operations hub. */}
         <Route path="/analytics" element={isManager ? <AnalyticsPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/usage" element={isManager ? <UsageInsightsPage /> : <Navigate to="/dashboard" replace />} />
-        <Route path="/performance" element={isManager ? <ServicePerformancePage /> : <Navigate to="/dashboard" replace />} />
+        {/* Legacy deep-link alias: service performance is now a tab of the consolidated analytics page. */}
+        <Route path="/performance" element={<Navigate to="/usage" replace />} />
         <Route path="/reports" element={isManager ? <ReportGenerationPage /> : <Navigate to="/dashboard" replace />} />
       </Routes>
     </DashboardLayout>

@@ -95,13 +95,8 @@ class _HomeViewState extends State<HomeView> {
           child: AppTourCoachmark(
             feature: AppTourFeature.sos,
             targetKey: _sosTourKey,
-            title: AppTourController.instance.sosStep == 0
-                ? 'Emergency SOS'
-                : 'Emergency alert',
-            message: AppTourController.instance.sosStep == 0
-                ? 'Hold here to start the SOS countdown.'
-                : 'After the countdown, your emergency alert is sent.',
-            onNext: () => AppTourController.instance.advanceSos(context),
+            title: 'Emergency SOS',
+            message: 'Hold here to start the SOS countdown and send an alert.',
           ),
         ),
         Positioned.fill(
@@ -126,6 +121,14 @@ class _HomeViewState extends State<HomeView> {
             targetKey: _profileTourKey,
             title: 'Open Profile',
             message: 'Use Profile in the bottom menu for alert settings.',
+          ),
+        ),
+        Positioned.fill(
+          child: AppTourCoachmark(
+            feature: AppTourFeature.profileContactsNavigation,
+            targetKey: _profileTourKey,
+            title: 'Emergency Contacts',
+            message: 'Return to Profile to add emergency contacts.',
           ),
         ),
       ],

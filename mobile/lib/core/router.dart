@@ -198,7 +198,11 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/request-tracking',
-      builder: (context, state) => const RequestTrackingView(),
+      builder: (context, state) {
+        final tabParam = state.uri.queryParameters['tab'];
+        final initialTab = tabParam == 'reports' ? 1 : 0;
+        return RequestTrackingView(initialTab: initialTab);
+      },
     ),
     GoRoute(
       path: '/assistance-request/new',
@@ -213,7 +217,9 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/accessibility-issue',
-      builder: (context, state) => const AccessibilityIssueView(),
+      builder: (context, state) => AccessibilityIssueView(
+        venueName: state.uri.queryParameters['venue'],
+      ),
     ),
     GoRoute(
       path: '/location-picker',

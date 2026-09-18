@@ -6,6 +6,7 @@ import {
   Siren, ListOrdered
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { KpiCard, HBars } from '../components/charts'
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import useStaffWorkspace from '../hooks/useStaffWorkspace'
 import { mergeStaffAssignments } from '../lib/staffAssignments'
@@ -34,9 +35,13 @@ export default function StaffDashboardPage() {
     return () => { active = false; unsub?.() }
   }, [])
 
+  const venueName = staffContext?.institutions?.name
   const requests = useMemo(
-    () => mergeStaffAssignments(allRequests, sosTasks, myStaffId),
-    [allRequests, sosTasks, myStaffId]
+    () => allRequests.filter(r =>
+      r.assigned_staff_id === myStaffId &&
+      (!venueName || (r.venue_name || '').trim().toLowerCase() === venueName.trim().toLowerCase())
+    ),
+    [allRequests, myStaffId, venueName]
   )
 
   const pending    = useMemo(() => requests.filter(r => ['pending', 'assigned'].includes(r.status)), [requests])
@@ -98,15 +103,29 @@ export default function StaffDashboardPage() {
   }[status] || status)
 
   return (
-    <div className="page" style={{ padding: '28px 32px', maxWidth: 1100, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>My Dashboard</h2>
-        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>
-          Welcome back, <strong>{staffName}</strong> — here's your assignment overview.
-        </p>
+    <div>
+      <div className="page-header">
+        <div>
+          <h2>My Dashboard</h2>
+          <div className="header-subtitle">
+            Welcome back, <strong>{staffName}</strong> — here's your assignment overview.
+          </div>
+        </div>
+        <div className="header-actions">
+          <button className="btn btn-outline btn-sm" onClick={() => navigate('/requests')}>
+            <LifeBuoy size={14} /> All Requests
+          </button>
+        </div>
       </div>
 
+      <div className="page-body">
+        {/* KPI Cards */}
+        <div className="stats-grid">
+          <KpiCard loading={loading} icon={<LifeBuoy size={22} />} tone="accent"    label="Total Assigned" value={requests.length} />
+          <KpiCard loading={loading} icon={<Clock size={22} />}     tone="secondary" label="Pending"       value={pending.length} />
+          <KpiCard loading={loading} icon={<Zap size={22} />}       tone="primary"   label="In Progress"   value={inProgress.length} />
+          <KpiCard loading={loading} icon={<CheckCircle2 size={22} />} tone="success" label="Resolved"    value={resolved.length} />
+        </div>
       {sosError && <div className="form-alert error" role="alert">{sosError}</div>}
       {loading || sosLoading ? (
         <div className="form-alert info">Loading your dashboard…</div>
@@ -120,154 +139,128 @@ export default function StaffDashboardPage() {
             <KpiCard icon={<CheckCircle2 size={20} />} label="Resolved"   value={resolved.length}   color="#22c55e" />
           </div>
 
-          {/* Secondary row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-            {/* Resolution rate */}
-            <div className="card" style={{ padding: '20px 24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>Resolution Rate</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-                    {resolved.length} of {requests.length} requests resolved
-                  </div>
-                </div>
-                <TrendingUp size={20} color="#22c55e" />
-              </div>
-              <div style={{ height: 8, borderRadius: 99, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${resolutionRate}%`, background: '#22c55e', borderRadius: 99, transition: 'width 0.6s ease' }} />
-              </div>
-              <div style={{ marginTop: 8, fontSize: 28, fontWeight: 800, color: '#22c55e' }}>{resolutionRate}%</div>
+        {/* Secondary row: resolution rate + high priority */}
+        <div className="grid-2 section-gap">
+          <div className="card">
+            <div className="card-header">
+              <h3>Resolution Rate</h3>
+              <TrendingUp size={20} color="#10b981" aria-hidden="true" />
             </div>
-
-            {/* High priority */}
-            <div className="card" style={{ padding: '20px 24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>High Priority</div>
-                <AlertCircle size={20} color="#ef4444" />
-              </div>
-              <div style={{ fontSize: 40, fontWeight: 800, color: highPrio.length > 0 ? '#ef4444' : '#22c55e' }}>
-                {highPrio.length}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-                {highPrio.length === 0 ? 'No high priority requests 🎉' : 'Urgent requests need attention'}
-              </div>
-              {highPrio.length > 0 && (
-                <button
-                  className="btn btn-primary btn-sm"
-                  style={{ marginTop: 12 }}
-                  onClick={() => navigate(highPrio.find(request => request.request_type === 'sos')?.destination || '/requests')}
-                >
-                  View Urgent Requests
-                </button>
-              )}
+            <div className="stat-row" style={{ marginBottom: '12px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                {resolved.length} of {requests.length} requests resolved
+              </span>
+              <strong style={{ fontSize: '28px', color: 'var(--success)', lineHeight: 1 }}>{resolutionRate}%</strong>
+            </div>
+            <div
+              className="hbar-track"
+              role="progressbar"
+              aria-valuenow={resolutionRate}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Resolution rate"
+              style={{ height: '10px' }}
+            >
+              <div
+                className="hbar-fill"
+                style={{ width: `${resolutionRate}%`, background: 'var(--success)' }}
+              />
             </div>
           </div>
 
-          {/* Category breakdown + Recent requests */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 16 }}>
-            {/* Category breakdown */}
-            <div className="card" style={{ padding: '20px 24px' }}>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>By Category</div>
-              {categoryBreakdown.length === 0 ? (
-                <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No requests yet.</div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {categoryBreakdown.map(([cat, count]) => {
-                    const pct = requests.length > 0 ? Math.round((count / requests.length) * 100) : 0
-                    return (
-                      <div key={cat}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, fontSize: 13 }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {categoryIcon(cat)} {categoryLabel(cat)}
-                          </span>
-                          <span style={{ fontWeight: 600 }}>{count} <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>({pct}%)</span></span>
-                        </div>
-                        <div style={{ height: 5, borderRadius: 99, background: 'rgba(255,255,255,0.08)' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: 'var(--primary)', borderRadius: 99 }} />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+          <div className="card">
+            <div className="card-header">
+              <h3>High Priority</h3>
+              <AlertCircle size={20} color={highPrio.length > 0 ? '#ef4444' : '#10b981'} aria-hidden="true" />
             </div>
+            <div className="stat-value" style={{ color: highPrio.length > 0 ? 'var(--emergency)' : 'var(--success)', fontSize: '36px' }}>
+              {highPrio.length}
+            </div>
+            <div className="stat-label">
+              {highPrio.length === 0 ? 'No high priority requests' : 'Urgent requests need attention'}
+            </div>
+            {highPrio.length > 0 && (
+              <button
+                className="btn btn-primary btn-sm"
+                style={{ marginTop: '12px' }}
+                onClick={() => navigate(highPrio.find(request => request.request_type === 'sos')?.destination || '/requests')}
+              >
+                View Urgent Requests
+              </button>
+            )}
+          </div>
+        </div>
 
-            {/* Recent requests */}
-            <div className="card" style={{ padding: '20px 24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>Recent Assigned</div>
-                <button className="btn btn-outline btn-sm" onClick={() => navigate('/requests')}>View All</button>
-              </div>
-              {recent.length === 0 ? (
-                <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No requests assigned to you yet.</div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {recent.map(req => (
-                    <div
+        {/* Category breakdown (side) + Recent requests (main) */}
+        <div className="grid-main-side section-gap">
+          <div className="card">
+            <div className="card-header">
+              <h3>Recent Assigned</h3>
+              <button className="btn btn-outline btn-sm" onClick={() => navigate('/requests')}>View All</button>
+            </div>
+            {recent.length === 0 ? (
+              <div className="chart-placeholder" style={{ height: '120px' }}>No requests assigned to you yet.</div>
+            ) : (
+              <div className="chart-groups" style={{ gap: '10px' }}>
+                {recent.map(req => {
+                  const color = statusColor(req.status)
+                  return (
+                    <button
                       key={`${req.request_type}:${req.id}`}
-                      style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '10px 14px', borderRadius: 10,
-                        background: 'rgba(255,255,255,0.04)', cursor: 'pointer',
-                        border: '1px solid rgba(255,255,255,0.07)',
-                        transition: 'background 0.15s',
-                      }}
+                      type="button"
+                      className="recent-request"
                       onClick={() => navigate(req.destination)}
                     >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span style={{ fontWeight: 600, fontSize: 13 }}>
+                      <div className="recent-request-body">
+                        <span className="recent-request-title">
                           {req.request_code || req.id?.slice(0, 8)} · {req.traveler_name || 'Traveler'}
                         </span>
-                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                        <span className="recent-request-meta">
                           {categoryLabel(req.request_category || req.category || 'other')}
                           {req.location_zone ? ` · ${req.location_zone}` : ''}
                         </span>
                       </div>
-                      <span style={{
-                        padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600,
-                        background: `${statusColor(req.status)}22`,
-                        color: statusColor(req.status),
-                        border: `1px solid ${statusColor(req.status)}44`,
-                      }}>
+                      <span
+                        className="status-pill"
+                        style={{ background: `${color}22`, color, border: `1px solid ${color}44` }}
+                      >
                         {statusLabel(req.status)}
                       </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <h3>By Category</h3>
+              {requests.length > 0 && <span className="badge muted">n = {requests.length}</span>}
             </div>
+            {categoryBreakdown.length === 0 ? (
+              <div className="chart-placeholder" style={{ height: '120px' }}>No requests yet.</div>
+            ) : (
+              <HBars
+                items={categoryBreakdown.map(([cat, count]) => ({ key: cat, label: categoryLabel(cat), count }))}
+                total={requests.length}
+              />
+            )}
           </div>
+        </div>
 
-          {/* Quick links */}
-          <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
-            <button className="btn btn-outline" onClick={() => navigate('/sos')}>
-              <Siren size={15} /> SOS Alerts
-            </button>
-            <button className="btn btn-outline" onClick={() => navigate('/chat')}>
-              <MessageCircle size={15} /> My Chats
-            </button>
-            <button className="btn btn-outline" onClick={() => navigate('/queue')}>
-              <ListOrdered size={15} /> Queue Updates
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-function KpiCard({ icon, label, value, color }) {
-  return (
-    <div className="card" style={{ padding: '18px 22px', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-      <div style={{
-        width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: `${color}22`, color, flexShrink: 0,
-      }}>
-        {icon}
-      </div>
-      <div>
-        <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>{value}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{label}</div>
+        {/* Quick links */}
+        <div className="button-row" style={{ flexWrap: 'nowrap' }}>
+          <button className="btn btn-outline" onClick={() => navigate('/sos')}>
+            <Siren size={15} /> SOS Alerts
+          </button>
+          <button className="btn btn-outline" onClick={() => navigate('/chat')}>
+            <MessageCircle size={15} /> My Chats
+          </button>
+          <button className="btn btn-outline" onClick={() => navigate('/queue')}>
+            <ListOrdered size={15} /> Queue Updates
+          </button>
+        </div>
       </div>
     </div>
   )

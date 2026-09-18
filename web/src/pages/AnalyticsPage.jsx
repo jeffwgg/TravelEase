@@ -1,21 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { BarChart3, MapPin, LifeBuoy, Zap, RefreshCw, AlertTriangle, CheckCircle2, Download, FileDown } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
-import { announcementRepository } from '../repositories/announcementRepository'
+import { serviceAreaRepository } from '../repositories/serviceAreaRepository'
 import { useAuth } from '../context/AuthContext'
 import Tabs from '../components/Tabs'
-import { KpiCard, HBars, HourBars, LineTrend, ZoneHeatmap } from '../components/charts'
+import { KpiCard, HBars, HourBars, LineTrend, ServiceAreaHeatmap, ChartSkeleton } from '../components/charts'
 import { downloadCsv, downloadPdf } from '../lib/exporter'
 import {
   PERIODS, periodStart, inPeriod, withDerivedTimes, assistanceKpis,
-  countBy, toList, hourlyTrend, dailyTrend, zoneStats, hotspotFlags,
+  countBy, toList, hourlyTrend, dailyTrend, serviceAreaStats, hotspotFlags,
   fmtDuration, pct, ISSUE_TYPE_LABELS, LOW_SAMPLE_MIN
 } from '../lib/analytics'
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'trends', label: 'Categories & Trends' },
-  { key: 'hotspots', label: 'Zone Hotspots' }
+  { key: 'hotspots', label: 'Area Hotspots' }
 ]
 
 export default function AnalyticsPage() {
@@ -24,8 +24,8 @@ export default function AnalyticsPage() {
   const [tab, setTab] = useState('overview')
   const [requests, setRequests] = useState([])
   const [issues, setIssues] = useState([])
-  const [zones, setZones] = useState([])
-  const [selectedZone, setSelectedZone] = useState(null)
+  const [areas, setAreas] = useState([])
+  const [selectedArea, setSelectedArea] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -34,17 +34,16 @@ export default function AnalyticsPage() {
 
   async function loadAnalyticsData() {
     setLoading(true)
-    const institutionId = staffContext?.institution_id
-    const [requestsData, issuesData, zonesData] = await Promise.all([
+    const [requestsData, issuesData, areasData] = await Promise.all([
       assistanceRepository.getAssistanceRequests(),
       assistanceRepository.getAccessibilityIssueReports(),
-      institutionId
-        ? announcementRepository.getZones(institutionId)
+      staffContext
+        ? serviceAreaRepository.list(staffContext).catch(() => [])
         : Promise.resolve([])
     ])
     setRequests(withDerivedTimes(requestsData || []))
     setIssues(issuesData || [])
-    setZones(zonesData || [])
+    setAreas((areasData || []).filter((a) => a.active))
     setLoading(false)
   }
 
@@ -75,8 +74,8 @@ export default function AnalyticsPage() {
     () => toList(countBy(periodIssues, (i) => i.issue_type), (k) => ISSUE_TYPE_LABELS[k] || k),
     [periodIssues]
   )
-  const zoneList = useMemo(() => zoneStats(zones, periodIssues, periodRequests), [zones, periodIssues, periodRequests])
-  const hotspots = useMemo(() => hotspotFlags(zoneList), [zoneList])
+  const areaList = useMemo(() => serviceAreaStats(areas, periodIssues, periodRequests), [areas, periodIssues, periodRequests])
+  const hotspots = useMemo(() => hotspotFlags(areaList), [areaList])
   const hours = useMemo(() => hourlyTrend(periodIssues), [periodIssues])
   const daily = useMemo(() => dailyTrend(periodIssues, 'created_at', 30), [periodIssues])
   // FR-M7-20: preferred contact method across assistance requests
@@ -99,7 +98,7 @@ export default function AnalyticsPage() {
         ['Venue', venueName || 'All Venues'],
         ['Period', periodLabel],
         ['Generated', new Date().toISOString()],
-        ['Note', 'Confirmed issue reports; assistance data limited to consented rows (FR-M7-07).']
+        ['Note', 'Confirmed issue reports; assistance data limited to consented rows.']
       ]
     }
     let spec
@@ -113,9 +112,9 @@ export default function AnalyticsPage() {
           { label: 'Resolution rate', value: `${kpis.resolutionRatePct}% (n=${kpis.serviceable})` }
         ],
         tables: [{
-          title: 'Zone summary',
-          headers: ['Zone', 'Barriers', 'Assistance requests', 'Top category'],
-          rows: zoneList.map((z) => [z.name, z.issueCount, z.requestCount, z.categories[0]?.label || '—'])
+          title: 'Service area summary',
+          headers: ['Service area', 'Barriers', 'Assistance requests', 'Top category'],
+          rows: areaList.map((a) => [a.name, a.issueCount, a.requestCount, a.categories[0]?.label || '—'])
         }]
       }
     } else if (tab === 'trends') {
@@ -134,8 +133,8 @@ export default function AnalyticsPage() {
         ...base,
         kpis: [{ label: 'Double-jeopardy hotspots flagged', value: hotspots.filter((z) => z.doubleJeopardy).length }],
         tables: [{
-          title: 'Zone hotspot correlation',
-          headers: ['Zone', 'Barriers', 'Assistance requests', 'Top category', 'Priority'],
+          title: 'Service area hotspot correlation',
+          headers: ['Service area', 'Barriers', 'Assistance requests', 'Top category', 'Priority'],
           rows: hotspots.map((z) => [
             z.name, z.issueCount, z.requestCount, z.categories[0]?.label || '—',
             z.doubleJeopardy ? 'Fix first' : z.issueCount + z.requestCount > 0 ? 'Monitor' : 'Clear'
@@ -168,8 +167,9 @@ export default function AnalyticsPage() {
             Analyze confirmed accessibility barriers, problem locations, and recurring service gaps across your facility.
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <select className="input" style={{ width: '160px' }} value={period} onChange={(e) => setPeriod(e.target.value)}>
+        <div className="header-actions">
+          <label className="sr-only" htmlFor="analytics-period">Analytics period</label>
+          <select id="analytics-period" className="input filter-select" value={period} onChange={(e) => setPeriod(e.target.value)}>
             {PERIODS.map((p) => (
               <option key={p.key} value={p.key}>{p.label}</option>
             ))}
@@ -187,83 +187,87 @@ export default function AnalyticsPage() {
           <>
             <div className="stats-grid">
               <KpiCard
+                loading={loading}
                 icon={<BarChart3 size={22} />}
                 tone="primary"
                 label="Total Confirmed Barriers"
-                value={loading ? '…' : periodIssues.length}
-                sub={`n = ${periodIssues.length} confirmed issue reports`}
+                value={periodIssues.length}
+                sub={periodIssues.length ? `n = ${periodIssues.length} confirmed issue reports` : 'No confirmed reports in this period'}
               />
               <KpiCard
+                loading={loading}
                 icon={<LifeBuoy size={22} />}
                 tone="secondary"
                 label="Assistance Requests"
-                value={loading ? '…' : kpis.total}
-                sub={`${kpis.pending + kpis.inProgress} active now • n = ${kpis.total}`}
+                value={kpis.total}
+                sub={kpis.total ? `${kpis.pending + kpis.inProgress} active now • n = ${kpis.total}` : 'No assistance requests in this period'}
               />
               <KpiCard
+                loading={loading}
                 icon={<Zap size={22} />}
                 tone="accent"
                 label="Avg. First Response Time"
-                value={loading ? '…' : fmtDuration(kpis.avgFirstResponseSec)}
-                sub={`from first staff action • n = ${kpis.responseSampleCount}`}
+                value={fmtDuration(kpis.avgFirstResponseSec)}
+                sub={kpis.responseSampleCount ? `from first staff action • n = ${kpis.responseSampleCount}` : 'No staff responses recorded yet'}
               />
               <KpiCard
+                loading={loading}
                 icon={<CheckCircle2 size={22} />}
                 tone="success"
                 label="Resolution Rate"
-                value={loading ? '…' : `${kpis.resolutionRatePct}%`}
-                sub={`requests resolved • n = ${kpis.serviceable}`}
+                value={`${kpis.resolutionRatePct}%`}
+                sub={kpis.serviceable ? `requests resolved • n = ${kpis.serviceable}` : 'No completed requests yet'}
               />
             </div>
 
-            <div className="grid-2" style={{ marginBottom: '24px' }}>
+            <div className="grid-2 section-gap">
               <div className="card">
                 <div className="card-header">
-                  <h3>Facility Barrier Heatmap</h3>
+                  <h3>Service Area Barrier Heatmap</h3>
                   <span className="badge secondary">{venueName || 'All Venues'}</span>
                 </div>
                 {loading
-                  ? <div className="chart-placeholder">Loading heatmap data…</div>
-                  : <ZoneHeatmap zones={zoneList} selected={selectedZone} onSelect={(z) => setSelectedZone(z)} />}
+                  ? <ChartSkeleton height={240} />
+                  : <ServiceAreaHeatmap areas={areaList} selected={selectedArea} onSelect={(a) => setSelectedArea(a)} />}
               </div>
 
               <div className="card">
                 <div className="card-header">
-                  <h3>{selectedZone ? `Zone Breakdown — ${selectedZone.name}` : 'Zone Breakdown'}</h3>
-                  {selectedZone && (
-                    <button className="btn btn-outline btn-sm" onClick={() => setSelectedZone(null)}>Clear</button>
+                  <h3>{selectedArea ? `Area Breakdown — ${selectedArea.name}` : 'Area Breakdown'}</h3>
+                  {selectedArea && (
+                    <button className="btn btn-outline btn-sm" onClick={() => setSelectedArea(null)}>Clear</button>
                   )}
                 </div>
-                {!selectedZone ? (
+                {!selectedArea ? (
                   <div className="chart-placeholder">
-                    Select a zone on the heatmap to see its barrier categories, exact sample sizes and time-of-day trend.
+                    Select a service area on the heatmap to see its barrier categories, exact sample sizes and time-of-day trend.
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                      <span className="badge primary">Barriers: {selectedZone.issueCount}</span>
-                      <span className="badge secondary">Assistance requests: {selectedZone.requestCount}</span>
-                      {selectedZone.issueCount < LOW_SAMPLE_MIN && (
+                  <div className="chart-groups">
+                    <div className="badge-strip">
+                      <span className="badge primary">Barriers: {selectedArea.issueCount}</span>
+                      <span className="badge secondary">Assistance requests: {selectedArea.requestCount}</span>
+                      {selectedArea.issueCount > 0 && selectedArea.issueCount < LOW_SAMPLE_MIN && (
                         <span className="badge emergency" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                          <AlertTriangle size={12} /> Low sample size (n = {selectedZone.issueCount}) — percentages hidden
+                          <AlertTriangle size={12} /> Low sample size (n = {selectedArea.issueCount}) — percentages hidden
                         </span>
                       )}
                     </div>
-                    {selectedZone.issueCount === 0 ? (
+                    {selectedArea.issueCount === 0 ? (
                       <div className="chart-placeholder">No data available for the selected period.</div>
                     ) : (
                       <>
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Barrier categories</div>
+                        <div className="chart-block">
+                          <div className="chart-group-title">Barrier categories</div>
                           <HBars
-                            items={selectedZone.categories}
-                            total={selectedZone.issueCount}
-                            showPct={selectedZone.issueCount >= LOW_SAMPLE_MIN}
+                            items={selectedArea.categories}
+                            total={selectedArea.issueCount}
+                            showPct={selectedArea.issueCount >= LOW_SAMPLE_MIN}
                           />
                         </div>
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Time-of-day trend</div>
-                          <HourBars counts={selectedZone.hourly} />
+                        <div className="chart-block">
+                          <div className="chart-group-title">Time-of-day trend</div>
+                          <HourBars counts={selectedArea.hourly} label="Barrier reports by hour of day for this service area" />
                         </div>
                       </>
                     )}
@@ -276,18 +280,18 @@ export default function AnalyticsPage() {
 
         {tab === 'trends' && (
           <>
-            <div className="grid-2" style={{ marginBottom: '24px' }}>
+            <div className="grid-2 section-gap">
               <div className="card">
                 <div className="card-header">
                   <h3>Barrier Category Distribution</h3>
-                  <span className="badge secondary">n = {periodIssues.length}</span>
+                  {periodIssues.length > 0 && <span className="badge secondary">n = {periodIssues.length}</span>}
                 </div>
                 {loading
-                  ? <div className="chart-placeholder">Loading…</div>
+                  ? <ChartSkeleton />
                   : (
                     <>
                       {topCategory && (
-                        <div style={{ marginBottom: '12px', fontSize: '13px' }}>
+                        <div className="panel-footnote" style={{ marginTop: 0, marginBottom: '12px' }}>
                           Most reported: <strong>{topCategory.label}</strong>
                           {periodIssues.length >= LOW_SAMPLE_MIN
                             ? ` — ${pct(topCategory.count, periodIssues.length)}% of all reports (n = ${periodIssues.length})`
@@ -304,8 +308,8 @@ export default function AnalyticsPage() {
                   <h3>Barrier Reports by Time of Day</h3>
                 </div>
                 {loading
-                  ? <div className="chart-placeholder">Loading…</div>
-                  : <HourBars counts={hours} />}
+                  ? <ChartSkeleton height={170} />
+                  : <HourBars counts={hours} label="Barrier reports by hour of day" />}
               </div>
             </div>
 
@@ -315,17 +319,17 @@ export default function AnalyticsPage() {
                   <h3>Barrier Reports — Daily Trend (last 30 days)</h3>
                 </div>
                 {loading
-                  ? <div className="chart-placeholder">Loading…</div>
+                  ? <ChartSkeleton height={150} />
                   : <LineTrend points={daily} height={140} />}
               </div>
 
               <div className="card">
                 <div className="card-header">
                   <h3>Preferred Contact Method</h3>
-                  <span className="badge muted">n = {periodRequests.length}</span>
+                  {periodRequests.length > 0 && <span className="badge muted">n = {periodRequests.length}</span>}
                 </div>
                 {loading
-                  ? <div className="chart-placeholder">Loading…</div>
+                  ? <ChartSkeleton />
                   : <HBars items={contactMix} total={periodRequests.length} showPct={periodRequests.length >= LOW_SAMPLE_MIN} />}
               </div>
             </div>
@@ -334,26 +338,29 @@ export default function AnalyticsPage() {
 
         {tab === 'hotspots' && (
           <>
-            <div className="stats-grid" style={{ marginBottom: '24px' }}>
+            <div className="stats-grid section-gap">
               <KpiCard
+                loading={loading}
                 icon={<MapPin size={22} />}
                 tone="primary"
                 label="Double-Jeopardy Hotspots"
-                value={loading ? '…' : hotspots.filter((z) => z.doubleJeopardy).length}
-                sub="zones above median on both barriers & demand"
+                value={hotspots.filter((z) => z.doubleJeopardy).length}
+                sub="areas above median on both barriers & demand"
               />
               <KpiCard
+                loading={loading}
                 icon={<BarChart3 size={22} />}
                 tone="secondary"
-                label="Zones Analysed"
-                value={loading ? '…' : hotspots.length}
-                sub="zones with layout coordinates"
+                label="Service Areas Analysed"
+                value={hotspots.filter((z) => z.id !== 'unmapped').length}
+                sub="active service areas with coordinates"
               />
               <KpiCard
+                loading={loading}
                 icon={<CheckCircle2 size={22} />}
                 tone="success"
-                label="Clear Zones"
-                value={loading ? '…' : hotspots.filter((z) => z.issueCount + z.requestCount === 0).length}
+                label="Clear Areas"
+                value={hotspots.filter((z) => z.id !== 'unmapped' && z.issueCount + z.requestCount === 0).length}
                 sub="no reports in the selected period"
               />
             </div>
@@ -361,12 +368,12 @@ export default function AnalyticsPage() {
             <div className="card">
               <div className="card-header">
                 <h3>High-Frequency Problem Areas — Hotspot Correlation</h3>
-                <span className="badge muted">Barriers vs live assistance demand (FR-M7-19)</span>
+                <span className="badge muted">Barriers vs live assistance demand</span>
               </div>
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Location / Zone</th>
+                    <th>Service Area</th>
                     <th>Confirmed Barriers</th>
                     <th>Assistance Requests</th>
                     <th>Top Category</th>
@@ -375,12 +382,21 @@ export default function AnalyticsPage() {
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: '32px' }}>Loading reports from Supabase…</td></tr>
+                    <tr><td colSpan={5} className="table-message">Loading reports from Supabase…</td></tr>
                   ) : hotspots.length === 0 ? (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: '32px' }}>No data available for the selected period.</td></tr>
+                    <tr><td colSpan={5} className="table-message">No data available for the selected period.</td></tr>
                   ) : (
                     hotspots.map((z) => (
-                      <tr key={z.id} onClick={() => { setTab('overview'); setSelectedZone(z) }} style={{ cursor: 'pointer' }}>
+                      <tr
+                        key={z.id}
+                        tabIndex={0}
+                        aria-label={`${z.name}: view breakdown`}
+                        onClick={() => { setTab('overview'); setSelectedArea(z) }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab('overview'); setSelectedArea(z) }
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <td><strong>{z.name}</strong></td>
                         <td>{z.issueCount}</td>
                         <td>{z.requestCount}</td>
@@ -401,9 +417,10 @@ export default function AnalyticsPage() {
                   )}
                 </tbody>
               </table>
-              <div style={{ padding: '12px 16px', fontSize: '12px', color: '#64748b' }}>
-                "Fix first" flags zones that are above the median for both confirmed barriers and live assistance
-                demand — resolving these improves the most travellers. Click a row to view that zone on the heatmap.
+              <div className="panel-footnote">
+                "Fix first" flags service areas that are above the median for both confirmed barriers and live
+                assistance demand — resolving these improves the most travellers. Click a row to open its breakdown.
+                "Unmapped" collects reports without usable coordinates (travellers who didn't share their location).
               </div>
             </div>
           </>

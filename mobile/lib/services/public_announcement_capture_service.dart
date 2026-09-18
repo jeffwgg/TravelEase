@@ -9,8 +9,8 @@ import '../models/entities/spoken_announcement.dart';
 import '../models/entities/environment_sound.dart';
 import '../models/repositories/spoken_announcement_repository.dart';
 import '../models/repositories/environment_sound_repository.dart';
-import 'announcement_keyword_scorer.dart';
-import 'announcement_text_refiner.dart';
+import '../core/announcement_keyword_scorer.dart';
+import '../core/announcement_text_refiner.dart';
 import 'app_notification_service.dart';
 import 'environment_sound_detector.dart';
 import 'flash_alert_service.dart';
@@ -42,11 +42,11 @@ class PublicAnnouncementCaptureService {
   /// A public-address message is often longer than a conversational turn.
   /// Keep a finite ceiling so a nearby conversation cannot hold the microphone
   /// indefinitely, but do not truncate normal airport or station messages.
-  static const _maximumListenDuration = Duration(seconds: 55);
+  static const _maximumListenDuration = Duration(seconds: 110);
 
   /// The system speech recogniser finalises after this much silence. A short
   /// pause inside a multi-sentence announcement must not publish a fragment.
-  static const _endOfAnnouncementSilence = Duration(milliseconds: 3500);
+  static const _endOfAnnouncementSilence = Duration(seconds: 5);
 
   /// Lets the recogniser return its final words when the maximum duration is
   /// reached before our defensive watchdog uses the best partial result.
@@ -58,9 +58,9 @@ class PublicAnnouncementCaptureService {
   static const _successfulCaptureCooldown = Duration(seconds: 10);
 
   /// A recogniser that has stopped responding must not block all future
-  /// announcements until the 55-second maximum session timeout.
-  static const _firstResultTimeout = Duration(seconds: 6);
-  static const _resultInactivityTimeout = Duration(seconds: 6);
+  /// announcements until the maximum session timeout.
+  static const _firstResultTimeout = Duration(seconds: 14);
+  static const _resultInactivityTimeout = Duration(seconds: 10);
   static const _repetitionWindow = Duration(minutes: 5);
   static const _minTranscriptLength = 12;
 

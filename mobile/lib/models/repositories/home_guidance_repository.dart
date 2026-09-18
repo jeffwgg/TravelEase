@@ -16,9 +16,9 @@ class HomeGuidanceRepository {
   HomeGuidanceRepository({SupabaseClient? client})
     : _client = client ?? SupabaseClientHelper.client;
 
-  // Version 1 covered only Home. Version 2 adds the feature-by-feature tour,
-  // so people who completed the original guide can see the new one once.
-  static const homeTourVersion = 2;
+  // Version 3 adds Emergency Contacts and Emergency Card setup to the
+  // complete first-login journey.
+  static const homeTourVersion = 3;
   static const _metadataKey = 'travelease_home_tour_version';
   static const _localKeyPrefix = 'travelease.home_tour_version';
 

@@ -1,23 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { FileText, Download, RefreshCw, Loader2 } from 'lucide-react'
 import { assistanceRepository } from '../repositories/assistanceRepository'
-import { announcementRepository } from '../repositories/announcementRepository'
+import { serviceAreaRepository } from '../repositories/serviceAreaRepository'
 import { analyticsRepository } from '../repositories/analyticsRepository'
 import { useAuth } from '../context/AuthContext'
 import { HBars, LineTrend, HourBars } from '../components/charts'
 import { downloadCsv, downloadPdf } from '../lib/exporter'
 import {
-  withDerivedTimes, assistanceKpis, countBy, toList, hourlyTrend, zoneStats,
+  withDerivedTimes, assistanceKpis, countBy, toList, hourlyTrend,
+  serviceAreaStats, assignServiceArea, UNMAPPED_ID,
   queueStats, communicationStats, ratingDistribution,
   fmtDuration, pct, ISSUE_TYPE_LABELS, LOW_SAMPLE_MIN
 } from '../lib/analytics'
 
 const REPORT_TYPES = [
-  { key: 'accessibility', title: 'Accessibility Barrier & Heatmap Summary', desc: 'Confirmed barriers by zone, category and time of day (FR-M7-01/02/04/05/13).' },
-  { key: 'assistance_performance', title: 'Assistance Service Performance', desc: 'Response/resolution KPIs, SLA breaches and satisfaction (FR-M7-08/09/10/15/17).' },
-  { key: 'queue_service', title: 'Queue Service Summary', desc: 'Wait times, abandonment and throughput per queue line (FR-M7-21).' },
-  { key: 'communication_usage', title: 'Accessible Communication Usage', desc: 'Dialogue session volume, modality and language mix (FR-M7-22).' },
-  { key: 'users', title: 'Platform Adoption & User Mix', desc: 'Aggregate user counts, sign-up trend and preference mix (FR-M7-23).' }
+  { key: 'accessibility', title: 'Accessibility Barrier & Heatmap Summary', desc: 'Confirmed barriers by service area, category and time of day.' },
+  { key: 'assistance_performance', title: 'Assistance Service Performance', desc: 'Response/resolution KPIs, SLA breaches and satisfaction.' },
+  { key: 'queue_service', title: 'Queue Service Summary', desc: 'Wait times, abandonment and throughput per queue line.' },
+  { key: 'communication_usage', title: 'Accessible Communication Usage', desc: 'Dialogue session volume, modality and language mix.' },
+  { key: 'users', title: 'Platform Adoption & User Mix', desc: 'Aggregate user counts, sign-up trend and preference mix.' }
 ]
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -26,13 +27,13 @@ const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0
 export default function ReportGenerationPage() {
   const { staffContext } = useAuth()
   const [data, setData] = useState(null)
-  const [zones, setZones] = useState([])
+  const [areas, setAreas] = useState([])
   const [slaConfigs, setSlaConfigs] = useState([])
   const [history, setHistory] = useState([])
   const [reportType, setReportType] = useState('accessibility')
   const [dateFrom, setDateFrom] = useState(daysAgo(30))
   const [dateTo, setDateTo] = useState(today())
-  const [zoneFilter, setZoneFilter] = useState('all')
+  const [areaFilter, setAreaFilter] = useState('all')
   const [format, setFormat] = useState('pdf')
   const [preview, setPreview] = useState(null)
   const [working, setWorking] = useState(false)
@@ -44,7 +45,7 @@ export default function ReportGenerationPage() {
   async function loadAll() {
     setWorking(true)
     const institutionId = staffContext?.institution_id
-    const [requests, issues, lines, numbers, sess, msgs, users, slaData, zonesData, historyData] = await Promise.all([
+    const [requests, issues, lines, numbers, sess, msgs, users, slaData, areasData, historyData] = await Promise.all([
       assistanceRepository.getAssistanceRequests(),
       assistanceRepository.getAccessibilityIssueReports(),
       analyticsRepository.getQueueLines(),
@@ -53,7 +54,7 @@ export default function ReportGenerationPage() {
       analyticsRepository.getDialogueMessages(),
       analyticsRepository.getUserAnalytics(),
       institutionId ? analyticsRepository.getSlaConfigs(institutionId) : Promise.resolve([]),
-      institutionId ? announcementRepository.getZones(institutionId).catch(() => []) : Promise.resolve([]),
+      staffContext ? serviceAreaRepository.list(staffContext).catch(() => []) : Promise.resolve([]),
       institutionId ? assistanceRepository.getGeneratedReports() : Promise.resolve([])
     ])
     setData({
@@ -66,7 +67,7 @@ export default function ReportGenerationPage() {
       users
     })
     setSlaConfigs(slaData || [])
-    setZones(zonesData || [])
+    setAreas((areasData || []).filter((a) => a.active))
     setHistory(historyData || [])
     setWorking(false)
   }
@@ -93,13 +94,13 @@ export default function ReportGenerationPage() {
     let issues = data.issues.filter(
       (i) => inRange(i) && (!venueName || i.venue_name === venueName) && i.analytics_consent !== false
     )
-    if (zoneFilter !== 'all') {
-      const zone = zones.find((z) => z.id === zoneFilter)
-      const zoneName = zone?.name
-      if (zoneName) {
-        requests = requests.filter((r) => r.location_zone === zoneName)
-        issues = issues.filter((i) => i.location_zone === zoneName)
+    if (areaFilter !== 'all') {
+      const match = (row) => {
+        const area = assignServiceArea(areas, row)
+        return areaFilter === UNMAPPED_ID ? !area : area?.id === areaFilter
       }
+      requests = requests.filter(match)
+      issues = issues.filter(match)
     }
     const numbers = data.queueNumbers.filter((n) => inRange(n))
     const sessions = data.sessions.filter((s) => inRange(s))
@@ -111,7 +112,11 @@ export default function ReportGenerationPage() {
       title: REPORT_TYPES.find((t) => t.key === reportType)?.title,
       from: dateFrom,
       to: dateTo,
-      zone: zoneFilter === 'all' ? 'All Zones' : zones.find((z) => z.id === zoneFilter)?.name,
+      area: areaFilter === 'all'
+        ? 'All Service Areas'
+        : areaFilter === UNMAPPED_ID
+          ? 'Unmapped'
+          : areas.find((a) => a.id === areaFilter)?.name,
       venue: venueName || 'All Venues',
       generatedAt: new Date().toISOString(),
       // UC702: reports contain no traveller identities — aggregates + codes only.
@@ -119,7 +124,7 @@ export default function ReportGenerationPage() {
     }
 
     if (reportType === 'accessibility') {
-      const zoneList = zoneStats(zones, issues, requests)
+      const areaList = serviceAreaStats(areas, issues, requests)
       return {
         meta,
         kpis: [
@@ -129,9 +134,9 @@ export default function ReportGenerationPage() {
           { label: 'Busiest hour', value: `${String(hourlyTrend(issues).indexOf(Math.max(...hourlyTrend(issues))))}:00` }
         ],
         categoryMix: toList(countBy(issues, (i) => i.issue_type), (k) => ISSUE_TYPE_LABELS[k] || k),
-        zones: zoneList.map((z) => ({
-          zone: z.name, barriers: z.issueCount, requests: z.requestCount,
-          topCategory: z.categories[0]?.label || '—'
+        areas: areaList.map((a) => ({
+          area: a.name, barriers: a.issueCount, requests: a.requestCount,
+          topCategory: a.categories[0]?.label || '—'
         })),
         hours: hourlyTrend(issues)
       }
@@ -241,10 +246,10 @@ export default function ReportGenerationPage() {
       title: snapshot.meta.title,
       metaLines: [
         ['Venue', snapshot.meta.venue],
-        ['Zone', snapshot.meta.zone],
+        ['Service area', snapshot.meta.area ?? snapshot.meta.zone],
         ['Period', `${snapshot.meta.from} to ${snapshot.meta.to}`],
         ['Generated', snapshot.meta.generatedAt],
-        ['Anonymized', 'true — no traveller identities included (UC702)']
+        ['Anonymized', 'true — no traveller identities included']
       ],
       kpis: snapshot.kpis,
       tables: tablesFromSnapshot(snapshot)
@@ -258,7 +263,9 @@ export default function ReportGenerationPage() {
   function tablesFromSnapshot(snapshot) {
     const tables = []
     if (snapshot.categoryMix) tables.push({ title: 'Barrier category distribution', headers: ['Category', 'Count'], rows: snapshot.categoryMix.map((c) => [c.label, c.count]) })
-    if (snapshot.zones) tables.push({ title: 'Zone breakdown', headers: ['Zone', 'Barriers', 'Requests', 'Top category'], rows: snapshot.zones.map((z) => [z.zone, z.barriers, z.requests, z.topCategory]) })
+    if (snapshot.areas) tables.push({ title: 'Service area breakdown', headers: ['Service area', 'Barriers', 'Requests', 'Top category'], rows: snapshot.areas.map((a) => [a.area, a.barriers, a.requests, a.topCategory]) })
+    // Older saved snapshots used the venue-zone model; keep them exportable.
+    else if (snapshot.zones) tables.push({ title: 'Zone breakdown', headers: ['Zone', 'Barriers', 'Requests', 'Top category'], rows: snapshot.zones.map((z) => [z.zone, z.barriers, z.requests, z.topCategory]) })
     if (snapshot.lines) tables.push({ title: 'Queue line performance', headers: ['Line', 'Issued', 'Completed', 'Median wait', 'P95 wait', 'Abandoned'], rows: snapshot.lines.map((l) => [l.line, l.issued, l.completed, l.medianWait, l.p95Wait, l.abandoned]) })
     if (snapshot.modalityMix) tables.push({ title: 'Input modality mix', headers: ['Modality', 'Count'], rows: snapshot.modalityMix.map((c) => [c.label, c.count]) })
     if (snapshot.targetMix) tables.push({ title: 'Translation direction', headers: ['Target language', 'Sessions'], rows: snapshot.targetMix.map((c) => [c.label, c.count]) })
@@ -276,7 +283,7 @@ export default function ReportGenerationPage() {
         report_type: snapshot.meta.reportType,
         date_from: snapshot.meta.from,
         date_to: snapshot.meta.to,
-        zone_filter: snapshot.meta.zone,
+        zone_filter: snapshot.meta.area ?? snapshot.meta.zone,
         format: chosenFormat,
         data_snapshot: snapshot
       })
@@ -326,7 +333,7 @@ export default function ReportGenerationPage() {
         <div>
           <h2>Report Generation</h2>
           <div className="header-subtitle">
-            Compile analytics into an anonymized, exportable report for management (UC702 / FR-M7-11 / FR-M7-12).
+            Compile analytics into an anonymized, exportable report for management.
           </div>
         </div>
         <button className="btn btn-outline" onClick={loadAll}>
@@ -335,7 +342,7 @@ export default function ReportGenerationPage() {
       </div>
 
       <div className="page-body">
-        <div className="grid-2" style={{ marginBottom: '24px' }}>
+        <div className="grid-2 section-gap">
           <div className="card">
             <div className="card-header">
               <h3>Generate Custom Report</h3>
@@ -348,7 +355,7 @@ export default function ReportGenerationPage() {
                     <option key={t.key} value={t.key}>{t.title}</option>
                   ))}
                 </select>
-                {selectedType && <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>{selectedType.desc}</div>}
+                {selectedType && <span className="field-help">{selectedType.desc}</span>}
               </div>
 
               <div style={{ display: 'flex', gap: '16px' }} className="form-group">
@@ -363,12 +370,13 @@ export default function ReportGenerationPage() {
               </div>
 
               <div className="form-group">
-                <label>Target Facility / Zone</label>
-                <select className="input" value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)}>
-                  <option value="all">All Zones (Entire Venue)</option>
-                  {zones.map((z) => (
-                    <option key={z.id} value={z.id}>{z.name}</option>
+                <label>Target Service Area</label>
+                <select className="input" value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
+                  <option value="all">All Service Areas (Entire Venue)</option>
+                  {areas.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
+                  <option value={UNMAPPED_ID}>Unmapped (no usable location)</option>
                 </select>
               </div>
 
@@ -390,11 +398,11 @@ export default function ReportGenerationPage() {
             </form>
 
             {preview && (
-              <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={() => handleExportPdf()} disabled={working}>
+              <div className="button-row" style={{ marginTop: '12px' }}>
+                <button className="btn btn-primary" onClick={() => handleExportPdf()} disabled={working}>
                   <Download size={16} /> Export PDF
                 </button>
-                <button className="btn btn-outline" style={{ flex: 1, justifyContent: 'center' }} onClick={() => handleExportCsv()} disabled={working}>
+                <button className="btn btn-outline" onClick={() => handleExportCsv()} disabled={working}>
                   <Download size={16} /> Export CSV
                 </button>
               </div>
@@ -418,7 +426,7 @@ export default function ReportGenerationPage() {
               <tbody>
                 {history.length === 0 ? (
                   <tr>
-                    <td colSpan="4" style={{ textAlign: 'center', padding: '24px' }}>
+                    <td colSpan={4} className="table-message">
                       No reports generated yet. Generate a preview, then export it to save it here.
                     </td>
                   </tr>
@@ -448,29 +456,26 @@ export default function ReportGenerationPage() {
           <div className="card">
             <div className="card-header">
               <h3>Report Preview — {preview.meta.title}</h3>
-              <span className="badge secondary">{preview.meta.from} → {preview.meta.to} • {preview.meta.zone}</span>
+              <span className="badge secondary">{preview.meta.from} → {preview.meta.to} • {preview.meta.area}</span>
             </div>
             <div style={{ padding: '16px' }}>
-              <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                gap: '12px', marginBottom: '20px'
-              }}>
+              <div className="mini-kpi-grid">
                 {preview.kpis.map((k) => (
-                  <div key={k.label} style={{ padding: '12px', border: '1px solid rgba(100,116,139,0.25)', borderRadius: '10px' }}>
-                    <div style={{ fontSize: '20px', fontWeight: 700 }}>{k.value}</div>
-                    <div style={{ fontSize: '12px', color: '#64748b' }}>{k.label}</div>
+                  <div key={k.label} className="mini-kpi">
+                    <div className="mini-kpi-value">{k.value}</div>
+                    <div className="mini-kpi-label">{k.label}</div>
                   </div>
                 ))}
               </div>
 
-              {preview.zones && (
+              {preview.areas && (
                 <>
-                  <Chart title="Zone breakdown">
+                  <Chart title="Service area breakdown">
                     <table className="data-table">
-                      <thead><tr><th>Zone</th><th>Barriers</th><th>Requests</th><th>Top category</th></tr></thead>
+                      <thead><tr><th>Service Area</th><th>Barriers</th><th>Requests</th><th>Top category</th></tr></thead>
                       <tbody>
-                        {preview.zones.map((z) => (
-                          <tr key={z.zone}><td>{z.zone}</td><td>{z.barriers}</td><td>{z.requests}</td><td>{z.topCategory}</td></tr>
+                        {preview.areas.map((a) => (
+                          <tr key={a.area}><td>{a.area}</td><td>{a.barriers}</td><td>{a.requests}</td><td>{a.topCategory}</td></tr>
                         ))}
                       </tbody>
                     </table>
@@ -532,7 +537,7 @@ export default function ReportGenerationPage() {
 
               <div style={{ marginTop: '16px', fontSize: '12px', color: '#64748b' }}>
                 Anonymization: this report contains aggregates and codes only — no traveller names or contact details
-                are included (UC702). Export saves a copy under "Recently Generated Reports" for re-download.
+                are included. Export saves a copy under "Recently Generated Reports" for re-download.
               </div>
             </div>
           </div>

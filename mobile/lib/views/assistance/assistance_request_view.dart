@@ -136,7 +136,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                                   )
                                 else if (_viewModel.venueName.isNotEmpty)
                                   Text(
-                                    _viewModel.venueName,
+                                    _viewModel.venueDisplayLabel,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w600,
                                       fontSize: 15,
@@ -441,6 +441,65 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                     child: const Text('View My Requests'),
                   ),
                 ),
+
+                // ── Facility barrier report (Module 5 & 7): deliberately styled
+                // as the weakest action so travellers never mistake it for help.
+                const SizedBox(height: 8),
+                Material(
+                  color: AppColors.surfaceVariant,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      final venue = Uri.encodeComponent(_viewModel.venueName);
+                      context.push('/accessibility-issue?venue=$venue');
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.report_outlined,
+                            size: 20,
+                            color: AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Report an Accessibility Barrier',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Facility feedback only — staff will not respond to reports. For immediate help, submit a request above.',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(color: AppColors.textMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right,
+                            size: 20,
+                            color: AppColors.textMuted,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 32),
               ],
             ),
@@ -547,7 +606,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
   void _showSubmitted(BuildContext context) {
     final request = _viewModel.submittedRequest;
     final requestCode = request?['request_code'] ?? 'N/A';
-    final venue = _viewModel.venueName;
+    final venue = _viewModel.venueDisplayLabel;
 
     showDialog(
       context: context,

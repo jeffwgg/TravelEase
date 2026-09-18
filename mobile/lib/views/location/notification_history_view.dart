@@ -1,13 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
 import '../../models/repositories/notification_repository.dart';
-import '../../services/app_notification_service.dart';
-
-enum _NotificationFilter { announcement, alert, queue, message }
+import '../../viewmodels/notification_history_viewmodel.dart';
 
 /// Device-local history of raised notifications. Tapping an announcement or
 /// queue entry deep-links into its screen; entries survive quitting the
@@ -22,24 +18,19 @@ class NotificationHistoryView extends StatefulWidget {
 
 class _NotificationHistoryViewState extends State<NotificationHistoryView>
     with WidgetsBindingObserver {
-  final NotificationHistoryStore _store = NotificationHistoryStore.instance;
-  StreamSubscription<void>? _changes;
-  List<NotificationHistoryEntry> _entries = [];
-  bool _loading = true;
-  _NotificationFilter? _filter;
+  final _viewModel = NotificationHistoryViewModel();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _load();
-    _changes = _store.changes.listen((_) => _load());
+    _viewModel.initialise();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _changes?.cancel();
+    _viewModel.dispose();
     super.dispose();
   }
 
@@ -48,16 +39,7 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
     // Notifications raised while the app was inactive are recorded by the
     // background isolate, whose store events cannot cross isolates — reload
     // when the traveller returns so the list is always current.
-    if (state == AppLifecycleState.resumed) _load();
-  }
-
-  Future<void> _load() async {
-    final entries = await _store.entries();
-    if (!mounted) return;
-    setState(() {
-      _entries = entries;
-      _loading = false;
-    });
+    if (state == AppLifecycleState.resumed) _viewModel.reload();
   }
 
   String _dayLabel(DateTime time) {
@@ -96,25 +78,11 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
     _ => AppColors.secondary,
   };
 
-  List<NotificationHistoryEntry> get _visibleEntries {
-    final filter = _filter;
-    if (filter == null) return _entries;
-    return _entries.where((entry) {
-      return switch (filter) {
-        _NotificationFilter.announcement =>
-          entry.kind == 'announcement' || entry.kind == 'captured',
-        _NotificationFilter.alert => entry.kind == 'sound',
-        _NotificationFilter.queue => entry.kind == 'queue',
-        _NotificationFilter.message => entry.kind == 'request',
-      };
-    }).toList();
-  }
-
-  String get _filterLabel => switch (_filter) {
-    _NotificationFilter.announcement => 'announcement',
-    _NotificationFilter.alert => 'alert',
-    _NotificationFilter.queue => 'queue',
-    _NotificationFilter.message => 'message',
+  String get _filterLabel => switch (_viewModel.filter) {
+    NotificationFilter.announcement => 'announcement',
+    NotificationFilter.alert => 'alert',
+    NotificationFilter.queue => 'queue',
+    NotificationFilter.message => 'message',
     null => 'notification',
   };
 
@@ -149,68 +117,71 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
 
   Future<void> _deleteEntry(NotificationHistoryEntry entry) async {
     if (!await _confirmDeletion(all: false)) return;
-    await AppNotificationService.instance.deleteHistoryEntry(entry);
+    await _viewModel.delete(entry);
   }
 
   Future<void> _deleteAll() async {
     if (!await _confirmDeletion(all: true)) return;
-    await AppNotificationService.instance.clearNotificationHistory();
+    await _viewModel.clear();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Notifications'),
-        actions: [
-          IconButton(
-            tooltip: 'Delete all notifications',
-            onPressed: _entries.isEmpty ? null : _deleteAll,
-            icon: const Icon(Icons.delete_outline),
-          ),
-          IconButton(
-            tooltip: 'Mark all as read',
-            onPressed: _entries.isEmpty
-                ? null
-                : () => AppNotificationService.instance.markAllAsRead(),
-            icon: const Icon(Icons.done_all_outlined),
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _entries.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.notifications_none,
-                    size: 48,
-                    color: AppColors.textMuted,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'No notifications yet',
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
-                ],
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _buildFilters(),
-                  const SizedBox(height: 10),
-                  if (_visibleEntries.isEmpty)
-                    _buildFilteredEmptyState()
-                  else
-                    ..._buildSections(_visibleEntries),
-                ],
-              ),
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) => Scaffold(
+        appBar: AppBar(
+          title: const Text('Notifications'),
+          actions: [
+            IconButton(
+              tooltip: 'Delete all notifications',
+              onPressed: _viewModel.entries.isEmpty ? null : _deleteAll,
+              icon: const Icon(Icons.delete_outline),
             ),
+            IconButton(
+              tooltip: 'Mark all as read',
+              onPressed: _viewModel.entries.isEmpty
+                  ? null
+                  : _viewModel.markAllRead,
+              icon: const Icon(Icons.done_all_outlined),
+            ),
+          ],
+        ),
+        body: _viewModel.isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _viewModel.entries.isEmpty
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.notifications_none,
+                      size: 48,
+                      color: AppColors.textMuted,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No notifications yet',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ],
+                ),
+              )
+            : RefreshIndicator(
+                onRefresh: _viewModel.reload,
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _buildFilters(),
+                    const SizedBox(height: 10),
+                    if (_viewModel.visibleEntries.isEmpty)
+                      _buildFilteredEmptyState()
+                    else
+                      ..._buildSections(_viewModel.visibleEntries),
+                  ],
+                ),
+              ),
+      ),
     );
   }
 
@@ -218,26 +189,26 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
     scrollDirection: Axis.horizontal,
     child: Row(
       children: [
-        _buildFilterButton(_NotificationFilter.announcement, 'Announcement'),
+        _buildFilterButton(NotificationFilter.announcement, 'Announcement'),
         const SizedBox(width: 8),
-        _buildFilterButton(_NotificationFilter.alert, 'Alerts'),
+        _buildFilterButton(NotificationFilter.alert, 'Alerts'),
         const SizedBox(width: 8),
-        _buildFilterButton(_NotificationFilter.queue, 'Queue'),
+        _buildFilterButton(NotificationFilter.queue, 'Queue'),
         const SizedBox(width: 8),
-        _buildFilterButton(_NotificationFilter.message, 'Message'),
+        _buildFilterButton(NotificationFilter.message, 'Message'),
       ],
     ),
   );
 
-  Widget _buildFilterButton(_NotificationFilter filter, String label) {
-    final selected = _filter == filter;
+  Widget _buildFilterButton(NotificationFilter filter, String label) {
+    final selected = _viewModel.filter == filter;
     return FilterChip(
       label: Text(label),
       labelStyle: TextStyle(color: AppColors.primaryDark),
       selectedColor: AppColors.background,
       disabledColor: AppColors.accentLight,
       selected: selected,
-      onSelected: (_) => setState(() => _filter = selected ? null : filter),
+      onSelected: (_) => _viewModel.toggleFilter(filter),
     );
   }
 
@@ -307,11 +278,11 @@ class _NotificationHistoryViewState extends State<NotificationHistoryView>
           onTap: tappable
               ? () async {
                   // Opening the notification counts as reading it.
-                  await AppNotificationService.instance.markAsRead(entry);
+                  await _viewModel.markRead(entry);
                   if (!mounted) return;
                   context.push(entry.route!);
                 }
-              : () => AppNotificationService.instance.markAsRead(entry),
+              : () => _viewModel.markRead(entry),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(

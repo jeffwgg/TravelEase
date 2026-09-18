@@ -25,6 +25,11 @@ enum AppTourFeature {
   profileNavigation,
   alertPreferencesMenu,
   alertConfig,
+  profileContactsNavigation,
+  emergencyContactsMenu,
+  emergencyContacts,
+  emergencyCard,
+  emergencyCardEntry,
   sos,
   complete,
   queueTracking,
@@ -170,7 +175,14 @@ class AppTourController extends ChangeNotifier {
         AppTourFeature.requestHelp => AppTourFeature.profileNavigation,
         AppTourFeature.profileNavigation => AppTourFeature.alertPreferencesMenu,
         AppTourFeature.alertPreferencesMenu => AppTourFeature.alertConfig,
-        AppTourFeature.alertConfig => AppTourFeature.complete,
+        AppTourFeature.alertConfig => AppTourFeature.profileContactsNavigation,
+        AppTourFeature.profileContactsNavigation =>
+          AppTourFeature.emergencyContactsMenu,
+        AppTourFeature.emergencyContactsMenu =>
+          AppTourFeature.emergencyContacts,
+        AppTourFeature.emergencyContacts => AppTourFeature.emergencyCard,
+        AppTourFeature.emergencyCard => AppTourFeature.emergencyCardEntry,
+        AppTourFeature.emergencyCardEntry => null,
         AppTourFeature.complete => null,
         // Queue Tracking is introduced from Home, after announcements.
         AppTourFeature.queueTracking => null,
@@ -199,7 +211,13 @@ class AppTourController extends ChangeNotifier {
         AppTourFeature.requestHelp => AppTourFeature.profileNavigation,
         AppTourFeature.profileNavigation => AppTourFeature.alertPreferencesMenu,
         AppTourFeature.alertPreferencesMenu => AppTourFeature.alertConfig,
-        AppTourFeature.alertConfig => AppTourFeature.complete,
+        AppTourFeature.alertConfig => AppTourFeature.profileContactsNavigation,
+        AppTourFeature.profileContactsNavigation =>
+          AppTourFeature.emergencyContactsMenu,
+        AppTourFeature.emergencyContactsMenu =>
+          AppTourFeature.emergencyContacts,
+        AppTourFeature.emergencyContacts => AppTourFeature.emergencyCard,
+        AppTourFeature.emergencyCard => AppTourFeature.complete,
         AppTourFeature.complete => null,
         _ => null,
       },
@@ -216,16 +234,15 @@ class AppTourController extends ChangeNotifier {
     context.go(_routeFor(next));
   }
 
-  /// SOS needs two short coach marks: how to activate it, then what happens.
-  void advanceSos(BuildContext context) {
-    if (!isShowing(AppTourFeature.sos)) return;
-    if (_sosStep == 0) {
-      _sosStep = 1;
-      notifyListeners();
-      return;
-    }
-    _sosStep = 0;
-    advance(context);
+  bool get isWaitingForEmergencyCard =>
+      _isRunning && _currentFeature == AppTourFeature.emergencyCardEntry;
+
+  /// Saving the card is the final required action in the first-login tour.
+  void completeEmergencyCard(BuildContext context) {
+    if (!isWaitingForEmergencyCard) return;
+    _currentFeature = AppTourFeature.complete;
+    notifyListeners();
+    context.go(_routeFor(AppTourFeature.complete));
   }
 
   /// Completes the first-login tour from its final confirmation screen.
@@ -273,12 +290,17 @@ class AppTourController extends ChangeNotifier {
     AppTourFeature.communicationDictionaryMenu => '/communicate',
     AppTourFeature.assistanceRequestMenu => '/assistance-request',
     AppTourFeature.alertPreferencesMenu => '/profile',
+    AppTourFeature.profileContactsNavigation => '/home',
+    AppTourFeature.emergencyContactsMenu => '/profile',
     AppTourFeature.signTranslate => '/sign-camera',
     AppTourFeature.speechToSign => '/speech-to-sign',
     AppTourFeature.twoWayDialogue => '/dialogue',
     AppTourFeature.signDictionary => '/sign-dictionary',
     AppTourFeature.requestHelp => '/assistance-request/new',
     AppTourFeature.alertConfig => '/preferences',
+    AppTourFeature.emergencyContacts => '/emergency-contacts',
+    AppTourFeature.emergencyCard ||
+    AppTourFeature.emergencyCardEntry => '/emergency-card',
     AppTourFeature.queueTracking => '/queue',
     // SOS is explained on its existing Home button. This avoids starting an
     // emergency countdown just to show a coach mark.

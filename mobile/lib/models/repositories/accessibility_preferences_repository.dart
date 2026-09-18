@@ -50,7 +50,7 @@ class AccessibilityPreferencesRepository {
       await _client.from('accessibility_preferences').upsert({
         'user_id': user.id,
         ...remotePreferences,
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
     } catch (_) {
       // The local copy is authoritative for on-device accessibility behavior.

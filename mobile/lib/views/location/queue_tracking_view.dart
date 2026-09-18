@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme.dart';
 import '../../models/entities/queue_tracking.dart';
-import '../../models/repositories/feature_usage_repository.dart';
-import '../../models/repositories/queue_repository.dart';
-import '../../services/queue_notification_service.dart';
 import '../../services/app_tour_controller.dart';
 import '../../services/venue_session_service.dart';
+import '../../viewmodels/queue_tracking_viewmodel.dart';
 import '../../widgets/app_tour_coachmark.dart';
 import '../../widgets/app_message_banner.dart';
 
@@ -20,50 +17,43 @@ class QueueTrackingView extends StatefulWidget {
 
 class _QueueTrackingViewState extends State<QueueTrackingView>
     with WidgetsBindingObserver {
-  final QueueRepository _repository = QueueRepository();
   final TextEditingController _numberController = TextEditingController();
   final _tourTargetKey = GlobalKey();
   final _lineTourKey = GlobalKey();
   final _numberTourKey = GlobalKey();
   final _trackTourKey = GlobalKey();
   int _tourStep = 0;
-  List<QueueLineInfo> _lines = const [];
-  QueueTrackingData? _tracking;
-  RealtimeChannel? _channel;
-  String? _selectedLineId;
+  final _viewModel = QueueTrackingViewModel();
+  int _appliedNumberPrefillRevision = 0;
+  List<QueueLineInfo> get _lines => _viewModel.lines;
+  QueueTrackingData? get _tracking => _viewModel.tracking;
+  String? get _selectedLineId => _viewModel.selectedLineId;
 
   /// Validation and queue-number lookup errors. These must not hide the
   /// tracking form or a previously loaded queue status.
-  String? _error;
+  String? get _error => _viewModel.error;
 
   /// A transport/load error. When prior data exists, it is displayed as a
   /// banner while retaining that data; only an initial failure uses the
   /// dedicated retry page.
-  String? _loadError;
-  bool _loadingLines = true;
-  bool _trackingNumber = false;
-
-  QueueLineInfo? get _selectedLine {
-    for (final line in _lines) {
-      if (line.id == _selectedLineId) return line;
-    }
-    return null;
-  }
+  String? get _loadError => _viewModel.loadError;
+  bool get _loadingLines => _viewModel.loadingLines;
+  bool get _trackingNumber => _viewModel.trackingNumber;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    FeatureUsageTracker.instance.opened(TrackedFeature.queueTracking);
-    _loadLines();
+    _viewModel.addListener(_syncNumberController);
+    _viewModel.initialize();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _viewModel.removeListener(_syncNumberController);
     _numberController.dispose();
-    final channel = _channel;
-    if (channel != null) _repository.removeSubscription(channel);
+    _viewModel.dispose();
     super.dispose();
   }
 
@@ -72,296 +62,151 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
     // Realtime events raised while the app was suspended are only picked up
     // when it resumes, so refresh the tracked number on return.
     if (state == AppLifecycleState.resumed) {
-      if (_tracking == null) {
-        _loadLines();
-      } else {
-        _refreshTracking();
-      }
+      _viewModel.refreshForAppResume();
     }
   }
 
-  Future<void> _loadLines() async {
-    final institutionId = VenueSessionService.instance.session?.institutionId;
-    if (institutionId == null) {
-      if (mounted) {
-        setState(() {
-          _lines = const [];
-          _tracking = null;
-          _selectedLineId = null;
-          _loadingLines = false;
-          _error = null;
-          _loadError = null;
-        });
-      }
-      return;
-    }
-    final needsInitialLoad = _lines.isEmpty && _tracking == null;
-    if (needsInitialLoad && mounted) {
-      setState(() {
-        _loadingLines = true;
-        _loadError = null;
-      });
-    }
-    try {
-      // Queue lines are intentionally institution-wide: the selected service
-      // area is shown as information but never filters this list.
-      final lines = await _repository.getActiveQueueLines(
-        institutionId: institutionId,
-      );
-      if (!mounted) return;
-      setState(() {
-        _lines = lines;
-        _loadError = null;
-        _loadingLines = false;
-        if (!lines.any((line) => line.id == _selectedLineId)) {
-          _tracking = null;
-          _selectedLineId = null;
-        }
-      });
-      final saved = QueueNotificationService.instance.current;
-      final savedLineIsHere =
-          saved != null && lines.any((line) => line.id == saved.line.id);
-      if (saved != null && savedLineIsHere && mounted) {
-        _numberController.text = saved.number;
-        setState(() {
-          _tracking = saved;
-          _selectedLineId = saved.line.id;
-        });
-        _channel = _repository.subscribeToTracking(
-          saved.line.id,
-          _refreshTracking,
-        );
-      }
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loadError = 'Unable to load queue lines. Please try again.';
-        _loadingLines = false;
-      });
-    }
-  }
-
-  Future<void> _trackNumber() async {
-    final institutionId = VenueSessionService.instance.session?.institutionId;
-    if (institutionId == null) {
-      setState(() => _error = 'Start a venue session before tracking a queue.');
-      return;
-    }
-    final number = _numberController.text.trim();
-    if (number.isEmpty) {
-      setState(() => _error = 'Enter your queue number.');
-      return;
-    }
-    // Instant feedback: a number beyond the selected line's maximum queue
-    // number can never be called, so do not even look it up.
-    final selectedLine = _selectedLine;
-    if (selectedLine != null) {
-      final capError = QueueRepository.maximumQueueNumberViolation(
-        number,
-        selectedLine,
-      );
-      if (capError != null) {
-        setState(() => _error = capError);
-        return;
-      }
-    }
-    setState(() {
-      _trackingNumber = true;
-      _error = null;
-    });
-    try {
-      final result = await _repository.trackNumber(
-        number: number,
-        queueLineId: _selectedLineId,
-        queuePrefix: _selectedLine?.prefix,
-        institutionId: institutionId,
-      );
-      if (!mounted) return;
-      if (result == null) {
-        setState(() {
-          _error = 'Queue number not found. Check the number and queue line.';
-        });
-        return;
-      }
-      final previous = _channel;
-      if (previous != null) await _repository.removeSubscription(previous);
-      _channel = _repository.subscribeToTracking(
-        result.line.id,
-        _refreshTracking,
-      );
-      setState(() {
-        _tracking = result;
-        _selectedLineId = result.line.id;
-      });
-      await QueueNotificationService.instance.track(result);
-      FeatureUsageTracker.instance.completed(TrackedFeature.queueTracking);
-    } catch (error) {
-      if (!mounted) return;
-      setState(
-        () => _error = error is QueueNumberBeyondMaximumException
-            ? error.message
-            : 'Unable to track this queue number right now.',
-      );
-    } finally {
-      if (mounted) setState(() => _trackingNumber = false);
-    }
-  }
-
-  Future<void> _refreshTracking() async {
-    final current = _tracking;
-    final institutionId = VenueSessionService.instance.session?.institutionId;
-    if (current == null || institutionId == null) return;
-    try {
-      final result = await _repository.trackNumber(
-        number: current.number,
-        queueLineId: current.line.id,
-        queuePrefix: current.line.prefix,
-        institutionId: institutionId,
-      );
-      if (!mounted) return;
-      if (result != null) {
-        setState(() {
-          _tracking = result;
-          _loadError = null;
-        });
-      } else {
-        setState(
-          () => _loadError = 'Unable to refresh this queue number. Showing the last known status.',
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => _loadError = 'Unable to refresh this queue number. Showing the last known status.',
-        );
-      }
-    }
+  void _syncNumberController() {
+    final revision = _viewModel.numberPrefillRevision;
+    final number = _viewModel.numberToPrefill;
+    if (number == null || revision == _appliedNumberPrefillRevision) return;
+    _appliedNumberPrefillRevision = revision;
+    _numberController.text = number;
   }
 
   @override
   Widget build(BuildContext context) {
-    final session = VenueSessionService.instance.session;
-    final hasTrackingForm =
-        session != null &&
-        !_loadingLines &&
-        _lines.isNotEmpty &&
-        _loadError == null;
-    final serviceUnavailable =
-        session != null &&
-        !_loadingLines &&
-        _lines.isEmpty &&
-        _loadError == null;
-    final initialLoadFailure =
-        session != null &&
-        !_loadingLines &&
-        _lines.isEmpty &&
-        _tracking == null &&
-        _loadError != null;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Scaffold(
-          appBar: AppBar(
-            title: const Text('Queue Number Tracking'),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => Navigator.pop(context),
+    return ListenableBuilder(
+      listenable: _viewModel,
+      builder: (context, _) {
+        final session = VenueSessionService.instance.session;
+        final hasTrackingForm =
+            session != null &&
+            !_loadingLines &&
+            _lines.isNotEmpty &&
+            _loadError == null;
+        final serviceUnavailable =
+            session != null &&
+            !_loadingLines &&
+            _lines.isEmpty &&
+            _loadError == null;
+        final initialLoadFailure =
+            session != null &&
+            !_loadingLines &&
+            _lines.isEmpty &&
+            _tracking == null &&
+            _loadError != null;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Scaffold(
+              appBar: AppBar(
+                title: const Text('Queue Number Tracking'),
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+              body: KeyedSubtree(
+                key: _tourTargetKey,
+                child: initialLoadFailure
+                    ? _buildInitialLoadFailure()
+                    : RefreshIndicator(
+                        onRefresh: _tracking == null
+                            ? _viewModel.loadLines
+                            : _viewModel.refreshTracking,
+                        child: ListView(
+                          padding: const EdgeInsets.all(16),
+                          children: [
+                            if (_loadingLines)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 40),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              )
+                            else if (session == null)
+                              const AppMessageBanner(
+                                message: 'Identify your current institution on the Home page before tracking a queue number.',
+                                type: AppMessageType.information,
+                              )
+                            else if (serviceUnavailable)
+                              AppMessageBanner(
+                                message:
+                                    '${session.institutionName} is not currently providing a queue tracking service.',
+                                type: AppMessageType.information,
+                              )
+                            else ...[
+                              if (_loadError != null) ...[
+                                AppMessageBanner(
+                                  message: _loadError!,
+                                  type: AppMessageType.error,
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                              if (_error != null) ...[
+                                AppMessageBanner(
+                                  message: _error!,
+                                  type: AppMessageType.error,
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                              _buildTrackingForm(context),
+                            ],
+                            if (!_loadingLines &&
+                                session != null &&
+                                !serviceUnavailable &&
+                                !initialLoadFailure) ...[
+                              const SizedBox(height: 20),
+                              if (_tracking == null)
+                                _buildEmptyState()
+                              else ...[
+                                _buildStatusCard(_tracking!),
+                                const SizedBox(height: 24),
+                                Text(
+                                  'Queue Line Information',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium,
+                                ),
+                                const SizedBox(height: 12),
+                                _buildLineInformation(_tracking!.line),
+                              ],
+                            ],
+                          ],
+                        ),
+                      ),
+              ),
             ),
-          ),
-          body: KeyedSubtree(
-            key: _tourTargetKey,
-            child: initialLoadFailure
-                ? _buildInitialLoadFailure()
-                : RefreshIndicator(
-                    onRefresh: _tracking == null
-                        ? _loadLines
-                        : _refreshTracking,
-                    child: ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        if (_loadingLines)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 40),
-                            child: Center(child: CircularProgressIndicator()),
-                          )
-                        else if (session == null)
-                          const AppMessageBanner(
-                            message: 'Identify your current institution on the Home page before tracking a queue number.',
-                            type: AppMessageType.information,
-                          )
-                        else if (serviceUnavailable)
-                          AppMessageBanner(
-                            message:
-                                '${session.institutionName} is not currently providing a queue tracking service.',
-                            type: AppMessageType.information,
-                          )
-                        else ...[
-                          if (_loadError != null) ...[
-                            AppMessageBanner(
-                              message: _loadError!,
-                              type: AppMessageType.error,
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                          if (_error != null) ...[
-                            AppMessageBanner(
-                              message: _error!,
-                              type: AppMessageType.error,
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                          _buildTrackingForm(context),
-                        ],
-                        if (!_loadingLines &&
-                            session != null &&
-                            !serviceUnavailable &&
-                            !initialLoadFailure) ...[
-                          const SizedBox(height: 20),
-                          if (_tracking == null)
-                            _buildEmptyState()
-                          else ...[
-                            _buildStatusCard(_tracking!),
-                            const SizedBox(height: 24),
-                            Text(
-                              'Queue Line Information',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 12),
-                            _buildLineInformation(_tracking!.line),
-                          ],
-                        ],
-                      ],
-                    ),
-                  ),
-          ),
-        ),
-        Positioned.fill(
-          child: AppTourCoachmark(
-            feature: AppTourFeature.queueTracking,
-            targetKey: hasTrackingForm
-                ? switch (_tourStep) {
-                    0 => _lineTourKey,
-                    1 => _numberTourKey,
-                    _ => _trackTourKey,
-                  }
-                : _tourTargetKey,
-            title: switch (_tourStep) {
-              0 => 'Choose a queue line',
-              1 => 'Enter your number',
-              _ => 'Track your queue',
-            },
-            message: switch (_tourStep) {
-              0 =>
-                hasTrackingForm
-                    ? 'Choose a line, or search across all available lines.'
-                    : 'First identify a venue on Home to load its queue lines.',
-              1 => 'Enter the number shown on your queue ticket.',
-              _ => 'Tap here to see live position and waiting time.',
-            },
-            onNext: _advanceTour,
-          ),
-        ),
-      ],
+            Positioned.fill(
+              child: AppTourCoachmark(
+                feature: AppTourFeature.queueTracking,
+                targetKey: hasTrackingForm
+                    ? switch (_tourStep) {
+                        0 => _lineTourKey,
+                        1 => _numberTourKey,
+                        _ => _trackTourKey,
+                      }
+                    : _tourTargetKey,
+                title: switch (_tourStep) {
+                  0 => 'Choose a queue line',
+                  1 => 'Enter your number',
+                  _ => 'Track your queue',
+                },
+                message: switch (_tourStep) {
+                  0 =>
+                    hasTrackingForm
+                        ? 'Choose a line, or search across all available lines.'
+                        : 'First identify a venue on Home to load its queue lines.',
+                  1 => 'Enter the number shown on your queue ticket.',
+                  _ => 'Tap here to see live position and waiting time.',
+                },
+                onNext: _advanceTour,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -393,7 +238,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
               ),
               const SizedBox(height: 18),
               ElevatedButton.icon(
-                onPressed: _loadLines,
+                onPressed: _viewModel.loadLines,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Try Again'),
               ),
@@ -443,9 +288,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
                   ),
                 ),
               ],
-              onChanged: _loadingLines
-                  ? null
-                  : (value) => setState(() => _selectedLineId = value),
+              onChanged: _loadingLines ? null : _viewModel.selectLine,
             ),
             const SizedBox(height: 12),
             TextField(
@@ -457,14 +300,17 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
                 hintText: 'A-047 or A047',
                 prefixIcon: Icon(Icons.confirmation_number_outlined),
               ),
-              onSubmitted: (_) => _trackNumber(),
+              onSubmitted: (_) =>
+                  _viewModel.trackNumber(_numberController.text),
             ),
             const SizedBox(height: 14),
             SizedBox(
               key: _trackTourKey,
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _trackingNumber ? null : _trackNumber,
+                onPressed: _trackingNumber
+                    ? null
+                    : () => _viewModel.trackNumber(_numberController.text),
                 icon: _trackingNumber
                     ? const SizedBox(
                         width: 18,

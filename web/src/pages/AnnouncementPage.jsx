@@ -4,9 +4,17 @@ import { Ban, Eye, Globe2, MapPin, Megaphone, Pencil, Radio, Search } from 'luci
 import { useAuth } from '../context/AuthContext'
 import { announcementRepository } from '../repositories/announcementRepository'
 import { useAutoDismiss } from '../hooks/useAutoDismiss'
-import { announcementPriorityClass, announcementPriorityLabel } from '../lib/announcementPresentation'
 
 const statusClass = { active: 'success', scheduled: 'secondary', withdrawn: 'emergency', expired: 'muted' }
+const announcementPriorityClass = { low: 'muted', normal: 'primary', high: 'secondary', urgent: 'emergency' }
+
+function announcementPriorityLabel(priority) {
+  if (priority === 'high') return 'High priority'
+  if (priority === 'urgent') return 'Urgent'
+  if (priority === 'normal') return 'Normal'
+  if (priority === 'low') return 'Low'
+  return priority || 'Normal'
+}
 
 function formatDate(value) {
   if (!value) return 'Not published'

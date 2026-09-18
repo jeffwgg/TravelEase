@@ -1,13 +1,8 @@
-import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 
 import '../core/supabase_client.dart';
 
-/// Translation prefers the authenticated self-hosted LibreTranslate proxy.
-/// Google Translate's public endpoint remains as a compatibility fallback.
+/// Translation uses the authenticated self-hosted LibreTranslate proxy.
 ///
 /// Supported app language codes: 'en', 'ms', 'zh'.
 class TranslationService {
@@ -15,50 +10,11 @@ class TranslationService {
   factory TranslationService() => _instance;
   TranslationService._internal();
 
-  static const String _endpoint = 'https://translate.googleapis.com/translate_a/single';
-
-  /// Shared keep-alive client: reusing one connection skips a fresh
-  /// TCP+TLS handshake for every sentence (several hundred ms saved each call).
-  final http.Client _http = http.Client();
-
-  /// Google endpoint expects regional codes for Chinese.
-  static String _googleLangCode(String lang) {
-    switch (lang.toLowerCase()) {
-      case 'zh':
-      case 'cn':
-        return 'zh-CN';
-      case 'ms':
-      case 'my':
-        return 'ms';
-      default:
-        return 'en';
-    }
-  }
-
-  /// Detects the language of [text] via Google Translate auto-detect.
-  /// Returns one of the supported app codes: 'en', 'ms', 'zh'.
-  /// Falls back to a lightweight local heuristic when offline.
-  Future<String> detectLanguage(String text) async {
+  /// Detects supported languages locally without sending the text to a
+  /// third-party translation provider.
+  Future<String> detectLanguage(String text) {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return 'en';
-
-    try {
-      final url = Uri.parse(
-        '$_endpoint?client=gtx&sl=auto&tl=en&dt=t&q=${Uri.encodeComponent(trimmed)}',
-      );
-
-      final response = await _http.get(url).timeout(const Duration(seconds: 6));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final detected = data[2]?.toString().toLowerCase() ?? '';
-        if (detected.startsWith('zh')) return 'zh';
-        if (detected.startsWith('ms')) return 'ms';
-        if (detected.startsWith('en')) return 'en';
-      }
-    } catch (e) {
-      debugPrint('Language auto-detect failed, using heuristic: $e');
-    }
-    return heuristicDetect(trimmed);
+    return Future.value(trimmed.isEmpty ? 'en' : heuristicDetect(trimmed));
   }
 
   /// Offline fallback heuristic: Chinese script check + Malay/English marker words.
@@ -147,34 +103,9 @@ class TranslationService {
         if (translated.isNotEmpty) return translated;
       }
     } catch (e) {
-      debugPrint('LibreTranslate unavailable, trying Google fallback: $e');
+      debugPrint('Translation unavailable, returning original text: $e');
     }
-
-    try {
-      final url = Uri.parse(
-        '$_endpoint?client=gtx&sl=${_googleLangCode(fromLang)}'
-        '&tl=${_googleLangCode(toLang)}&dt=t&q=${Uri.encodeComponent(trimmed)}',
-      );
-
-      final response = await _http.get(url).timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200) return text;
-
-      final data = jsonDecode(utf8.decode(response.bodyBytes));
-      final segments = data[0] as List?;
-      if (segments == null || segments.isEmpty) return text;
-
-      final buffer = StringBuffer();
-      for (final segment in segments) {
-        if (segment is List && segment.isNotEmpty && segment[0] is String) {
-          buffer.write(segment[0]);
-        }
-      }
-      final translated = buffer.toString().trim();
-      return translated.isEmpty ? text : translated;
-    } catch (e) {
-      debugPrint('Google Translate fallback failed, returning original text: $e');
-      return text;
-    }
+    return text;
   }
 
   static String _libreLangCode(String lang) {
