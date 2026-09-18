@@ -505,15 +505,6 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
             >
               <LifeBuoy size={16} />
               Immediate Assistance Requests
-              <span style={{
-                background: mainTab === 'requests' ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
-                padding: '2px 8px',
-                borderRadius: '12px',
-                fontSize: '11px',
-                fontWeight: 600
-              }}>
-                {baseRequests.length}
-              </span>
             </button>
             <button
               className={`btn ${mainTab === 'barriers' ? 'btn-primary' : 'btn-outline'}`}
@@ -522,15 +513,6 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
             >
               <AlertTriangle size={16} />
               Accessibility Barrier Reports
-              <span style={{
-                background: mainTab === 'barriers' ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)',
-                padding: '2px 8px',
-                borderRadius: '12px',
-                fontSize: '11px',
-                fontWeight: 600
-              }}>
-                {scopedBarriers.length}
-              </span>
             </button>
           </div>
         )}
