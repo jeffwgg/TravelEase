@@ -45,6 +45,7 @@ class WebRTCService extends ChangeNotifier {
   String? incomingRequestId;
   bool isMicMuted = false;
   bool isCameraOff = false;
+  bool isFrontCamera = true;
 
   /// Human-readable reason the last call attempt failed (shown as a snackbar).
   String? callError;
@@ -236,6 +237,7 @@ class WebRTCService extends ChangeNotifier {
   // ── Mobile initiates a call → sends offer to Web ──────────────────────────
 
   Future<void> startCall(String requestId, CallType type) async {
+    if (callState != WebRTCCallState.idle) return;
     callError = null;
     final granted = await _ensureCallPermissions(type);
     if (!granted) {
@@ -402,6 +404,20 @@ class WebRTCService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> flipCamera() async {
+    if (_localStream == null) return;
+    final videoTracks = _localStream!.getVideoTracks();
+    if (videoTracks.isEmpty) return;
+    final track = videoTracks.first;
+    try {
+      final res = await Helper.switchCamera(track);
+      isFrontCamera = res;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[WebRTCService] flipCamera error: $e');
+    }
+  }
+
   // ── Private: signal event handlers ───────────────────────────────────────
 
   Future<void> _onCallOffer(Map<String, dynamic> payload) async {
@@ -566,6 +582,7 @@ class WebRTCService extends ChangeNotifier {
     _remoteDescriptionSet = false;
     _pc?.close();
     _pc = null;
+    isFrontCamera = true;
   }
 
   // ── Private: signaling ─────────────────────────────────────────────────────

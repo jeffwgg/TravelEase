@@ -477,6 +477,10 @@ export function WebRTCProvider({ children }) {
   // ─── Call Actions ────────────────────────────────────────────────────────
 
   const startCall = useCallback(async (type = 'video', targetId, travelerName, targetUserId) => {
+    if (callState !== 'idle') {
+      console.warn('[WebRTCContext] startCall ignored: call already in progress', callState)
+      return
+    }
     const reqId = targetId || activeRequestId
     if (!reqId) {
       console.warn('[WebRTCContext] startCall called with no target requestId')
@@ -538,7 +542,7 @@ export function WebRTCProvider({ children }) {
       cleanupPeer()
       setCallState('idle')
     }
-  }, [activeRequestId])
+  }, [activeRequestId, callState])
 
   const acceptCall = useCallback(async () => {
     const offer = incomingOfferRef.current
