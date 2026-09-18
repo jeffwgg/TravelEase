@@ -51,16 +51,16 @@ export const assistanceRepository = {
     }
 
     if ((status === 'resolved' || status === 'closed') && data.assigned_staff_id) {
-      await this.setStaffStatus(data.assigned_staff_id, 'free')
+      await this.freeStaffIfIdle(data.assigned_staff_id)
     }
 
     return data
   },
 
   // Institution Staff Management
-  // Availability is derived from active assistance_requests so it stays
-  // accurate even when the institution_staff.status column cannot be updated
-  // (e.g. RLS constraints on the web client).
+  // Availability is derived from active assistance_requests AND active sos_requests
+  // so that staff currently handling an SOS emergency or another assistance request
+  // are marked as 'busy' and not double-assigned.
   async getInstitutionStaff(institutionId = null) {
     let query = supabase
       .from('institution_staff')
@@ -79,20 +79,41 @@ export const assistanceRepository = {
       return []
     }
 
-    // Fetch all currently in-progress requests to determine real busy state.
+    // Fetch all currently in-progress assistance requests
     const { data: activeRequests } = await supabase
       .from('assistance_requests')
       .select('assigned_staff_id')
       .eq('status', 'in_progress')
 
-    const busyStaffIds = new Set(
+    // Fetch all active SOS requests (assigned or en_route)
+    let sosQuery = supabase
+      .from('sos_requests')
+      .select('assigned_staff_id')
+      .in('status', ['assigned', 'en_route'])
+
+    if (institutionId) {
+      sosQuery = sosQuery.eq('institution_id', institutionId)
+    }
+    const { data: activeSosRequests } = await sosQuery
+
+    const busyAssistanceIds = new Set(
       (activeRequests || []).map((r) => r.assigned_staff_id).filter(Boolean)
     )
+    const busySosIds = new Set(
+      (activeSosRequests || []).map((r) => r.assigned_staff_id).filter(Boolean)
+    )
 
-    return data.map((staff) => ({
-      ...staff,
-      status: busyStaffIds.has(staff.id) ? 'busy' : 'available',
-    }))
+    return data.map((staff) => {
+      const isSosBusy = busySosIds.has(staff.id)
+      const isAssistanceBusy = busyAssistanceIds.has(staff.id)
+      const isBusy = isSosBusy || isAssistanceBusy
+
+      return {
+        ...staff,
+        status: isBusy ? 'busy' : 'available',
+        busyReason: isSosBusy ? 'sos' : isAssistanceBusy ? 'assistance' : null,
+      }
+    })
   },
 
   // FR-M7-08: first staff action (assignment or first staff chat message)
@@ -119,6 +140,21 @@ export const assistanceRepository = {
 
     if (error) {
       console.error('Error updating staff status:', error)
+    }
+  },
+
+  // Helper to ensure we do not set staff to 'free' if they are still on an active SOS task
+  async freeStaffIfIdle(staffId) {
+    if (!staffId) return
+    const { data: activeSos } = await supabase
+      .from('sos_requests')
+      .select('id')
+      .eq('assigned_staff_id', staffId)
+      .in('status', ['assigned', 'en_route'])
+      .limit(1)
+
+    if (!activeSos || activeSos.length === 0) {
+      await this.setStaffStatus(staffId, 'free')
     }
   },
 
@@ -149,7 +185,7 @@ export const assistanceRepository = {
     }
 
     if (existing?.assigned_staff_id && existing.assigned_staff_id !== staffId) {
-      await this.setStaffStatus(existing.assigned_staff_id, 'free')
+      await this.freeStaffIfIdle(existing.assigned_staff_id)
     }
     await this.setStaffStatus(staffId, 'assigned')
 
@@ -302,10 +338,30 @@ export const assistanceRepository = {
   // Realtime Subscriptions
   subscribeToStaff(institutionId, callback) {
     const channel = supabase
-      .channel('public:institution_staff')
+      .channel(`staff-availability-realtime:${institutionId || 'all'}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'institution_staff', filter: `institution_id=eq.${institutionId}` },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'institution_staff',
+          ...(institutionId ? { filter: `institution_id=eq.${institutionId}` } : {}),
+        },
+        (payload) => callback(payload)
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'sos_requests',
+          ...(institutionId ? { filter: `institution_id=eq.${institutionId}` } : {}),
+        },
+        (payload) => callback(payload)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'assistance_requests' },
         (payload) => callback(payload)
       )
       .subscribe()

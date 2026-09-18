@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/supabase_client.dart';
 import '../entities/announcement.dart';
 import '../entities/spoken_announcement.dart';
 
@@ -14,11 +15,14 @@ class CapturedAnnouncementStore {
 
   static final instance = CapturedAnnouncementStore._();
 
-  static const _storageKey = 'captured_announcements';
+  static const _storageKeyPrefix = 'captured_announcements:';
   static const _maxEntries = 30;
 
   /// Bumped whenever a capture is added so open announcement lists reload.
   final ValueNotifier<int> version = ValueNotifier<int>(0);
+
+  String get _storageKey =>
+      '$_storageKeyPrefix${SupabaseClientHelper.client.auth.currentUser?.id ?? 'guest'}';
 
   Future<List<CapturedAnnouncement>> _loadAll() async {
     final preferences = await SharedPreferences.getInstance();

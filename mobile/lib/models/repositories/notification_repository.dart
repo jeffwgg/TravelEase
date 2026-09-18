@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/supabase_client.dart';
+
 /// A notification the app raised, kept on the device so the in-app
 /// Notifications screen can list it and deep-link to its screen even after
 /// the venue session that produced it has ended.
@@ -68,7 +70,7 @@ class NotificationHistoryStore {
 
   static final instance = NotificationHistoryStore._();
 
-  static const _key = 'notification_history';
+  static const _keyPrefix = 'notification_history:';
   static const _maxEntries = 50;
 
   final StreamController<void> _changes = StreamController<void>.broadcast();
@@ -86,9 +88,18 @@ class NotificationHistoryStore {
     return preferences;
   }
 
+  /// A phone may be shared. Keep each traveller's device-local notification
+  /// history separate instead of letting the next signed-in account see it.
+  /// Unauthenticated startup events use a distinct guest bucket.
+  String _keyForCurrentUser() {
+    final userId = SupabaseClientHelper.client.auth.currentUser?.id ?? 'guest';
+    return '$_keyPrefix$userId';
+  }
+
   Future<List<NotificationHistoryEntry>> entries() async {
     final preferences = await _preferences();
-    final values = preferences.getStringList(_key) ?? const <String>[];
+    final values =
+        preferences.getStringList(_keyForCurrentUser()) ?? const <String>[];
     return values
         .map(
           (value) => NotificationHistoryEntry.fromJson(
@@ -100,7 +111,8 @@ class NotificationHistoryStore {
 
   Future<void> add(NotificationHistoryEntry entry) async {
     final preferences = await _preferences();
-    final values = preferences.getStringList(_key) ?? const <String>[];
+    final key = _keyForCurrentUser();
+    final values = preferences.getStringList(key) ?? const <String>[];
     // An official announcement can be observed by both the realtime listener
     // and the background safety poll. Its stable entry id makes this an
     // update, not two entries in the user's notification history.
@@ -119,7 +131,7 @@ class NotificationHistoryStore {
       }),
     ];
     await preferences.setStringList(
-      _key,
+      key,
       updated.length > _maxEntries ? updated.sublist(0, _maxEntries) : updated,
     );
     _changes.add(null);
@@ -135,8 +147,9 @@ class NotificationHistoryStore {
   Future<void> markRead(String id) async {
     final entries = await this.entries();
     final preferences = await _preferences();
+    final key = _keyForCurrentUser();
     await preferences.setStringList(
-      _key,
+      key,
       entries.map((entry) {
         if (entry.id == id) entry.read = true;
         return jsonEncode(entry.toJson());
@@ -148,8 +161,9 @@ class NotificationHistoryStore {
   Future<void> markAllRead() async {
     final entries = await this.entries();
     final preferences = await _preferences();
+    final key = _keyForCurrentUser();
     await preferences.setStringList(
-      _key,
+      key,
       entries
           .map((entry) => entry..read = true)
           .map((entry) => jsonEncode(entry.toJson()))
@@ -162,8 +176,9 @@ class NotificationHistoryStore {
   Future<void> delete(String id) async {
     final entries = await this.entries();
     final preferences = await _preferences();
+    final key = _keyForCurrentUser();
     await preferences.setStringList(
-      _key,
+      key,
       entries
           .where((entry) => entry.id != id)
           .map((entry) => jsonEncode(entry.toJson()))
@@ -175,7 +190,7 @@ class NotificationHistoryStore {
   /// Clears the complete device-local notification history.
   Future<void> clear() async {
     final preferences = await _preferences();
-    await preferences.remove(_key);
+    await preferences.remove(_keyForCurrentUser());
     _changes.add(null);
   }
 }

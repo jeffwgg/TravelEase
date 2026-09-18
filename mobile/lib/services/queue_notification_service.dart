@@ -7,6 +7,7 @@ import '../models/entities/queue_tracking.dart';
 import '../models/repositories/queue_repository.dart';
 import 'app_notification_service.dart';
 import 'flash_alert_service.dart';
+import 'venue_session_service.dart';
 
 /// Tracks the traveller's queue number app-wide and raises one-time alerts:
 /// once when the estimated wait drops under ten minutes, and once when the
@@ -124,7 +125,12 @@ class QueueNotificationService {
   ) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.reload();
-    if (preferences.getString('venue_session_institution_id') == null) return;
+    if (preferences.getString(
+          VenueSessionService.preferenceKey('venue_session_institution_id'),
+        ) ==
+        null) {
+      return;
+    }
     final seen =
         (preferences.getStringList(_manualNotificationEventIdsKey) ??
                 const <String>[])
@@ -176,7 +182,12 @@ class QueueNotificationService {
   Future<void> evaluateAlerts(QueueTrackingData tracking) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.reload();
-    if (preferences.getString('venue_session_institution_id') == null) return;
+    if (preferences.getString(
+          VenueSessionService.preferenceKey('venue_session_institution_id'),
+        ) ==
+        null) {
+      return;
+    }
     final number = tracking.number;
 
     final isCalled = tracking.status == 'called';
