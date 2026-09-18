@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LifeBuoy, Clock, CheckCircle2, AlertCircle, Zap,
-  MessageCircle, MapPin, Ticket, Briefcase, TrendingUp,
+  MessageCircle, TrendingUp,
   Siren, ListOrdered
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -37,11 +37,12 @@ export default function StaffDashboardPage() {
 
   const venueName = staffContext?.institutions?.name
   const requests = useMemo(
-    () => allRequests.filter(r =>
-      r.assigned_staff_id === myStaffId &&
-      (!venueName || (r.venue_name || '').trim().toLowerCase() === venueName.trim().toLowerCase())
+    () => mergeStaffAssignments(
+      allRequests.filter(r => !venueName || (r.venue_name || '').trim().toLowerCase() === venueName.trim().toLowerCase()),
+      sosTasks,
+      myStaffId,
     ),
-    [allRequests, myStaffId, venueName]
+    [allRequests, sosTasks, myStaffId, venueName]
   )
 
   const pending    = useMemo(() => requests.filter(r => ['pending', 'assigned'].includes(r.status)), [requests])
@@ -78,17 +79,6 @@ export default function StaffDashboardPage() {
     emergency: 'SOS / Emergency',
   }[cat] || cat)
 
-  const categoryIcon = cat => {
-    switch (cat) {
-      case 'emergency': return <Siren size={15} />
-      case 'communication': return <MessageCircle size={15} />
-      case 'location':      return <MapPin size={15} />
-      case 'checkin':       return <Ticket size={15} />
-      case 'luggage':       return <Briefcase size={15} />
-      default:              return <LifeBuoy size={15} />
-    }
-  }
-
   const statusColor = status => {
     if (['pending', 'assigned'].includes(status)) return '#f59e0b'
     if (['in_progress', 'en_route'].includes(status)) return '#3b82f6'
@@ -121,24 +111,16 @@ export default function StaffDashboardPage() {
       <div className="page-body">
         {/* KPI Cards */}
         <div className="stats-grid">
-          <KpiCard loading={loading} icon={<LifeBuoy size={22} />} tone="accent"    label="Total Assigned" value={requests.length} />
-          <KpiCard loading={loading} icon={<Clock size={22} />}     tone="secondary" label="Pending"       value={pending.length} />
-          <KpiCard loading={loading} icon={<Zap size={22} />}       tone="primary"   label="In Progress"   value={inProgress.length} />
-          <KpiCard loading={loading} icon={<CheckCircle2 size={22} />} tone="success" label="Resolved"    value={resolved.length} />
+          <KpiCard loading={loading || sosLoading} icon={<LifeBuoy size={22} />} tone="accent"    label="Total Assigned" value={requests.length} />
+          <KpiCard loading={loading || sosLoading} icon={<Clock size={22} />}     tone="secondary" label="Pending"       value={pending.length} />
+          <KpiCard loading={loading || sosLoading} icon={<Zap size={22} />}       tone="primary"   label="In Progress"   value={inProgress.length} />
+          <KpiCard loading={loading || sosLoading} icon={<CheckCircle2 size={22} />} tone="success" label="Resolved"    value={resolved.length} />
         </div>
       {sosError && <div className="form-alert error" role="alert">{sosError}</div>}
       {loading || sosLoading ? (
         <div className="form-alert info">Loading your dashboard…</div>
       ) : (
         <>
-          {/* KPI Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
-            <KpiCard icon={<LifeBuoy size={20} />} label="Total Assigned" value={requests.length} color="#6366f1" />
-            <KpiCard icon={<Clock size={20} />}     label="Pending"        value={pending.length}    color="#f59e0b" />
-            <KpiCard icon={<Zap size={20} />}       label="In Progress"    value={inProgress.length} color="#3b82f6" />
-            <KpiCard icon={<CheckCircle2 size={20} />} label="Resolved"   value={resolved.length}   color="#22c55e" />
-          </div>
-
         {/* Secondary row: resolution rate + high priority */}
         <div className="grid-2 section-gap">
           <div className="card">
@@ -261,6 +243,8 @@ export default function StaffDashboardPage() {
             <ListOrdered size={15} /> Queue Updates
           </button>
         </div>
+        </>
+      )}
       </div>
     </div>
   )
