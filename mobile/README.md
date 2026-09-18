@@ -19,6 +19,26 @@ fvm flutter build apk --debug
 
 Use `fvm flutter` for every Flutter command in this project. Do not use a globally installed Flutter SDK to build it.
 
+### Windows: SDK version mismatch
+
+If `flutter pub get` reports Dart 3.11.5 but requires `>=3.13.1`, your terminal is using an older global Flutter installation. Keep the SDK constraints and lockfile; install and use the version in `.fvmrc` instead.
+
+If PowerShell cannot find `fvm` after installation, these commands work without changing PATH. Run them from `mobile`:
+
+```powershell
+dart pub global run fvm:main install
+dart pub global run fvm:main flutter --version
+dart pub global run fvm:main flutter pub get
+```
+
+To enable the shorter `fvm` command for the current PowerShell session (with the default Pub cache location):
+
+```powershell
+$env:Path += ";$env:LOCALAPPDATA\Pub\Cache\bin"
+```
+
+For VS Code opened at the repository root, set `dart.flutterSdkPath` to `mobile/.fvm/flutter_sdk` in workspace settings after installation. If only `mobile` is open, use `.fvm/flutter_sdk`. Reload VS Code so the Dart extension uses the project SDK.
+
 ## Dependency policy
 
 `pubspec.lock` is committed and is part of the build configuration. Use `fvm flutter pub get` after pulling changes; do not run `pub upgrade` unless deliberately updating dependencies and committing both `pubspec.yaml` and `pubspec.lock`.

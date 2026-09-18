@@ -7,11 +7,14 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { assistanceRepository } from '../repositories/assistanceRepository'
+import useStaffWorkspace from '../hooks/useStaffWorkspace'
+import { mergeStaffAssignments } from '../lib/staffAssignments'
 
 export default function StaffDashboardPage() {
   const navigate = useNavigate()
   const { staffContext } = useAuth()
   const myStaffId = staffContext?.staff?.id
+  const { tasks: sosTasks, loading: sosLoading, error: sosError } = useStaffWorkspace()
   const staffName = staffContext?.staff?.name || 'Staff'
 
   const [allRequests, setAllRequests] = useState([])
@@ -32,12 +35,12 @@ export default function StaffDashboardPage() {
   }, [])
 
   const requests = useMemo(
-    () => allRequests.filter(r => r.assigned_staff_id === myStaffId),
-    [allRequests, myStaffId]
+    () => mergeStaffAssignments(allRequests, sosTasks, myStaffId),
+    [allRequests, sosTasks, myStaffId]
   )
 
-  const pending    = useMemo(() => requests.filter(r => r.status === 'pending'), [requests])
-  const inProgress = useMemo(() => requests.filter(r => r.status === 'in_progress'), [requests])
+  const pending    = useMemo(() => requests.filter(r => ['pending', 'assigned'].includes(r.status)), [requests])
+  const inProgress = useMemo(() => requests.filter(r => ['in_progress', 'en_route'].includes(r.status)), [requests])
   const resolved   = useMemo(() => requests.filter(r => r.status === 'resolved' || r.status === 'closed'), [requests])
   const highPrio   = useMemo(() => requests.filter(r => r.urgency === 'high' || r.urgency === 'urgent'), [requests])
 
@@ -67,10 +70,12 @@ export default function StaffDashboardPage() {
     checkin: 'Check-in',
     luggage: 'Luggage',
     other: 'Other',
+    emergency: 'SOS / Emergency',
   }[cat] || cat)
 
   const categoryIcon = cat => {
     switch (cat) {
+      case 'emergency': return <Siren size={15} />
       case 'communication': return <MessageCircle size={15} />
       case 'location':      return <MapPin size={15} />
       case 'checkin':       return <Ticket size={15} />
@@ -80,14 +85,15 @@ export default function StaffDashboardPage() {
   }
 
   const statusColor = status => {
-    if (status === 'pending')     return '#f59e0b'
-    if (status === 'in_progress') return '#3b82f6'
+    if (['pending', 'assigned'].includes(status)) return '#f59e0b'
+    if (['in_progress', 'en_route'].includes(status)) return '#3b82f6'
     if (status === 'resolved' || status === 'closed') return '#22c55e'
     return '#94a3b8'
   }
 
   const statusLabel = status => ({
     pending: 'Pending', in_progress: 'In Progress',
+    assigned: 'Assigned', en_route: 'On The Way',
     resolved: 'Resolved', closed: 'Closed',
   }[status] || status)
 
@@ -101,7 +107,8 @@ export default function StaffDashboardPage() {
         </p>
       </div>
 
-      {loading ? (
+      {sosError && <div className="form-alert error" role="alert">{sosError}</div>}
+      {loading || sosLoading ? (
         <div className="form-alert info">Loading your dashboard…</div>
       ) : (
         <>
@@ -148,7 +155,7 @@ export default function StaffDashboardPage() {
                 <button
                   className="btn btn-primary btn-sm"
                   style={{ marginTop: 12 }}
-                  onClick={() => navigate('/requests')}
+                  onClick={() => navigate(highPrio.find(request => request.request_type === 'sos')?.destination || '/requests')}
                 >
                   View Urgent Requests
                 </button>
@@ -197,7 +204,7 @@ export default function StaffDashboardPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {recent.map(req => (
                     <div
-                      key={req.id}
+                      key={`${req.request_type}:${req.id}`}
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         padding: '10px 14px', borderRadius: 10,
@@ -205,7 +212,7 @@ export default function StaffDashboardPage() {
                         border: '1px solid rgba(255,255,255,0.07)',
                         transition: 'background 0.15s',
                       }}
-                      onClick={() => navigate('/requests')}
+                      onClick={() => navigate(req.destination)}
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <span style={{ fontWeight: 600, fontSize: 13 }}>

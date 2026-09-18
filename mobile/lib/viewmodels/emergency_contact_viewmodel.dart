@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../models/emergency_contact.dart';
+import '../models/entities/emergency_contact.dart';
 import '../models/repositories/emergency_contact_repository.dart';
 
 class EmergencyContactViewModel extends ChangeNotifier {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
-import '../../models/emergency_contact.dart';
+import '../../models/entities/emergency_contact.dart';
 import '../../viewmodels/emergency_contact_viewmodel.dart';
 
 class EmergencyContactSettingsView extends StatefulWidget {

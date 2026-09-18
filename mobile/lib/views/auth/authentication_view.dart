@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
+
+import '../../core/traveller_name.dart';
+
 import 'package:go_router/go_router.dart';
+
 import '../../core/theme.dart';
 import '../../core/nationalities.dart';
 import '../../viewmodels/auth_viewmodel.dart';
 import '../../viewmodels/profile_viewmodel.dart';
 
 class AuthenticationView extends StatefulWidget {
-  const AuthenticationView({super.key});
+  const AuthenticationView({super.key, this.accessError});
+
+  final String? accessError;
 
   @override
   State<AuthenticationView> createState() => _AuthenticationViewState();
@@ -74,9 +80,8 @@ class _AuthenticationViewState extends State<AuthenticationView>
               const SizedBox(height: 8),
               Text(
                 'Accessible Travel for Everyone',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary,
-                ),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: AppColors.textSecondary),
               ),
               const SizedBox(height: 40),
               // Tab bar
@@ -186,48 +191,17 @@ class _AuthenticationViewState extends State<AuthenticationView>
                 )
               : const Text('Sign In'),
         ),
-        if (_viewModel.errorMessage != null) ...[
+        if (_viewModel.errorMessage != null || widget.accessError != null) ...[
           const SizedBox(height: 12),
-          _buildStatusMessage(_viewModel.errorMessage!, isError: true),
+          _buildStatusMessage(
+            _viewModel.errorMessage ?? widget.accessError!,
+            isError: true,
+          ),
         ],
         if (_viewModel.successMessage != null) ...[
           const SizedBox(height: 12),
           _buildStatusMessage(_viewModel.successMessage!),
         ],
-        const SizedBox(height: 24),
-        Row(
-          children: [
-            const Expanded(child: Divider(color: AppColors.divider)),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                'or continue with',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-            const Expanded(child: Divider(color: AppColors.divider)),
-          ],
-        ),
-        const SizedBox(height: 24),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _showUnsupportedSocialLogin,
-                icon: const Icon(Icons.g_mobiledata, size: 24),
-                label: const Text('Google'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _showUnsupportedSocialLogin,
-                icon: const Icon(Icons.apple, size: 20),
-                label: const Text('Apple'),
-              ),
-            ),
-          ],
-        ),
         const SizedBox(height: 32),
         // Accessibility note
         Container(
@@ -250,9 +224,8 @@ class _AuthenticationViewState extends State<AuthenticationView>
               Expanded(
                 child: Text(
                   'TravelEase is designed for deaf and hard-of-hearing travelers',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: AppColors.primaryDark),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: AppColors.primaryDark),
                 ),
               ),
             ],
@@ -269,6 +242,7 @@ class _AuthenticationViewState extends State<AuthenticationView>
       children: [
         TextField(
           controller: _viewModel.registrationNameController,
+          inputFormatters: [TravellerName.formatter],
           textInputAction: TextInputAction.next,
           enabled: !_viewModel.isLoading,
           decoration: const InputDecoration(
@@ -407,12 +381,6 @@ class _AuthenticationViewState extends State<AuthenticationView>
       _viewModel.registrationEmailController.text.trim(),
     );
     context.go('/check-email?email=$email');
-  }
-
-  void _showUnsupportedSocialLogin() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Social sign in is not available yet.')),
-    );
   }
 
   Future<void> _showForgotPasswordDialog() async {

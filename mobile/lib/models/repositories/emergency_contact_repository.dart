@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/supabase_client.dart';
-import '../emergency_contact.dart';
+import '../entities/emergency_contact.dart';
 
 class EmergencyContactRepository {
   EmergencyContactRepository({SupabaseClient? client})

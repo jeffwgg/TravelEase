@@ -31,7 +31,7 @@ const initialRegistration = {
 export default function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { signIn, registerInstitution, sendPasswordReset } = useAuth()
+  const { signIn, registerInstitution, sendPasswordReset, accessError } = useAuth()
 
   const [mode, setMode] = useState(initialMode)
   const [email, setEmail] = useState('')
@@ -221,10 +221,10 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
 
         {/* Content Body */}
         <div className="auth-modal-body">
-          {error && (
+          {(error || accessError) && (
             <div className="form-alert error" role="alert">
               <AlertCircle size={16} />
-              <span>{error}</span>
+              <span>{error || accessError}</span>
             </div>
           )}
 

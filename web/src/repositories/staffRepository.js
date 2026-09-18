@@ -25,6 +25,19 @@ async function invoke(action, body = {}) {
 }
 
 export const staffRepository = {
+  async getOwn() {
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError) throw authError
+    if (!user) throw new Error('Please sign in again.')
+    const { data, error } = await supabase.from('institution_staff').select(fields)
+      .eq('auth_user_id', user.id).eq('role', 'staff').eq('active', true).single()
+    if (error) throw error
+    return data
+  },
+  async updateOwnName(name) {
+    const { error } = await supabase.rpc('update_my_staff_name', { p_name: name.trim() })
+    if (error) throw error
+  },
   async list(staffContext) {
     const institutionId = institutionIdFrom(staffContext)
     const { data, error } = await supabase.from('institution_staff').select(fields)

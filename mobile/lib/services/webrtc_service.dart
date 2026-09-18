@@ -1,7 +1,9 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../core/supabase_client.dart';
 
 /// Call types
@@ -32,7 +34,7 @@ class WebRTCService extends ChangeNotifier {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
-    ]
+    ],
   };
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -165,7 +167,14 @@ class WebRTCService extends ChangeNotifier {
       await _sendSignal('call_offer', {
         'sdp': offer.sdp,
         'callType': type == CallType.video ? 'video' : 'voice',
-        'callerName': 'Jeff Wong (Traveler)',
+        'callerName':
+            (_client.auth.currentUser?.userMetadata?['full_name'] as String?)
+                    ?.trim()
+                    .isNotEmpty ==
+                true
+            ? (_client.auth.currentUser!.userMetadata!['full_name'] as String)
+                  .trim()
+            : 'Guest',
         'callerSide': 'mobile',
         'requestId': requestId,
       });
@@ -383,8 +392,10 @@ class WebRTCService extends ChangeNotifier {
   Future<void> _sendSignal(String event, Map<String, dynamic> payload) async {
     final fullPayload = {
       ...payload,
-      if (!payload.containsKey('requestId') && _requestId != null) 'requestId': _requestId,
-      if (!payload.containsKey('requestId') && incomingRequestId != null) 'requestId': incomingRequestId,
+      if (!payload.containsKey('requestId') && _requestId != null)
+        'requestId': _requestId,
+      if (!payload.containsKey('requestId') && incomingRequestId != null)
+        'requestId': incomingRequestId,
     };
     if (_signalingChannel != null) {
       await _signalingChannel!.sendBroadcastMessage(

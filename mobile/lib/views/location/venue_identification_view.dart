@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme.dart';
+import '../../viewmodels/profile_viewmodel.dart';
 import '../../models/entities/announcement.dart';
 import '../../models/entities/venue_search_result.dart';
 import '../../models/entities/venue_information.dart';
@@ -49,6 +50,7 @@ class VenueIdentificationView extends StatefulWidget {
 class _VenueIdentificationViewState extends State<VenueIdentificationView>
     with WidgetsBindingObserver {
   final _searchController = TextEditingController();
+  final _profileViewModel = ProfileViewModel();
   final _scrollController = ScrollController();
   final _venueRepository = VenueRepository();
   final _announcementRepository = AnnouncementRepository();
@@ -98,6 +100,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   @override
   void initState() {
     super.initState();
+    unawaited(_profileViewModel.loadProfile());
     WidgetsBinding.instance.addObserver(this);
     _session = VenueSessionService.instance.session;
     unawaited(_loadVenueInformation(_session));
@@ -129,6 +132,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
 
   @override
   void dispose() {
+    _profileViewModel.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _feedRefreshTimer?.cancel();
     VenueSessionService.instance.removeListener(_onSessionChanged);
@@ -494,9 +498,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
 
   _HomeTourStep _initialTourStep() =>
       switch (AppTourController.instance.homeSection) {
-        HomeGuideSection.location => _session == null
-            ? _HomeTourStep.locationSearch
-            : _HomeTourStep.activeVenueSession,
+        HomeGuideSection.location =>
+          _session == null
+              ? _HomeTourStep.locationSearch
+              : _HomeTourStep.activeVenueSession,
         HomeGuideSection.spokenAnnouncements =>
           _HomeTourStep.spokenAnnouncements,
         HomeGuideSection.officialAnnouncements =>
@@ -538,9 +543,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       return;
     }
     final nextStep = switch (_tourStep) {
-      _HomeTourStep.quickActions => _session == null
-          ? _HomeTourStep.locationSearch
-          : _HomeTourStep.activeVenueSession,
+      _HomeTourStep.quickActions =>
+        _session == null
+            ? _HomeTourStep.locationSearch
+            : _HomeTourStep.activeVenueSession,
       _HomeTourStep.activeVenueSession => _HomeTourStep.quitVenueSession,
       _HomeTourStep.quitVenueSession => _HomeTourStep.spokenAnnouncements,
       _HomeTourStep.locationSearch => _HomeTourStep.locationGps,
@@ -578,15 +584,13 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
         return _buildTourStepOverlay(
           targetKey: _locationCardKey,
           title: 'Active Venue Session',
-          message:
-              'You are connected to this venue and service area. Official announcements and queue information are matched to this session.',
+          message: 'You are connected to this venue and service area. Official announcements and queue information are matched to this session.',
         );
       case _HomeTourStep.quitVenueSession:
         return _buildTourStepOverlay(
           targetKey: _quitVenueSessionKey,
           title: 'End Venue Session',
-          message:
-              'Use this when you leave the venue. You will stop receiving its location-based announcements.',
+          message: 'Use this when you leave the venue. You will stop receiving its location-based announcements.',
         );
       case _HomeTourStep.locationSearch:
         return _buildTourStepOverlay(
@@ -673,36 +677,46 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: Image.asset(
-                                    'assets/logo.png',
-                                    width: 38,
-                                    height: 38,
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image.asset(
+                                      'assets/logo.png',
+                                      width: 38,
+                                      height: 38,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Hello, Jeff',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .headlineLarge,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        ListenableBuilder(
+                                          listenable: _profileViewModel,
+                                          builder: (context, _) => Text(
+                                            'Hello, ${_profileViewModel.greetingName}',
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .headlineLarge,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Where are you traveling today?',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium,
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'Where are you traveling today?',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium,
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                  ),
+                                ],
+                              ),
                             ),
                             const NotificationBellButton(),
                           ],

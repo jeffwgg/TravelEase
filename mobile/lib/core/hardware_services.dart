@@ -20,6 +20,51 @@ class HardwareServices {
   final FlutterTts _tts = FlutterTts();
   final stt.SpeechToText _speech = stt.SpeechToText();
   final AudioPlayer _cuePlayer = AudioPlayer();
+  AudioPlayer? _sosPlayer;
+  bool _sosAudioActive = false;
+  Future<void> _sosAudioOperations = Future<void>.value();
+
+  Future<void> _queueSosAudio(Future<void> Function() action) {
+    _sosAudioOperations = _sosAudioOperations.then((_) async {
+      try {
+        await action();
+      } catch (error) {
+        debugPrint('[SOS] Audio unavailable: ${error.runtimeType}');
+      }
+    });
+    return _sosAudioOperations;
+  }
+
+  Future<void> startSosAudio() {
+    if (_sosAudioActive) return _sosAudioOperations;
+    _sosAudioActive = true;
+    return _queueSosAudio(() async {
+      if (!_sosAudioActive) return;
+      final player = _sosPlayer ??= AudioPlayer();
+      await player.setReleaseMode(ReleaseMode.loop);
+      await player.setVolume(1);
+      final wav = _toneCache.putIfAbsent(
+        'sos',
+        () => _generateToneWav(880, 1000),
+      );
+      await player.play(BytesSource(wav, mimeType: 'audio/wav'));
+    });
+  }
+
+  Future<void> stopSosAudio() {
+    _sosAudioActive = false;
+    return _queueSosAudio(() async {
+      final player = _sosPlayer;
+      _sosPlayer = null;
+      if (player == null) return;
+      try {
+        await player.stop();
+      } finally {
+        await player.dispose();
+      }
+    });
+  }
+
   static final Map<String, Uint8List> _toneCache = {};
 
   bool _isTtsInitialized = false;
@@ -105,43 +150,64 @@ class HardwareServices {
     }
 
     // Check if any voice has gender metadata
-    bool hasGenderInfo = _availableVoices.any((v) =>
-        (v['gender'] ?? v['Gender'] ?? '').toString().isNotEmpty);
+    bool hasGenderInfo = _availableVoices.any(
+      (v) => (v['gender'] ?? v['Gender'] ?? '').toString().isNotEmpty,
+    );
 
     if (!hasGenderInfo) {
-      debugPrint('TTS: Engine does not provide gender metadata - using default voice for language');
+      debugPrint(
+        'TTS: Engine does not provide gender metadata - using default voice for language',
+      );
       return;
     }
 
     // Voice data typically has: {name, locale, gender, ...}
     // gender values: 'male', 'female', 'neutral' (or sometimes '0'=female, '1'=male)
     for (final voice in _availableVoices) {
-      final gender = (voice['gender'] ?? voice['Gender'] ?? '').toString().toLowerCase();
-      final name = (voice['name'] ?? voice['Name'] ?? '').toString().toLowerCase();
-      final locale = (voice['locale'] ?? voice['Locale'] ?? '').toString().toLowerCase();
+      final gender = (voice['gender'] ?? voice['Gender'] ?? '')
+          .toString()
+          .toLowerCase();
+      final name = (voice['name'] ?? voice['Name'] ?? '')
+          .toString()
+          .toLowerCase();
+      final locale = (voice['locale'] ?? voice['Locale'] ?? '')
+          .toString()
+          .toLowerCase();
 
       // Filter by language first - some engines require voice locale to match
-      final langMatch = language == 'ms' || language.toLowerCase().contains('my')
+      final langMatch =
+          language == 'ms' || language.toLowerCase().contains('my')
           ? locale.contains('ms') || locale.contains('my')
           : language == 'en' || locale.contains('en');
 
       if (!langMatch) continue;
 
-      if (voiceGender == 'female' && (gender == 'female' || gender == '0' || name.contains('female'))) {
+      if (voiceGender == 'female' &&
+          (gender == 'female' || gender == '0' || name.contains('female'))) {
         await _tts.setVoice(voice);
-        debugPrint('TTS voice set to female: ${voice['name'] ?? voice['Name']} (locale: $locale)');
+        debugPrint(
+          'TTS voice set to female: ${voice['name'] ?? voice['Name']} (locale: $locale)',
+        );
         return;
-      } else if (voiceGender == 'male' && (gender == 'male' || gender == '1' || name.contains('male'))) {
+      } else if (voiceGender == 'male' &&
+          (gender == 'male' || gender == '1' || name.contains('male'))) {
         await _tts.setVoice(voice);
-        debugPrint('TTS voice set to male: ${voice['name'] ?? voice['Name']} (locale: $locale)');
+        debugPrint(
+          'TTS voice set to male: ${voice['name'] ?? voice['Name']} (locale: $locale)',
+        );
         return;
-      } else if (voiceGender == 'neutral' && (gender == 'neutral' || name.contains('neutral'))) {
+      } else if (voiceGender == 'neutral' &&
+          (gender == 'neutral' || name.contains('neutral'))) {
         await _tts.setVoice(voice);
-        debugPrint('TTS voice set to neutral: ${voice['name'] ?? voice['Name']} (locale: $locale)');
+        debugPrint(
+          'TTS voice set to neutral: ${voice['name'] ?? voice['Name']} (locale: $locale)',
+        );
         return;
       }
     }
-    debugPrint('No matching voice for gender: $voiceGender (language: $language)');
+    debugPrint(
+      'No matching voice for gender: $voiceGender (language: $language)',
+    );
   }
 
   Future<void> _initCameras() async {
@@ -197,13 +263,21 @@ class HardwareServices {
         if (voiceGender == 'male') {
           speaker = MLTtsConstants.TTS_SPEAKER_MALE_ZH;
         } else if (voiceGender == 'neutral') {
-          speaker = MLTtsConstants.TTS_SPEAKER_FEMALE_ZH; // neutral defaults to female
+          speaker = MLTtsConstants
+              .TTS_SPEAKER_FEMALE_ZH; // neutral defaults to female
         }
-        await MandarinTts.instance.speak(text, speed: speed, volume: volume, speaker: speaker);
+        await MandarinTts.instance.speak(
+          text,
+          speed: speed,
+          volume: volume,
+          speaker: speaker,
+        );
         return;
       } on MandarinSpeechException catch (e) {
-        debugPrint('Mandarin (ML Kit) TTS unavailable (${e.error.name}) — '
-            'falling back to system engine');
+        debugPrint(
+          'Mandarin (ML Kit) TTS unavailable (${e.error.name}) — '
+          'falling back to system engine',
+        );
       } catch (e) {
         debugPrint('Mandarin (ML Kit) TTS failed: $e — falling back');
       }
@@ -242,8 +316,9 @@ class HardwareServices {
       }
       if (!languageSet) {
         debugPrint(
-            'No TTS voice installed for $language — install it via '
-            'Settings > Accessibility > Text-to-speech output > voice data.');
+          'No TTS voice installed for $language — install it via '
+          'Settings > Accessibility > Text-to-speech output > voice data.',
+        );
       }
       final rate = (speed * 0.5).clamp(0.1, 1.0);
       await _tts.setSpeechRate(rate);
@@ -255,7 +330,9 @@ class HardwareServices {
       // Some engines never fire the completion event for a missing voice
       // (e.g. no ms-MY TTS), which would hang the dialogue loop forever —
       // force a stop after 15s so the conversation always continues.
-      await _tts.speak(text).timeout(
+      await _tts
+          .speak(text)
+          .timeout(
             const Duration(seconds: 15),
             onTimeout: () async {
               debugPrint('TTS completion timeout — forcing stop');
@@ -302,12 +379,14 @@ class HardwareServices {
     final requested = norm(languageLocale);
     if (_availableLocales.isEmpty) {
       debugPrint(
-          'STT locale list unavailable; requesting $requested directly.');
+        'STT locale list unavailable; requesting $requested directly.',
+      );
       return languageLocale;
     }
 
-    final normalizedIds =
-        _availableLocales.map((l) => norm(l.localeId)).toList();
+    final normalizedIds = _availableLocales
+        .map((l) => norm(l.localeId))
+        .toList();
 
     // 1. Exact match
     for (var i = 0; i < normalizedIds.length; i++) {
@@ -319,7 +398,8 @@ class HardwareServices {
     for (var i = 0; i < normalizedIds.length; i++) {
       if (normalizedIds[i].split('_').first == lang) {
         debugPrint(
-            'STT locale fallback: $requested -> ${_availableLocales[i].localeId} (variant)');
+          'STT locale fallback: $requested -> ${_availableLocales[i].localeId} (variant)',
+        );
         return _availableLocales[i].localeId;
       }
     }
@@ -329,7 +409,8 @@ class HardwareServices {
       for (var i = 0; i < normalizedIds.length; i++) {
         if (normalizedIds[i].split('_').first == neighbour) {
           debugPrint(
-              'STT locale fallback: $requested -> ${_availableLocales[i].localeId} (neighbour)');
+            'STT locale fallback: $requested -> ${_availableLocales[i].localeId} (neighbour)',
+          );
           return _availableLocales[i].localeId;
         }
       }
@@ -337,7 +418,8 @@ class HardwareServices {
 
     // 4. Not listed — still try it; the engine may support it anyway.
     debugPrint(
-        'STT locale $requested not in device list; requesting directly.');
+      'STT locale $requested not in device list; requesting directly.',
+    );
     return languageLocale;
   }
 
@@ -381,14 +463,17 @@ class HardwareServices {
 
       if (_speechSupported && _speech.isAvailable) {
         final targetLocale = _resolveSttLocale(languageLocale);
-        debugPrint('STT locale requested: $languageLocale -> resolved: $targetLocale');
+        debugPrint(
+          'STT locale requested: $languageLocale -> resolved: $targetLocale',
+        );
 
         // Record whether the resolved locale really covers the requested
         // language so callers can detect silent OS substitution.
         String norm(String id) => id.toLowerCase().replaceAll('-', '_');
         _lastUsedLocaleId = targetLocale;
         _lastLocaleMatched =
-            norm(targetLocale).split('_').first == norm(languageLocale).split('_').first;
+            norm(targetLocale).split('_').first ==
+            norm(languageLocale).split('_').first;
 
         await _speech.listen(
           onResult: (result) {
@@ -443,7 +528,11 @@ class HardwareServices {
   /// Low tone when listening is switched off.
   Future<void> playListenStopCue() => _playCueTone('stop', 523.25, 180);
 
-  Future<void> _playCueTone(String key, double frequencyHz, int durationMs) async {
+  Future<void> _playCueTone(
+    String key,
+    double frequencyHz,
+    int durationMs,
+  ) async {
     try {
       final wav = _toneCache.putIfAbsent(
         key,
@@ -461,8 +550,9 @@ class HardwareServices {
   Uint8List _generateToneWav(double frequencyHz, int durationMs) {
     const int sampleRate = 44100;
     final int totalSamples = (sampleRate * durationMs / 1000).round();
-    final int fadeSamples =
-        totalSamples < 200 ? totalSamples ~/ 2 : sampleRate ~/ 100;
+    final int fadeSamples = totalSamples < 200
+        ? totalSamples ~/ 2
+        : sampleRate ~/ 100;
 
     final ByteData wav = ByteData(44 + totalSamples * 2);
     void ascii(int offset, String s) {
@@ -491,9 +581,8 @@ class HardwareServices {
       if (i >= totalSamples - fadeSamples) {
         envelope = (totalSamples - i) / fadeSamples;
       }
-      final sample = math.sin(2 * math.pi * frequencyHz * i / sampleRate) *
-          envelope *
-          0.6;
+      final sample =
+          math.sin(2 * math.pi * frequencyHz * i / sampleRate) * envelope * 0.6;
       wav.setInt16(44 + i * 2, (sample * 32767).round(), Endian.little);
     }
     return wav.buffer.asUint8List();
@@ -501,10 +590,7 @@ class HardwareServices {
 
   /// Request runtime permissions for Camera and Microphone
   Future<bool> requestCameraAndMicPermissions() async {
-    final statuses = await [
-      Permission.camera,
-      Permission.microphone,
-    ].request();
+    final statuses = await [Permission.camera, Permission.microphone].request();
 
     return statuses[Permission.camera]?.isGranted == true;
   }

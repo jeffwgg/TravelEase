@@ -1,8 +1,8 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/supabase_client.dart';
-import '../emergency_communication_card.dart';
-import '../emergency_contact.dart';
+import '../entities/emergency_communication_card.dart';
+import '../entities/emergency_contact.dart';
 
 class EmergencyCommunicationCardRepository {
   EmergencyCommunicationCardRepository({SupabaseClient? client})

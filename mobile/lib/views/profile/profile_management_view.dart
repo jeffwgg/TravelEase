@@ -270,13 +270,26 @@ class _ProfileManagementViewState extends State<ProfileManagementView> {
                           ),
                           _MenuItem(
                             Icons.badge,
-                            'Emergency Card',
+                            'Emergency Communication Card',
                             () => context.push('/emergency-card'),
                           ),
                           _MenuItem(
                             Icons.graphic_eq,
                             'Environment Sound Detection',
                             () => context.push('/environment-sound-alert'),
+                          ),
+                        ]),
+                        const SizedBox(height: 16),
+                        _buildMenuSection(context, 'History', [
+                          _MenuItem(
+                            Icons.history,
+                            'SOS History',
+                            () => context.push('/sos-history'),
+                          ),
+                          _MenuItem(
+                            Icons.forum_outlined,
+                            'Communication History',
+                            () => context.push('/communication-history'),
                           ),
                         ]),
                         const SizedBox(height: 16),
