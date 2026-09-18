@@ -6,7 +6,7 @@ All Android builds use the versions checked into this repository:
 
 - Flutter 3.47.1 (Dart 3.13.1), defined in `.fvmrc`
 - JDK 17
-- Gradle 8.14, Android Gradle Plugin 8.11.1, and Kotlin 2.2.20, supplied by the checked-in Android project
+- Gradle 9.1.0, Android Gradle Plugin 9.0.1, and Kotlin 2.3.20, supplied by the checked-in Android project
 
 Install [FVM](https://fvm.app/) once, then run these commands from `mobile`:
 
@@ -17,7 +17,7 @@ fvm flutter pub get
 fvm flutter build apk --debug
 ```
 
-Use `fvm flutter` for every Flutter command in this project. Do not use a globally installed Flutter SDK to build it.
+Use `fvm flutter` for Flutter commands, or use the Windows wrapper described below when SDK paths contain spaces. Do not use a globally installed Flutter SDK to build it.
 
 ### Windows: SDK version mismatch
 
@@ -46,3 +46,15 @@ For VS Code opened at the repository root, set `dart.flutterSdkPath` to `mobile/
 The app previously pinned `video_player` 2.8.2, which selected `video_player_android` 2.4.17. That Android plugin still referenced Flutter's removed `PluginRegistry.Registrar` API, so builds failed on newer Flutter SDKs. The tested `video_player` 2.14.0 resolution selects `video_player_android` 2.12.2 instead.
 
 CI runs the same Flutter and Java versions for every pull request.
+
+
+### Windows SDK paths with spaces
+
+On Windows, use .\flutterw.cmd instead of fvm flutter if the SDK path contains spaces.
+From mobile, run .\flutterw.cmd build apk --debug or .\flutterw.cmd run.
+The wrapper invokes the pinned FVM SDK using Windows short names.
+If short names are unavailable, install the pinned SDK in a path without spaces.
+
+For IDE builds, dart.flutterSdkPath must also point to a space-free absolute SDK
+path instead of the relative path above. Configure this in local VS Code settings
+and reload VS Code after changing the setting.

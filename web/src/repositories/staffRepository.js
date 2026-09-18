@@ -24,7 +24,28 @@ async function invoke(action, body = {}) {
   return data
 }
 
+async function withSosAvailability(staff, institutionId) {
+  if (!staff.length) return staff
+  const { data, error } = await supabase.from('sos_requests')
+    .select('assigned_staff_id').eq('institution_id', institutionId)
+    .in('status', ['assigned', 'en_route'])
+    .in('assigned_staff_id', staff.map(member => member.id))
+  if (error) throw error
+  const assigned = new Set((data || []).map(request => request.assigned_staff_id))
+  return staff.map(member => assigned.has(member.id) ? { ...member, status: 'assigned' } : member)
+}
+
 export const staffRepository = {
+  subscribe(institutionId, callback, staffId = null) {
+    const channel = supabase
+      .channel(`staff-availability:${institutionId}:${staffId || 'manager'}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'institution_staff',
+        filter: staffId ? `id=eq.${staffId}` : `institution_id=eq.${institutionId}`,
+      }, callback)
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  },
   async getOwn() {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError) throw authError
@@ -32,7 +53,7 @@ export const staffRepository = {
     const { data, error } = await supabase.from('institution_staff').select(fields)
       .eq('auth_user_id', user.id).eq('role', 'staff').eq('active', true).single()
     if (error) throw error
-    return data
+    return (await withSosAvailability([data], data.institution_id))[0]
   },
   async updateOwnName(name) {
     const { error } = await supabase.rpc('update_my_staff_name', { p_name: name.trim() })
@@ -44,7 +65,7 @@ export const staffRepository = {
       .eq('institution_id', institutionId).eq('role', 'staff')
       .order('active', { ascending: false }).order('name')
     if (error) throw error
-    return data || []
+    return withSosAvailability(data || [], institutionId)
   },
   create(staff) { return invoke('create', { staff }) },
   update(staffId, staff) { return invoke('update', { staffId, staff }) },

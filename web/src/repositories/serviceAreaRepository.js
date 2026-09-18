@@ -28,10 +28,23 @@ export const serviceAreaRepository = {
       radius_m: Number(values.radius_m),
       active: Boolean(values.active),
     }
+    const normalizeName = name => name.trim().replace(/\s+/g, ' ').toLowerCase()
+    const sameCoordinate = (a, b) => Number(a).toFixed(6) === Number(b).toFixed(6)
+    const existing = await this.list(staffContext)
+    const duplicate = existing.some(area => area.id !== values.id && (
+      normalizeName(area.name) === normalizeName(payload.name)
+      || (sameCoordinate(area.latitude, payload.latitude)
+        && sameCoordinate(area.longitude, payload.longitude)
+        && Number(area.radius_m) === payload.radius_m)
+    ))
+    if (duplicate) throw new Error('This service area already exists. Edit the existing area instead of creating another one.')
     let query = values.id
       ? supabase.from('service_areas').update(payload).eq('id', values.id).eq('institution_id', institutionId)
       : supabase.from('service_areas').insert(payload)
     const { data, error } = await query.select(fields).single()
+    if (error?.code === '23505') {
+      throw new Error('This service area already exists. Edit the existing area instead of creating another one.')
+    }
     if (error) throw error
     return data
   },

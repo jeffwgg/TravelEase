@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/entities/announcement.dart';
 import '../models/entities/spoken_announcement.dart';
@@ -9,6 +10,7 @@ import '../services/translation_service.dart';
 
 /// State and use-cases for a Module 2 announcement detail screen.
 class AnnouncementDetailsViewModel extends ChangeNotifier {
+  static const _languageKey = 'announcement_language';
   AnnouncementDetailsViewModel({
     AnnouncementRepository? repository,
     TranslationService? translator,
@@ -31,6 +33,14 @@ class AnnouncementDetailsViewModel extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
+      final preferences = await SharedPreferences.getInstance();
+      final savedLanguage =
+          preferences.getString(_languageKey) ??
+          preferences.getString('official_announcement_list_language') ??
+          preferences.getString('spoken_announcement_list_language');
+      if (const {'en', 'ms', 'zh'}.contains(savedLanguage)) {
+        language = savedLanguage!;
+      }
       final localCapture = await CapturedAnnouncementStore.instance.byId(id);
       final resolved =
           localCapture?.toAnnouncement() ??
@@ -41,17 +51,23 @@ class AnnouncementDetailsViewModel extends ChangeNotifier {
       error = resolved == null
           ? 'This announcement is no longer available.'
           : null;
-      if (resolved != null)
+      if (resolved != null) {
         FeatureUsageTracker.instance.completed(TrackedFeature.announcements);
+      }
     } catch (_) {
       isLoading = false;
       error = 'Announcement could not be loaded.';
     }
     notifyListeners();
+    if (announcement != null && language != 'en') {
+      await selectLanguage(language);
+    }
   }
 
   Future<void> selectLanguage(String value) async {
     language = value;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_languageKey, value);
     translationError = null;
     final current = announcement;
     notifyListeners();
@@ -59,8 +75,9 @@ class AnnouncementDetailsViewModel extends ChangeNotifier {
         value == 'en' ||
         deviceTranslations.containsKey(value) ||
         (current.translations[value]?.title.isNotEmpty == true &&
-            current.translations[value]?.message.isNotEmpty == true))
+            current.translations[value]?.message.isNotEmpty == true)) {
       return;
+    }
     isTranslating = true;
     notifyListeners();
     try {

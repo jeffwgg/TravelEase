@@ -25,7 +25,6 @@ enum AppTourFeature {
   profileNavigation,
   alertPreferencesMenu,
   alertConfig,
-  profileContactsNavigation,
   emergencyContactsMenu,
   emergencyContacts,
   emergencyCard,
@@ -175,9 +174,7 @@ class AppTourController extends ChangeNotifier {
         AppTourFeature.requestHelp => AppTourFeature.profileNavigation,
         AppTourFeature.profileNavigation => AppTourFeature.alertPreferencesMenu,
         AppTourFeature.alertPreferencesMenu => AppTourFeature.alertConfig,
-        AppTourFeature.alertConfig => AppTourFeature.profileContactsNavigation,
-        AppTourFeature.profileContactsNavigation =>
-          AppTourFeature.emergencyContactsMenu,
+        AppTourFeature.alertConfig => AppTourFeature.emergencyContactsMenu,
         AppTourFeature.emergencyContactsMenu =>
           AppTourFeature.emergencyContacts,
         AppTourFeature.emergencyContacts => AppTourFeature.emergencyCard,
@@ -211,9 +208,7 @@ class AppTourController extends ChangeNotifier {
         AppTourFeature.requestHelp => AppTourFeature.profileNavigation,
         AppTourFeature.profileNavigation => AppTourFeature.alertPreferencesMenu,
         AppTourFeature.alertPreferencesMenu => AppTourFeature.alertConfig,
-        AppTourFeature.alertConfig => AppTourFeature.profileContactsNavigation,
-        AppTourFeature.profileContactsNavigation =>
-          AppTourFeature.emergencyContactsMenu,
+        AppTourFeature.alertConfig => AppTourFeature.emergencyContactsMenu,
         AppTourFeature.emergencyContactsMenu =>
           AppTourFeature.emergencyContacts,
         AppTourFeature.emergencyContacts => AppTourFeature.emergencyCard,
@@ -290,7 +285,6 @@ class AppTourController extends ChangeNotifier {
     AppTourFeature.communicationDictionaryMenu => '/communicate',
     AppTourFeature.assistanceRequestMenu => '/assistance-request',
     AppTourFeature.alertPreferencesMenu => '/profile',
-    AppTourFeature.profileContactsNavigation => '/home',
     AppTourFeature.emergencyContactsMenu => '/profile',
     AppTourFeature.signTranslate => '/sign-camera',
     AppTourFeature.speechToSign => '/speech-to-sign',

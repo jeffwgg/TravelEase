@@ -231,10 +231,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   _HomeTourStep _initialTourStep() =>
       switch (AppTourController.instance.homeSection) {
         HomeGuideSection.location =>
-         
           _session == null
-                ? _HomeTourStep.locationSearch
-                : _HomeTourStep.activeVenueSession,
+              ? _HomeTourStep.locationSearch
+              : _HomeTourStep.activeVenueSession,
         HomeGuideSection.spokenAnnouncements =>
           _HomeTourStep.spokenAnnouncements,
         HomeGuideSection.officialAnnouncements =>
@@ -429,9 +428,9 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                                     children: [
                                       Text(
                                         'Hello, $_greetingName',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.headlineLarge,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .headlineLarge,
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
@@ -931,12 +930,12 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   }) {
     final area = match.serviceArea;
     final detail = <String>[
-      area?.name ?? match.venue.branch,
       if (area?.address?.trim().isNotEmpty ?? false) area!.address!.trim(),
       if (match.venue.distanceLabel.isNotEmpty) match.venue.distanceLabel,
     ].join(' • ');
     return _buildVenueListItem(
       match.venue,
+      title: autoSuggested ? match.venue.name : area?.name,
       icon: Icons.location_on_outlined,
       subtitle: detail,
       onTap: () => _confirmAndEstablish(
@@ -950,6 +949,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   Widget _buildVenueListItem(
     VenueSearchResult venue, {
     required VoidCallback onTap,
+    String? title,
     String? subtitle,
     IconData icon = Icons.account_balance_outlined,
   }) {
@@ -976,7 +976,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    venue.name,
+                    title ?? venue.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -984,16 +984,15 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle ??
-                        (distance.isEmpty
-                            ? venue.branch
-                            : '${venue.branch} • $distance'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  if ((subtitle ?? distance).isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle ?? distance,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ],
               ),
             ),

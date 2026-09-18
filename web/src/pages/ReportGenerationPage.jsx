@@ -214,22 +214,26 @@ export default function ReportGenerationPage() {
     for (const r of requests) {
       const d = new Date(r.created_at)
       const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const cur = buckets.get(k) || { total: 0, resolved: 0, rated: 0, ratingSum: 0 }
+      const cur = buckets.get(k) || { total: 0, resolved: 0, cancelled: 0, rated: 0, ratingSum: 0 }
       cur.total += 1
       if (r.status === 'resolved' || r.status === 'closed') cur.resolved += 1
+      if (r.status === 'cancelled') cur.cancelled += 1
       if (r.user_rating != null) {
         cur.rated += 1
         cur.ratingSum += Number(r.user_rating)
       }
       buckets.set(k, cur)
     }
-    return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, v]) => ({
-      month,
-      requests: v.total,
-      resolved: v.resolved,
-      resolutionRate: pct(v.resolved, v.total),
-      avgRating: v.rated ? Math.round((v.ratingSum / v.rated) * 100) / 100 : '—'
-    }))
+    return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, v]) => {
+      const serviceable = v.total - v.cancelled
+      return {
+        month,
+        requests: v.total,
+        resolved: v.resolved,
+        resolutionRate: pct(v.resolved, serviceable),
+        avgRating: v.rated ? Math.round((v.ratingSum / v.rated) * 100) / 100 : '—'
+      }
+    })
   }
 
   // --------------------------------------------------------------- generate

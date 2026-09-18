@@ -21,9 +21,6 @@ function formatDate(value) {
 }
 
 function displayStatus(item) {
-  if (item.status === 'active' && item.expires_at && new Date(item.expires_at) <= new Date()) return 'expired'
-  if (item.status === 'active' && item.published_at && new Date(item.published_at) > new Date()) return 'scheduled'
-  if (item.status === 'cancelled') return 'withdrawn'
   return item.status
 }
 

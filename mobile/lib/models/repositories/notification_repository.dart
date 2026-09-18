@@ -101,7 +101,23 @@ class NotificationHistoryStore {
   Future<void> add(NotificationHistoryEntry entry) async {
     final preferences = await _preferences();
     final values = preferences.getStringList(_key) ?? const <String>[];
-    final updated = <String>[jsonEncode(entry.toJson()), ...values];
+    // An official announcement can be observed by both the realtime listener
+    // and the background safety poll. Its stable entry id makes this an
+    // update, not two entries in the user's notification history.
+    final updated = <String>[
+      jsonEncode(entry.toJson()),
+      ...values.where((value) {
+        try {
+          return NotificationHistoryEntry.fromJson(
+                jsonDecode(value) as Map<String, dynamic>,
+              ).id !=
+              entry.id;
+        } catch (_) {
+          // Retain unrelated malformed legacy data rather than losing it.
+          return true;
+        }
+      }),
+    ];
     await preferences.setStringList(
       _key,
       updated.length > _maxEntries ? updated.sublist(0, _maxEntries) : updated,

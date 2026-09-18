@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/supabase_client.dart';
 import '../models/entities/venue_session.dart';
 
 /// Holds the traveller's venue session (FR-M2-04, FR-M2-06). The session
@@ -49,11 +52,13 @@ class VenueSessionService extends ChangeNotifier {
       _startedAtKey,
       session.startedAt.toIso8601String(),
     );
+    unawaited(_syncRemoteSession(session));
     notifyListeners();
   }
 
   /// Ends the active session (FR-M2-06, manual end).
   Future<void> quit() async {
+    final previousSession = _session;
     _session = null;
     final preferences = await SharedPreferences.getInstance();
     await preferences.remove(_idKey);
@@ -62,6 +67,9 @@ class VenueSessionService extends ChangeNotifier {
     await preferences.remove(_serviceAreaIdKey);
     await preferences.remove(_serviceAreaNameKey);
     await preferences.remove(_startedAtKey);
+    if (previousSession != null) {
+      unawaited(_endRemoteSession());
+    }
     notifyListeners();
   }
 
@@ -81,6 +89,44 @@ class VenueSessionService extends ChangeNotifier {
           DateTime.tryParse(preferences.getString(_startedAtKey) ?? '') ??
           DateTime.now(),
     );
+    unawaited(_syncRemoteSession(_session!));
     notifyListeners();
+  }
+
+  /// Server persistence lets institution staff safely manage service areas.
+  /// Local persistence remains the source for offline UX, so sync failures are
+  /// deliberately best-effort and never prevent a traveller starting or ending
+  /// their session.
+  Future<void> _syncRemoteSession(VenueSession session) async {
+    final user = SupabaseClientHelper.client.auth.currentUser;
+    if (user == null) return;
+    try {
+      await SupabaseClientHelper.client.from('venue_sessions').upsert({
+        'traveler_id': user.id,
+        'institution_id': session.institutionId,
+        'service_area_id': session.serviceAreaId,
+        'started_at': session.startedAt.toUtc().toIso8601String(),
+        'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+        'ended_at': null,
+      }, onConflict: 'traveler_id');
+    } catch (_) {
+      // Offline use remains supported; a later restore will retry this sync.
+    }
+  }
+
+  Future<void> _endRemoteSession() async {
+    final user = SupabaseClientHelper.client.auth.currentUser;
+    if (user == null) return;
+    try {
+      await SupabaseClientHelper.client
+          .from('venue_sessions')
+          .update({
+            'ended_at': DateTime.now().toUtc().toIso8601String(),
+            'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('traveler_id', user.id);
+    } catch (_) {
+      // Local end still succeeds; sync is retried if a new session is started.
+    }
   }
 }

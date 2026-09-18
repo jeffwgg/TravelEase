@@ -210,7 +210,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
                     ..._history.take(10).map(_buildHistoryItem),
                   const SizedBox(height: 20),
                   Text(
-                    'Sound recognition runs on this device and does not save microphone recordings. Monitoring continues while the app is in the background, but stops if the operating system terminates the app. Detection may be affected by background noise and should not replace official safety systems.',
+                    'Sound recognition runs on this device and does not save microphone recordings. ',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
@@ -255,7 +255,7 @@ class _EnvironmentSoundAlertViewState extends State<EnvironmentSoundAlertView> {
             const SizedBox(width: 12),
             Expanded(
               child: const Text(
-                'Spoken announcements are captured on this device and appear in Spoken Announcements. No venue session is needed.',
+                'Detection may be affected by background noise and may be inaccurate. Please verify your surroundings and follow visible safety instructions. ',
               ),
             ),
           ],

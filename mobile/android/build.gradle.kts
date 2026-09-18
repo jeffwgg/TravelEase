@@ -11,6 +11,21 @@ val newBuildDir: Directory =
         .get()
 rootProject.layout.buildDirectory.value(newBuildDir)
 
+// The pinned WebRTC plugin declares API 31, below its AndroidX dependencies.
+// AGP 9 validates library AAR metadata; align this plugin with the app SDK.
+subprojects {
+    if (name == "flutter_webrtc") {
+        plugins.withId("com.android.library") {
+            extensions.configure<com.android.build.api.variant.LibraryAndroidComponentsExtension> {
+                finalizeDsl { library ->
+                    library.compileSdk = project(":app")
+                        .extensions.getByType<com.android.build.gradle.AppExtension>().compileSdkVersion
+                        ?.removePrefix("android-")?.toInt() ?: 36
+                }
+            }
+        }
+    }
+}
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)

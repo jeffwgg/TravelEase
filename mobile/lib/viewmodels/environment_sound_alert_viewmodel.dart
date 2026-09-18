@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 
 import '../models/entities/environment_sound.dart';
 import '../models/repositories/environment_sound_repository.dart';
-import '../models/repositories/spoken_announcement_repository.dart';
 import '../services/app_notification_service.dart';
 import '../services/environment_sound_detector.dart';
 import '../services/public_announcement_capture_service.dart';
@@ -55,18 +54,7 @@ class EnvironmentSoundAlertViewModel extends ChangeNotifier {
     });
     _alertSubscription = _detector.alerts.listen(_handleDetection);
     _errorSubscription = _detector.errors.listen(_handleDetectorError);
-    CapturedAnnouncementStore.instance.version.addListener(
-      _showLatestCapturedAnnouncement,
-    );
     await loadPreferences();
-  }
-
-  Future<void> _showLatestCapturedAnnouncement() async {
-    final captures = await CapturedAnnouncementStore.instance.all();
-    if (_disposed || captures.isEmpty) return;
-    message = 'Announcement: ${captures.first.transcript}';
-    messageType = EnvironmentSoundMessageType.success;
-    _notify();
   }
 
   void _handleDetectorError(String errorMessage) {
@@ -128,6 +116,10 @@ class EnvironmentSoundAlertViewModel extends ChangeNotifier {
           sensitivity: sensitivity,
         );
       } else {
+        // Persist the off state before awaiting microphone teardown. An
+        // in-flight recogniser checks this preference before publishing.
+        enabled = false;
+        await saveSettings();
         await PublicAnnouncementCaptureService.instance.cancelPendingCapture();
         await _detector.stop();
       }
@@ -229,9 +221,6 @@ class EnvironmentSoundAlertViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    CapturedAnnouncementStore.instance.version.removeListener(
-      _showLatestCapturedAnnouncement,
-    );
     unawaited(_snapshotSubscription?.cancel());
     unawaited(_alertSubscription?.cancel());
     unawaited(_errorSubscription?.cancel());

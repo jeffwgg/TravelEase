@@ -25,6 +25,9 @@ const travellerNationalities = <String>[
   'Other',
 ];
 
+String nationalityLabel(String nationality) =>
+    nationality == 'Malaysian' ? 'Malaysia (Malaysian)' : nationality;
+
 List<String> nationalityOptions([String currentNationality = '']) {
   if (currentNationality.isEmpty ||
       travellerNationalities.contains(currentNationality)) {

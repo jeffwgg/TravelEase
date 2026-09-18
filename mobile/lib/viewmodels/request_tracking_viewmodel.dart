@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/repositories/assistance_repository.dart';
 import '../services/live_location_service.dart';
 
@@ -18,10 +19,16 @@ class RequestTrackingViewModel extends ChangeNotifier {
   // Tracks which requests need resolution confirmation (status just changed to resolved)
   Set<String> pendingResolution = <String>{};
 
-  Future<void> loadRequests() async {
-    isLoading = true;
-    errorMessage = null;
-    _notify();
+  // Realtime channel subscriptions
+  RealtimeChannel? _barrierReportsChannel;
+  RealtimeChannel? _requestsChannel;
+
+  Future<void> loadRequests({bool silent = false}) async {
+    if (!silent) {
+      isLoading = true;
+      errorMessage = null;
+      _notify();
+    }
 
     try {
       final result = await _repository.getAssistanceRequests();
@@ -43,36 +50,69 @@ class RequestTrackingViewModel extends ChangeNotifier {
       }
       requests = result;
       isLoading = false;
+      errorMessage = null;
       _notify();
     } catch (e) {
       isLoading = false;
-      errorMessage = 'Failed to load requests: $e';
+      if (!silent) {
+        errorMessage = 'Failed to load requests: $e';
+      }
       _notify();
     }
   }
 
-  Future<void> loadAccessibilityReports() async {
-    isLoadingReports = true;
-    reportsErrorMessage = null;
-    _notify();
+  Future<void> loadAccessibilityReports({bool silent = false}) async {
+    if (!silent) {
+      isLoadingReports = true;
+      reportsErrorMessage = null;
+      _notify();
+    }
 
     try {
       final result = await _repository.getUserAccessibilityReports();
       accessibilityReports = result;
       isLoadingReports = false;
+      reportsErrorMessage = null;
       _notify();
     } catch (e) {
       isLoadingReports = false;
-      reportsErrorMessage = 'Failed to load reports: $e';
+      if (!silent) {
+        reportsErrorMessage = 'Failed to load reports: $e';
+      }
       _notify();
     }
   }
 
-  Future<void> loadAll() async {
+  Future<void> loadAll({bool silent = false}) async {
     await Future.wait([
-      loadRequests(),
-      loadAccessibilityReports(),
+      loadRequests(silent: silent),
+      loadAccessibilityReports(silent: silent),
     ]);
+  }
+
+  /// Start realtime listener for both barrier reports and assistance requests
+  void subscribeToRealtime() {
+    unsubscribeRealtime();
+
+    _barrierReportsChannel = _repository.subscribeToAccessibilityReports(() {
+      loadAccessibilityReports(silent: true);
+    });
+
+    _requestsChannel = _repository.subscribeToAssistanceRequests(() {
+      loadRequests(silent: true);
+    });
+  }
+
+  /// Clean up realtime subscriptions
+  void unsubscribeRealtime() {
+    if (_barrierReportsChannel != null) {
+      _repository.unsubscribeRealtimeChannel(_barrierReportsChannel!);
+      _barrierReportsChannel = null;
+    }
+    if (_requestsChannel != null) {
+      _repository.unsubscribeRealtimeChannel(_requestsChannel!);
+      _requestsChannel = null;
+    }
   }
 
   // FR-M5-29: Cancel a request
@@ -257,6 +297,7 @@ class RequestTrackingViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    unsubscribeRealtime();
     super.dispose();
   }
 }

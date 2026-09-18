@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { useNavigate, useLocation } from 'react-router-dom'
 import { MessageSquare, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from './AuthContext'
+import { shouldNotifyChatMessage } from '../lib/chatNotifications'
 
 const NotificationContext = createContext(null)
 
@@ -44,12 +46,24 @@ function playNotificationChime() {
 export function NotificationProvider({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { staffContext } = useAuth()
   const [toasts, setToasts] = useState([])
   const [permission, setPermission] = useState(
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
   )
 
   const activeRequestIdRef = useRef(null)
+  const staffContextRef = useRef(staffContext)
+  const assignmentCacheRef = useRef(new Map())
+
+  // Keep staffContext ref current and clear toasts/cache when role is not staff
+  useEffect(() => {
+    staffContextRef.current = staffContext
+    if (!staffContext || staffContext.role !== 'staff') {
+      setToasts([])
+      assignmentCacheRef.current.clear()
+    }
+  }, [staffContext])
 
   // Track active request ID if currently on /chat page
   useEffect(() => {
@@ -84,10 +98,16 @@ export function NotificationProvider({ children }) {
     activeRequestIdRef.current = id
   }, [])
 
-  // Listen globally to all assistance_chat_messages
+  // Listen to assistance_chat_messages ONLY when logged in as staff
   useEffect(() => {
+    if (staffContext?.role !== 'staff' || !staffContext?.staff?.id) {
+      return
+    }
+
+    const currentStaffId = staffContext.staff.id
+
     const channel = supabase
-      .channel('web_global_chat_notifications_v2')
+      .channel(`web_chat_notifications_${currentStaffId}`)
       .on(
         'postgres_changes',
         {
@@ -95,22 +115,63 @@ export function NotificationProvider({ children }) {
           schema: 'public',
           table: 'assistance_chat_messages',
         },
-        (payload) => {
+        async (payload) => {
           const msg = payload.new
           if (!msg) return
 
-          // Only alert staff for traveler messages
-          if (msg.sender_type !== 'traveler') return
+          // Quick pre-checks
+          if (msg.sender_type !== 'traveler' || !msg.request_id) return
+          if (activeRequestIdRef.current === msg.request_id) return
 
-          const requestId = msg.request_id
-          if (!requestId) return
+          const currentContext = staffContextRef.current
+          if (!currentContext || currentContext.role !== 'staff' || currentContext.staff?.id !== currentStaffId) {
+            return
+          }
 
-          // If staff is currently in this exact chat, do not spam with popups
-          if (activeRequestIdRef.current === requestId) return
+          // Check assignment cache or query Supabase
+          let assignedStaffId = null
+          const cached = assignmentCacheRef.current.get(msg.request_id)
+          if (cached && Date.now() - cached.timestamp < 30000 && cached.assigned_staff_id === currentStaffId) {
+            assignedStaffId = cached.assigned_staff_id
+          } else {
+            try {
+              const { data: request, error } = await supabase
+                .from('assistance_requests')
+                .select('assigned_staff_id')
+                .eq('id', msg.request_id)
+                .maybeSingle()
 
-          const senderName = msg.sender_name || 'Jeff Wong (Traveler)'
+              if (error) {
+                console.warn('[NotificationContext] Error querying request assignment:', error)
+                return
+              }
+              assignedStaffId = request?.assigned_staff_id ?? null
+              if (assignedStaffId === currentStaffId) {
+                assignmentCacheRef.current.set(msg.request_id, {
+                  assigned_staff_id: assignedStaffId,
+                  timestamp: Date.now(),
+                })
+              }
+            } catch (err) {
+              console.warn('[NotificationContext] Failed to query request:', err)
+              return
+            }
+          }
+
+          const canNotify = shouldNotifyChatMessage({
+            role: currentContext.role,
+            currentStaffId,
+            activeRequestId: activeRequestIdRef.current,
+            messageSenderType: msg.sender_type,
+            messageRequestId: msg.request_id,
+            requestAssignedStaffId: assignedStaffId,
+          })
+
+          if (!canNotify) return
+
+          const senderName = msg.sender_name || 'Traveler'
           const content = msg.content || 'Sent a new message'
-          const toastId = `${requestId}-${Date.now()}`
+          const toastId = `${msg.request_id}-${Date.now()}`
 
           // 1. Play chime sound
           playNotificationChime()
@@ -119,7 +180,7 @@ export function NotificationProvider({ children }) {
           setToasts((prev) => [
             {
               id: toastId,
-              requestId,
+              requestId: msg.request_id,
               senderName,
               content,
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -138,12 +199,12 @@ export function NotificationProvider({ children }) {
               const notification = new Notification(`💬 ${senderName}`, {
                 body: content,
                 icon: '/logo.png',
-                tag: `chat-${requestId}`,
+                tag: `chat-${msg.request_id}`,
               })
 
               notification.onclick = () => {
                 window.focus()
-                navigate('/chat', { state: { requestId } })
+                navigate('/chat', { state: { requestId: msg.request_id } })
                 notification.close()
               }
             } catch (err) {
@@ -157,7 +218,7 @@ export function NotificationProvider({ children }) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [navigate, removeToast])
+  }, [staffContext?.role, staffContext?.staff?.id, navigate, removeToast])
 
   return (
     <NotificationContext.Provider value={{ toasts, removeToast, handleOpenChat, setActiveChatId, permission, requestBrowserPermission }}>

@@ -28,8 +28,9 @@ export default function useStaffWorkspace() {
     }
     load()
     const unsubscribe = sosRequestRepository.subscribe(institutionId, load, staffId)
+    const unsubscribeStaff = staffRepository.subscribe(institutionId, load, staffId)
     const timer = window.setInterval(load, 10000)
-    return () => { active = false; unsubscribe(); window.clearInterval(timer) }
+    return () => { active = false; unsubscribe(); unsubscribeStaff(); window.clearInterval(timer) }
   }, [staffId, institutionId, revision])
   return { ...data, refresh }
 }

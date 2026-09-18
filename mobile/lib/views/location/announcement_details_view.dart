@@ -275,6 +275,13 @@ class _AnnouncementDetailsViewState extends State<AnnouncementDetailsView> {
             ),
           ),
         ),
+        if (captured) ...[
+          const SizedBox(height: 12),
+          const AppMessageBanner(
+            message: 'This spoken caption is automatically recognised and may be incomplete or inaccurate. Verify important details with official information.',
+            type: AppMessageType.information,
+          ),
+        ],
       ],
     );
   }

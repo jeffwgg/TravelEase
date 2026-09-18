@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/theme.dart';
 import 'core/router.dart';
@@ -97,10 +98,13 @@ class TravelEaseApp extends StatefulWidget {
 
 class _TravelEaseAppState extends State<TravelEaseApp>
     with WidgetsBindingObserver {
+  static const _foregroundKey = 'travelease_app_is_foreground';
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _setForeground(true);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Deep link from a notification tap that launched the app cold.
@@ -122,6 +126,7 @@ class _TravelEaseAppState extends State<TravelEaseApp>
 
   @override
   void dispose() {
+    _setForeground(false);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -132,8 +137,18 @@ class _TravelEaseAppState extends State<TravelEaseApp>
     // without a visible foreground (e.g. screen was off) — retry whenever the
     // traveller actually opens the app.
     if (state == AppLifecycleState.resumed) {
+      _setForeground(true);
       startBackgroundNotificationService();
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _setForeground(false);
     }
+  }
+
+  Future<void> _setForeground(bool value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_foregroundKey, value);
   }
 
   @override
