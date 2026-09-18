@@ -123,6 +123,59 @@ class TravelPhraseAssembler {
     _Template({'store'}, 'The store.', 'Kedai.', '商店。'),
   ];
 
+  /// Parametric rule: any object gloss + 'mana'/'where' -> "Where is the X?".
+  /// Fixed templates above always win; this catches every other object.
+  /// Glosses marked * are not in the shipped model yet — they start matching
+  /// as soon as fine-tuning adds the class (batch record).
+  static const _bimWhereNouns = <String, (String, String, String)>{
+    'bilik': ('room', 'bilik', '房間'), // *
+    'doktor': ('doctor', 'doktor', '醫生'), // *
+    'telefon': ('phone', 'telefon', '電話'), // *
+    'tiket': ('ticket', 'tiket', '票'), // *
+    'hotel': ('hotel', 'hotel', '酒店'), // *
+    'hospital': ('hospital', 'hospital', '醫院'),
+    'tandas': ('toilet', 'tandas', '廁所'),
+    'bas': ('bus', 'bas', '巴士'),
+    'kedai': ('shop', 'kedai', '商店'),
+    'kafetaria': ('cafeteria', 'kafetaria', '食堂'),
+    'keretapi': ('train', 'keretapi', '火車'),
+    'teksi': ('taxi', 'teksi', '計程車'),
+    'polis': ('police', 'polis', '警察'),
+    'sekolah': ('school', 'sekolah', '學校'),
+    'bomba': ('fire station', 'bomba', '消防局'),
+    'kereta': ('car', 'kereta', '汽車'),
+    'payung': ('umbrella', 'payung', '雨傘'),
+    'jam': ('clock', 'jam', '時鐘'),
+    'air': ('water', 'air', '水'),
+  };
+  static const _aslWhereNouns = <String, (String, String, String)>{
+    'room': ('room', 'bilik', '房间'),
+    'water': ('water', 'air', '水'),
+    'airplane': ('airplane', 'kapal terbang', '飞机'),
+    'police': ('police', 'polis', '警察'),
+    'store': ('store', 'kedai', '商店'),
+    'food': ('food', 'makanan', '食物'),
+  };
+
+  AssembledPhrase? _matchWhereObject(
+      Set<String> cleaned, List<String> ordered, String sourceLang, String dialect) {
+    final nouns = dialect == 'asl' ? _aslWhereNouns : _bimWhereNouns;
+    if (!cleaned.contains(dialect == 'asl' ? 'where' : 'mana')) return null;
+    for (final w in ordered) {
+      final key = w.endsWith('_2') ? w.substring(0, w.length - 2) : w;
+      final noun = nouns[key];
+      if (noun == null) continue;
+      return AssembledPhrase(
+          words: ordered,
+          matched: true,
+          sourceLang: sourceLang,
+          en: 'Where is the ${noun.$1}?',
+          ms: 'Di mana ${noun.$2}?',
+          zh: '${noun.$3}在哪裏？');
+    }
+    return null;
+  }
+
   /// Assemble the phrase for [dialect] ('bim'|'asl') from accumulated gloss
   /// words (recognition order). The biggest matching template subset wins.
   AssembledPhrase assemble(String dialect, List<String> words) {
@@ -139,10 +192,11 @@ class TravelPhraseAssembler {
     final sourceLang = dialect == 'asl' ? 'en' : 'ms';
     final joiner = ordered.join(' ');
 
-    if (cleaned.isNotEmpty) {
+    // 1) multi-word fixed templates (biggest subset first)
+    if (cleaned.length >= 2) {
       final table = dialect == 'asl' ? _aslTemplates : _bimTemplates;
       for (var size = cleaned.length < maxTemplateWords ? cleaned.length : maxTemplateWords;
-          size > 0;
+          size >= 2;
           size--) {
         for (final tpl in table) {
           if (tpl.keys.length == size && cleaned.containsAll(tpl.keys)) {
@@ -157,6 +211,30 @@ class TravelPhraseAssembler {
         }
       }
     }
+
+    // 2) parametric WHERE + object rule ("fixed templates always win")
+    final whereHit = _matchWhereObject(cleaned, ordered, sourceLang, dialect);
+    if (whereHit != null) return whereHit;
+
+    // 3) single-word templates (a lone WHERE/mana keeps its generic meaning)
+    if (cleaned.isNotEmpty) {
+      final table = dialect == 'asl' ? _aslTemplates : _bimTemplates;
+      for (final tpl in table) {
+        if (tpl.keys.length == 1 && cleaned.containsAll(tpl.keys)) {
+          return AssembledPhrase(
+              words: ordered,
+              matched: true,
+              sourceLang: sourceLang,
+              en: tpl.en,
+              ms: tpl.ms,
+              zh: tpl.zh);
+        }
+      }
+    }
+    // Parametric fallback: any object + where -> "Where is the X?".
+    final param = _matchWhereObject(cleaned, ordered, sourceLang, dialect);
+    if (param != null) return param;
+
     // Unmatched: the word list itself (Python fallback parity).
     return AssembledPhrase(
         words: ordered,

@@ -161,14 +161,24 @@ class WebRTCService extends ChangeNotifier {
         )
         .onBroadcast(
           event: 'call_end',
-          callback: (_) => hangup(notifyRemote: false),
+          callback: (payload) {
+            final data = payload.containsKey('payload') ? payload['payload'] : payload;
+            final reqId = data is Map ? data['requestId'] as String? : null;
+            if (reqId == null || reqId == _requestId || reqId == incomingRequestId) {
+              hangup(notifyRemote: false);
+            }
+          },
         )
         .onBroadcast(
           event: 'call_reject',
-          callback: (_) {
-            _cleanupPeer();
-            callState = WebRTCCallState.idle;
-            notifyListeners();
+          callback: (payload) {
+            final data = payload.containsKey('payload') ? payload['payload'] : payload;
+            final reqId = data is Map ? data['requestId'] as String? : null;
+            if (reqId == null || reqId == _requestId || reqId == incomingRequestId) {
+              _cleanupPeer();
+              callState = WebRTCCallState.idle;
+              notifyListeners();
+            }
           },
         )
         .subscribe();
@@ -350,11 +360,41 @@ class WebRTCService extends ChangeNotifier {
 
   // ── Private: signal event handlers ───────────────────────────────────────
 
-  void _onCallOffer(Map<String, dynamic> payload) {
+  Future<void> _onCallOffer(Map<String, dynamic> payload) async {
     final data = payload.containsKey('payload') ? payload['payload'] : payload;
 
     // If we sent this ourselves (mobile), ignore
     if (data['callerSide'] == 'mobile') return;
+
+    final currentUserId = _client.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
+    final targetUserId = data['targetUserId'] as String?;
+    final incomingReqId = (data['requestId'] as String?) ?? _requestId;
+
+    // 1. If targetUserId is explicitly specified, only ring if it matches current traveler
+    if (targetUserId != null && targetUserId.isNotEmpty) {
+      if (targetUserId != currentUserId) {
+        debugPrint('[WebRTCService] Call offer ignored: targetUserId ($targetUserId) != currentUserId ($currentUserId)');
+        return;
+      }
+    } else if (incomingReqId != null && incomingReqId.isNotEmpty) {
+      // 2. Fallback: verify that this assistance request belongs to the current user
+      try {
+        final row = await _client
+            .from('assistance_requests')
+            .select('user_id')
+            .eq('id', incomingReqId)
+            .maybeSingle();
+        final reqUserId = row?['user_id'] as String?;
+        if (reqUserId != null && reqUserId.isNotEmpty && reqUserId != currentUserId) {
+          debugPrint('[WebRTCService] Call offer ignored: request user_id ($reqUserId) != currentUserId ($currentUserId)');
+          return;
+        }
+      } catch (e) {
+        debugPrint('[WebRTCService] Error verifying request ownership: $e');
+      }
+    }
 
     _initiatedCall = false;
     _pendingOffer = data;
@@ -362,7 +402,7 @@ class WebRTCService extends ChangeNotifier {
         ? CallType.voice
         : CallType.video;
     incomingCallerName = (data['callerName'] as String?) ?? 'Staff';
-    incomingRequestId = (data['requestId'] as String?) ?? _requestId;
+    incomingRequestId = incomingReqId;
 
     if (incomingRequestId != null && _requestId != incomingRequestId) {
       subscribeToSignaling(incomingRequestId!);

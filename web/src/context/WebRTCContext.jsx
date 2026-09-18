@@ -406,7 +406,7 @@ export function WebRTCProvider({ children }) {
 
   // ─── Call Actions ────────────────────────────────────────────────────────
 
-  const startCall = useCallback(async (type = 'video', targetId, travelerName) => {
+  const startCall = useCallback(async (type = 'video', targetId, travelerName, targetUserId) => {
     const reqId = targetId || activeRequestId
     if (!reqId) {
       console.warn('[WebRTCContext] startCall called with no target requestId')
@@ -420,6 +420,20 @@ export function WebRTCProvider({ children }) {
     initiatedCallRef.current = true
     connectedAtRef.current = null
     iceCandidateQueueRef.current = []
+
+    let finalTargetUserId = targetUserId
+    if (!finalTargetUserId && reqId) {
+      try {
+        const { data: reqRow } = await supabase
+          .from('assistance_requests')
+          .select('user_id')
+          .eq('id', reqId)
+          .maybeSingle()
+        finalTargetUserId = reqRow?.user_id || null
+      } catch (err) {
+        console.warn('[WebRTCContext] Failed to lookup user_id for call:', err)
+      }
+    }
 
     try {
       const constraints = type === 'video'
@@ -447,6 +461,7 @@ export function WebRTCProvider({ children }) {
         callerName: 'Staff',
         callerSide: 'web',
         requestId: reqId,
+        targetUserId: finalTargetUserId,
       })
     } catch (err) {
       console.error('[WebRTCContext] startCall error:', err)

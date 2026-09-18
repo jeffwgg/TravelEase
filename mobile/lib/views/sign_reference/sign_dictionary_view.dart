@@ -324,6 +324,21 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
     }
   }
 
+  /// Star toggle with a short confirmation — the row's own star flip is
+  /// easy to miss when it's off-screen or scrolled past.
+  Future<void> _toggleFavoriteWithFeedback(SignPhrase phrase, bool wasFavorite) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await _viewModel.toggleFavorite(phrase.id);
+    if (!mounted) return;
+    messenger.clearSnackBars();
+    messenger.showSnackBar(SnackBar(
+      content: Text(wasFavorite
+          ? 'Removed "${phrase.phraseEn}" from favorites'
+          : 'Added "${phrase.phraseEn}" to favorites'),
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
   Widget _buildPhraseCard(SignPhrase phrase) {
     final isFav = _viewModel.isFavorite(phrase.id);
     final gloss = phrase.getGloss(_viewModel.selectedDialect);
@@ -449,7 +464,7 @@ class _SignDictionaryViewState extends State<SignDictionaryView> {
                   color: isFav ? AppColors.secondary : AppColors.textMuted,
                   size: 24,
                 ),
-                onPressed: () => _viewModel.toggleFavorite(phrase.id),
+                onPressed: () => _toggleFavoriteWithFeedback(phrase, isFav),
               ),
             ],
           ),
