@@ -313,9 +313,19 @@ export function WebRTCProvider({ children }) {
       currentStaffId,
       callerSide: payload.callerSide,
       requestAssignedStaffId: assignedStaffId,
+      activeRequestId,
+      targetRequestId,
     })
 
-    if (!eligible) return
+    if (!eligible) {
+      console.warn('[WebRTCContext] Call offer ignored: current staff not assigned to request nor viewing it', {
+        targetRequestId,
+        requestAssignedStaffId: assignedStaffId,
+        currentStaffId,
+        activeRequestId,
+      })
+      return
+    }
 
     incomingOfferRef.current = payload
     setActiveRequestId(targetRequestId)
@@ -332,16 +342,22 @@ export function WebRTCProvider({ children }) {
   }
 
   async function handleCallAnswer(payload) {
-    if (pcRef.current && payload.sdp) {
-      try {
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }))
-        await flushIceCandidates()
-        setCallState('connected')
-        connectedAtRef.current = Date.now()
-        ringtoneRef.current?.stop()
-      } catch (err) {
-        console.error('[WebRTCContext] handleCallAnswer error:', err)
-      }
+    if (!pcRef.current || !payload.sdp) return
+
+    // Guard against duplicate call_answer messages (e.g., received via both room and global channels)
+    if (pcRef.current.signalingState !== 'have-local-offer') {
+      console.log('[WebRTCContext] Ignoring call_answer received in signaling state:', pcRef.current.signalingState)
+      return
+    }
+
+    try {
+      await pcRef.current.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }))
+      await flushIceCandidates()
+      setCallState('connected')
+      connectedAtRef.current = Date.now()
+      ringtoneRef.current?.stop()
+    } catch (err) {
+      console.error('[WebRTCContext] handleCallAnswer error:', err)
     }
   }
 

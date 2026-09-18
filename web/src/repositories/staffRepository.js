@@ -26,13 +26,25 @@ async function invoke(action, body = {}) {
 
 async function withSosAvailability(staff, institutionId) {
   if (!staff.length) return staff
-  const { data, error } = await supabase.from('sos_requests')
-    .select('assigned_staff_id').eq('institution_id', institutionId)
-    .in('status', ['assigned', 'en_route'])
-    .in('assigned_staff_id', staff.map(member => member.id))
-  if (error) throw error
-  const assigned = new Set((data || []).map(request => request.assigned_staff_id))
-  return staff.map(member => assigned.has(member.id) ? { ...member, status: 'assigned' } : member)
+  const staffIds = staff.map(member => member.id)
+
+  const [sosRes, assistRes] = await Promise.all([
+    supabase.from('sos_requests')
+      .select('assigned_staff_id').eq('institution_id', institutionId)
+      .in('status', ['assigned', 'en_route'])
+      .in('assigned_staff_id', staffIds),
+    supabase.from('assistance_requests')
+      .select('assigned_staff_id')
+      .eq('status', 'in_progress')
+      .in('assigned_staff_id', staffIds),
+  ])
+
+  const busyIds = new Set([
+    ...(sosRes.data || []).map(request => request.assigned_staff_id),
+    ...(assistRes.data || []).map(request => request.assigned_staff_id),
+  ])
+
+  return staff.map(member => busyIds.has(member.id) ? { ...member, status: 'assigned' } : member)
 }
 
 export const staffRepository = {
@@ -42,6 +54,13 @@ export const staffRepository = {
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'institution_staff',
         filter: staffId ? `id=eq.${staffId}` : `institution_id=eq.${institutionId}`,
+      }, callback)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'sos_requests',
+        filter: `institution_id=eq.${institutionId}`,
+      }, callback)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'assistance_requests',
       }, callback)
       .subscribe()
     return () => supabase.removeChannel(channel)

@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
-
-import 'dart:convert';
 
 import '../../core/theme.dart';
 import '../../models/repositories/feature_usage_repository.dart';
 import '../../services/app_tour_controller.dart';
 import '../../viewmodels/assistance_request_viewmodel.dart';
 import '../../widgets/app_tour_coachmark.dart';
+import '../../widgets/location_search_sheet.dart';
 
 class AssistanceRequestView extends StatefulWidget {
   const AssistanceRequestView({super.key});
@@ -20,7 +17,8 @@ class AssistanceRequestView extends StatefulWidget {
 
 class _AssistanceRequestViewState extends State<AssistanceRequestView> {
   final _viewModel = AssistanceRequestViewModel();
-  final _venueController = TextEditingController();
+  /// Optional specific spot within the venue (e.g. "Gate A5").
+  final _spotController = TextEditingController();
   final _tourTargetKey = GlobalKey();
 
   @override
@@ -28,11 +26,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
     super.initState();
     _viewModel.addListener(_onViewModelChanged);
     FeatureUsageTracker.instance.opened(TrackedFeature.requestHelp);
-    _viewModel.fetchCurrentLocation().then((_) {
-      if (_viewModel.venueName.isNotEmpty) {
-        _venueController.text = _viewModel.venueName;
-      }
-    });
+    _viewModel.fetchCurrentLocation();
   }
 
   void _onViewModelChanged() {
@@ -43,22 +37,21 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
   void dispose() {
     _viewModel.removeListener(_onViewModelChanged);
     _viewModel.dispose();
-    _venueController.dispose();
+    _spotController.dispose();
     super.dispose();
   }
 
-  void _showLocationOptions() {
+  void _showSpotSearch() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => _LocationBottomSheet(
-        currentVenue: _viewModel.venueName,
-        onVenueSelected: (name) {
-          _viewModel.setVenue(name);
-          _venueController.text = name;
+      builder: (ctx) => LocationSearchSheet(
+        currentLocation: _spotController.text,
+        onLocationSelected: (name) {
+          setState(() => _spotController.text = name);
         },
       ),
     );
@@ -83,6 +76,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // ── Location section ──
+                // Card 1: auto-detected or session venue (read-only display)
                 Container(
                   key: _tourTargetKey,
                   padding: const EdgeInsets.all(14),
@@ -93,60 +87,33 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                       color: AppColors.primary.withValues(alpha: 0.2),
                     ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.location_on,
-                            color: AppColors.primary,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Requesting help from:',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                if (_viewModel.isFetchingLocation)
-                                  Row(
-                                    children: [
-                                      const SizedBox(
-                                        width: 12,
-                                        height: 12,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Detecting location...',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 14,
-                                          color: AppColors.textMuted,
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                else if (_viewModel.venueName.isNotEmpty)
+                      const Icon(
+                        Icons.location_on,
+                        color: AppColors.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Requesting help from:',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            if (_viewModel.isFetchingLocation)
+                              Row(
+                                children: [
+                                  const SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                  const SizedBox(width: 8),
                                   Text(
-                                    _viewModel.venueDisplayLabel,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  )
-                                else
-                                  Text(
-                                    'No location selected',
+                                    'Detecting location...',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w500,
                                       fontSize: 14,
@@ -154,44 +121,73 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
                                       fontStyle: FontStyle.italic,
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: _showLocationOptions,
-                            child: Text(
-                              _viewModel.venueName.isNotEmpty
-                                  ? 'Change'
-                                  : 'Select',
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      // Editable venue name field
-                      TextField(
-                        controller: _venueController,
-                        onChanged: (value) => _viewModel.setVenue(value),
-                        decoration: InputDecoration(
-                          hintText: 'Or type venue name here...',
-                          prefixIcon: const Icon(
-                            Icons.edit_location_alt_outlined,
-                            size: 20,
-                            color: AppColors.textMuted,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide(color: AppColors.cardBorder),
-                          ),
+                                ],
+                              )
+                            else if (_viewModel.venueName.isNotEmpty)
+                              Text(
+                                _viewModel.venueDisplayLabel,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              )
+                            else
+                              Text(
+                                'No location detected. Start a venue session on the home page, or search below.',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 13,
+                                  color: AppColors.textMuted,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                          ],
                         ),
-                        style: const TextStyle(fontSize: 14),
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                // Card 2: optional specific spot within the venue (tappable search)
+                GestureDetector(
+                  onTap: _showSpotSearch,
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceVariant,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.cardBorder),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.search, color: AppColors.textMuted, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _spotController.text.isNotEmpty
+                                ? _spotController.text
+                                : 'Optional: tap to search specific spot (e.g. Gate A5)',
+                            style: TextStyle(
+                              color: _spotController.text.isNotEmpty
+                                  ? AppColors.textPrimary
+                                  : AppColors.textMuted,
+                              fontSize: 14,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (_spotController.text.isNotEmpty)
+                          GestureDetector(
+                            onTap: () => setState(() => _spotController.clear()),
+                            child: const Icon(Icons.close, color: AppColors.textMuted, size: 18),
+                          ),
+                        if (_spotController.text.isEmpty)
+                          const Icon(Icons.chevron_right, color: AppColors.textMuted, size: 18),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -655,7 +651,7 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
               onPressed: () {
                 Navigator.pop(ctx);
                 _viewModel.reset();
-                _venueController.clear();
+                setState(() => _spotController.clear());
                 context.push('/request-tracking');
               },
               child: const Text('Track Request'),
@@ -667,287 +663,3 @@ class _AssistanceRequestViewState extends State<AssistanceRequestView> {
   }
 }
 
-// ── Location selection bottom sheet ──
-
-class _LocationBottomSheet extends StatefulWidget {
-  final String currentVenue;
-  final ValueChanged<String> onVenueSelected;
-
-  const _LocationBottomSheet({
-    required this.currentVenue,
-    required this.onVenueSelected,
-  });
-
-  @override
-  State<_LocationBottomSheet> createState() => _LocationBottomSheetState();
-}
-
-class _LocationBottomSheetState extends State<_LocationBottomSheet> {
-  bool _isGettingLocation = false;
-  final _manualController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _manualController.text = widget.currentVenue;
-  }
-
-  @override
-  void dispose() {
-    _manualController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _useCurrentLocation() async {
-    setState(() => _isGettingLocation = true);
-
-    try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Location permission denied. Please enable it in Settings.',
-              ),
-            ),
-          );
-        }
-        setState(() => _isGettingLocation = false);
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
-
-      // Reverse geocode using Nominatim for now, or Google if key provided
-      // TODO: Replace with Google Maps Geocoding API if key provided
-      final url = Uri.parse(
-        'https://nominatim.openstreetmap.org/reverse?lat=${position.latitude}&lon=${position.longitude}&format=json&addressdetails=1',
-      );
-
-      final response = await http.get(
-        url,
-        headers: {'User-Agent': 'TravelEase/1.0'},
-      );
-
-      String placeName =
-          '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final address = data['address'] as Map<String, dynamic>?;
-        if (address != null) {
-          placeName =
-              address['tourism'] ??
-              address['building'] ??
-              address['amenity'] ??
-              address['road'] ??
-              address['suburb'] ??
-              placeName;
-          final city = address['city'] ?? address['town'] ?? address['village'];
-          if (city != null && placeName != city) {
-            placeName = '$placeName, $city';
-          }
-        }
-      }
-
-      widget.onVenueSelected(placeName);
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not get location: $e')));
-      }
-    }
-
-    setState(() => _isGettingLocation = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        20,
-        20,
-        MediaQuery.of(context).viewInsets.bottom + 20,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle bar
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(
-                color: AppColors.divider,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-
-          Text(
-            'Choose Location',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Select how you want to set your location',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 20),
-
-          // Option 1: Manual input
-          TextField(
-            controller: _manualController,
-            decoration: InputDecoration(
-              hintText: 'Type venue or address...',
-              prefixIcon: const Icon(
-                Icons.edit_location_alt_outlined,
-                color: AppColors.textMuted,
-              ),
-              suffixIcon: IconButton(
-                icon: const Icon(Icons.check_circle, color: AppColors.primary),
-                onPressed: () {
-                  if (_manualController.text.isNotEmpty) {
-                    widget.onVenueSelected(_manualController.text);
-                    Navigator.pop(context);
-                  }
-                },
-              ),
-            ),
-            onSubmitted: (value) {
-              if (value.isNotEmpty) {
-                widget.onVenueSelected(value);
-                Navigator.pop(context);
-              }
-            },
-          ),
-
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              const Expanded(child: Divider()),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text('or', style: Theme.of(context).textTheme.bodySmall),
-              ),
-              const Expanded(child: Divider()),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
-          // Option 2: Use current location
-          _buildOptionTile(
-            icon: Icons.my_location,
-            iconColor: AppColors.primary,
-            title: 'Use current location',
-            subtitle: 'Detect via GPS',
-            isLoading: _isGettingLocation,
-            onTap: _isGettingLocation ? null : _useCurrentLocation,
-          ),
-
-          const SizedBox(height: 8),
-
-          // Option 3: Pick from map
-          _buildOptionTile(
-            icon: Icons.map_outlined,
-            iconColor: AppColors.accent,
-            title: 'Choose from map',
-            subtitle: 'Tap on the map to pin your location',
-            onTap: () async {
-              final result = await context.push<Map<String, dynamic>>(
-                '/location-picker',
-              );
-              if (result != null && result['name'] != null && mounted) {
-                widget.onVenueSelected(result['name'] as String);
-                Navigator.pop(context);
-              }
-            },
-          ),
-
-          const SizedBox(height: 8),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOptionTile({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String subtitle,
-    bool isLoading = false,
-    VoidCallback? onTap,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          border: Border.all(color: AppColors.cardBorder),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: isLoading
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: iconColor,
-                      ),
-                    )
-                  : Icon(icon, color: iconColor, size: 20),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(fontSize: 12, color: AppColors.textMuted),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, color: AppColors.textMuted, size: 20),
-          ],
-        ),
-      ),
-    );
-  }
-}
