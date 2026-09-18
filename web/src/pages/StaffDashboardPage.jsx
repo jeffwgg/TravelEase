@@ -9,13 +9,14 @@ import { useAuth } from '../context/AuthContext'
 import { KpiCard, HBars } from '../components/charts'
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import useStaffWorkspace from '../hooks/useStaffWorkspace'
+import { staffStatusLabel } from '../components/StaffSosOverview'
 import { mergeStaffAssignments } from '../lib/staffAssignments'
 
 export default function StaffDashboardPage() {
   const navigate = useNavigate()
   const { staffContext } = useAuth()
   const myStaffId = staffContext?.staff?.id
-  const { tasks: sosTasks, loading: sosLoading, error: sosError } = useStaffWorkspace()
+  const { tasks: sosTasks, staff, loading: sosLoading, error: sosError } = useStaffWorkspace()
   const staffName = staffContext?.staff?.name || 'Staff'
 
   const [allRequests, setAllRequests] = useState([])
@@ -102,6 +103,7 @@ export default function StaffDashboardPage() {
           </div>
         </div>
         <div className="header-actions">
+          {!sosLoading && <span role="status" aria-label="Current availability" className={`badge ${staff?.active && staff.status === 'free' ? 'success' : 'muted'}`}>{staffStatusLabel(staff)}</span>}
           <button className="btn btn-outline btn-sm" onClick={() => navigate('/requests')}>
             <LifeBuoy size={14} /> All Requests
           </button>

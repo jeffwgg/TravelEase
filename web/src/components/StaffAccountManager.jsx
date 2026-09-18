@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { staffRepository } from '../repositories/staffRepository'
+import { sosRequestRepository } from '../repositories/sosRequestRepository'
 
 const emptyForm = { id: '', name: '', email: '', contact_number: '', role: 'staff', status: 'free' }
 
@@ -13,15 +14,30 @@ export default function StaffAccountManager() {
   const [error, setError] = useState('')
   const [form, setForm] = useState(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError('')
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) { setLoading(true); setError('') }
     try { setStaff(await staffRepository.list(staffContext)) }
     catch (loadError) { setError(loadError.message || 'Unable to load staff accounts.') }
-    finally { setLoading(false) }
+    finally { if (!quiet) setLoading(false) }
   }, [staffContext])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const institutionId = staffContext?.institution_id || staffContext?.institutions?.id
+    if (!institutionId) return undefined
+    const refresh = () => load({ quiet: true })
+    const unsubscribeStaff = staffRepository.subscribe(institutionId, refresh)
+    const unsubscribeSos = sosRequestRepository.subscribe(institutionId, refresh)
+    // Keep availability current even when Realtime is disconnected or disabled.
+    const timer = window.setInterval(refresh, 10000)
+    window.addEventListener('focus', refresh)
+    return () => {
+      unsubscribeStaff()
+      unsubscribeSos()
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [load, staffContext])
 
   const save = async () => {
     const validation = validate(form)

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useState } from 'react'
 
 export const taskStatusLabel = status => ({ assigned: 'Assigned', en_route: 'On The Way', resolved: 'Resolved' }[status] || status)
-export const staffStatusLabel = staff => !staff ? 'Unavailable' : !staff.active ? 'Inactive' : staff.status === 'free' ? 'Free' : 'Assigned / Busy'
+export const staffStatusLabel = staff => !staff ? 'Unavailable' : !staff.active ? 'Inactive' : staff.status === 'free' ? 'Free' : 'Assigned'
 
 export default function StaffSosOverview({ tasks, staff }) {
   const [showAllCompleted, setShowAllCompleted] = useState(false)

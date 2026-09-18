@@ -63,7 +63,7 @@ class _EditProfileViewState extends State<EditProfileView> {
                       .map(
                         (nationality) => DropdownMenuItem(
                           value: nationality,
-                          child: Text(nationality),
+                          child: Text(nationalityLabel(nationality)),
                         ),
                       )
                       .toList(),

@@ -264,7 +264,7 @@ class _AuthenticationViewState extends State<AuthenticationView>
               .map(
                 (nationality) => DropdownMenuItem(
                   value: nationality,
-                  child: Text(nationality),
+                  child: Text(nationalityLabel(nationality)),
                 ),
               )
               .toList(),
