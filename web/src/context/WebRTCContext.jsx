@@ -122,6 +122,11 @@ export function WebRTCProvider({ children }) {
   const initiatedCallRef = useRef(false)
   const connectedAtRef = useRef(null)
 
+  // Keep activeRequestId in a ref so broadcast handlers (which are captured
+  // as closures when the channel subscribes) always read the latest value.
+  const activeRequestIdRef = useRef(activeRequestId)
+  useEffect(() => { activeRequestIdRef.current = activeRequestId }, [activeRequestId])
+
   // Initialize ringtone player once
   useEffect(() => {
     ringtoneRef.current = createRingtonePlayer()
@@ -169,18 +174,35 @@ export function WebRTCProvider({ children }) {
     return ch
   }
 
+  function unwrapSignal(raw) {
+    if (!raw) return {}
+    if (raw.payload && typeof raw.payload === 'object' && Object.keys(raw.payload).length > 0) {
+      return { ...raw, ...raw.payload }
+    }
+    return raw
+  }
+
   async function sendSignal(event, payload) {
-    const targetId = payload.requestId || activeRequestId
+    const targetId = payload.requestId || activeRequestIdRef.current
     const fullPayload = {
       ...payload,
       requestId: targetId,
+    }
+
+    console.log('[WebRTCContext] sendSignal:', event, 'requestId:', targetId)
+
+    // Send both flat and nested 'payload' so both JS clients ({ payload })
+    // and flat payload readers receive all keys.
+    const broadcastMsg = {
+      ...fullPayload,
+      payload: fullPayload,
     }
 
     if (targetId) {
       const rCh = getRoomChannel(targetId)
       if (rCh) {
         try {
-          await rCh.send({ type: 'broadcast', event, payload: fullPayload })
+          await rCh.send({ type: 'broadcast', event, payload: broadcastMsg })
         } catch (e) {
           console.warn('[WebRTCContext] Room signal send error:', e)
         }
@@ -189,7 +211,7 @@ export function WebRTCProvider({ children }) {
 
     if (globalChannelRef.current) {
       try {
-        await globalChannelRef.current.send({ type: 'broadcast', event, payload: fullPayload })
+        await globalChannelRef.current.send({ type: 'broadcast', event, payload: broadcastMsg })
       } catch (e) {
         console.warn('[WebRTCContext] Global signal send error:', e)
       }
@@ -260,17 +282,23 @@ export function WebRTCProvider({ children }) {
 
   // ─── Event Handlers ──────────────────────────────────────────────────────
 
-  async function handleCallOffer(payload) {
-    if (payload.callerSide === 'web') return
+  async function handleCallOffer(raw) {
+    const payload = unwrapSignal(raw)
+    console.log('[WebRTCContext] handleCallOffer received:', { callerSide: payload?.callerSide, requestId: payload?.requestId })
+    if (!payload || payload.callerSide === 'web') return
 
     const currentContext = staffContextRef.current
     if (!currentContext || currentContext.role !== 'staff' || !currentContext.staff?.id) {
+      console.warn('[WebRTCContext] Call offer ignored: no staff context')
       return
     }
 
     const currentStaffId = currentContext.staff.id
     const targetRequestId = payload.requestId
-    if (!targetRequestId) return
+    if (!targetRequestId) {
+      console.warn('[WebRTCContext] Call offer ignored: no requestId in payload')
+      return
+    }
 
     // Verify assigned staff for this request
     let assignedStaffId = null
@@ -308,12 +336,15 @@ export function WebRTCProvider({ children }) {
       }
     }
 
+    // Use the ref to get the latest activeRequestId (not the stale closure value)
+    const currentActiveRequestId = activeRequestIdRef.current
+
     const eligible = shouldAcceptCallOffer({
       role: currentContext.role,
       currentStaffId,
       callerSide: payload.callerSide,
       requestAssignedStaffId: assignedStaffId,
-      activeRequestId,
+      activeRequestId: currentActiveRequestId,
       targetRequestId,
     })
 
@@ -322,11 +353,12 @@ export function WebRTCProvider({ children }) {
         targetRequestId,
         requestAssignedStaffId: assignedStaffId,
         currentStaffId,
-        activeRequestId,
+        activeRequestId: currentActiveRequestId,
       })
       return
     }
 
+    console.log('[WebRTCContext] Call offer accepted, showing incoming call UI')
     incomingOfferRef.current = payload
     setActiveRequestId(targetRequestId)
     setCallType(payload.callType || 'video')
@@ -341,8 +373,10 @@ export function WebRTCProvider({ children }) {
     getRoomChannel(targetRequestId)
   }
 
-  async function handleCallAnswer(payload) {
-    if (!pcRef.current || !payload.sdp) return
+  async function handleCallAnswer(raw) {
+    const payload = unwrapSignal(raw)
+    console.log('[WebRTCContext] handleCallAnswer received, hasPc:', !!pcRef.current, 'hasSdp:', !!payload?.sdp, 'requestId:', payload?.requestId)
+    if (!pcRef.current || !payload?.sdp) return
 
     // Guard against duplicate call_answer messages (e.g., received via both room and global channels)
     if (pcRef.current.signalingState !== 'have-local-offer') {
@@ -356,34 +390,57 @@ export function WebRTCProvider({ children }) {
       setCallState('connected')
       connectedAtRef.current = Date.now()
       ringtoneRef.current?.stop()
+      console.log('[WebRTCContext] Call connected successfully')
     } catch (err) {
       console.error('[WebRTCContext] handleCallAnswer error:', err)
     }
   }
 
-  async function handleIceCandidate(payload) {
+  async function handleIceCandidate(raw) {
+    const payload = unwrapSignal(raw)
     if (!payload || !payload.candidate) return
+    const candidateData = {
+      candidate: payload.candidate,
+      sdpMid: payload.sdpMid,
+      sdpMLineIndex: payload.sdpMLineIndex,
+    }
     if (pcRef.current && pcRef.current.remoteDescription && pcRef.current.remoteDescription.type) {
       try {
-        await pcRef.current.addIceCandidate(new RTCIceCandidate(payload))
+        await pcRef.current.addIceCandidate(new RTCIceCandidate(candidateData))
       } catch (err) {
         console.error('[WebRTCContext] handleIceCandidate error:', err)
       }
     } else {
-      iceCandidateQueueRef.current.push(payload)
+      iceCandidateQueueRef.current.push(candidateData)
+    }
+  }
+
+  function handleCallEnd(raw) {
+    const payload = unwrapSignal(raw)
+    console.log('[WebRTCContext] handleCallEnd received:', payload)
+    const targetId = payload?.requestId
+    if (!targetId || !activeRequestIdRef.current || targetId === activeRequestIdRef.current) {
+      hangup(false)
+    }
+  }
+
+  function handleCallReject(raw) {
+    const payload = unwrapSignal(raw)
+    console.log('[WebRTCContext] handleCallReject received:', payload)
+    const targetId = payload?.requestId
+    if (!targetId || !activeRequestIdRef.current || targetId === activeRequestIdRef.current) {
+      cleanupPeer()
+      setCallState('idle')
     }
   }
 
   function setupRoomListeners(channel) {
     channel
-      .on('broadcast', { event: 'call_offer' }, ({ payload }) => handleCallOffer(payload))
-      .on('broadcast', { event: 'call_answer' }, ({ payload }) => handleCallAnswer(payload))
-      .on('broadcast', { event: 'ice_candidate' }, ({ payload }) => handleIceCandidate(payload))
-      .on('broadcast', { event: 'call_end' }, () => hangup(false))
-      .on('broadcast', { event: 'call_reject' }, () => {
-        cleanupPeer()
-        setCallState('idle')
-      })
+      .on('broadcast', { event: 'call_offer' }, (raw) => handleCallOffer(raw))
+      .on('broadcast', { event: 'call_answer' }, (raw) => handleCallAnswer(raw))
+      .on('broadcast', { event: 'ice_candidate' }, (raw) => handleIceCandidate(raw))
+      .on('broadcast', { event: 'call_end' }, (raw) => handleCallEnd(raw))
+      .on('broadcast', { event: 'call_reject' }, (raw) => handleCallReject(raw))
   }
 
   // ─── Global Signaling Subscription ───────────────────────────────────────
@@ -400,14 +457,11 @@ export function WebRTCProvider({ children }) {
 
     const gCh = supabase.channel('call_room_global')
     gCh
-      .on('broadcast', { event: 'call_offer' }, ({ payload }) => handleCallOffer(payload))
-      .on('broadcast', { event: 'call_answer' }, ({ payload }) => handleCallAnswer(payload))
-      .on('broadcast', { event: 'ice_candidate' }, ({ payload }) => handleIceCandidate(payload))
-      .on('broadcast', { event: 'call_end' }, () => hangup(false))
-      .on('broadcast', { event: 'call_reject' }, () => {
-        cleanupPeer()
-        setCallState('idle')
-      })
+      .on('broadcast', { event: 'call_offer' }, (raw) => handleCallOffer(raw))
+      .on('broadcast', { event: 'call_answer' }, (raw) => handleCallAnswer(raw))
+      .on('broadcast', { event: 'ice_candidate' }, (raw) => handleIceCandidate(raw))
+      .on('broadcast', { event: 'call_end' }, (raw) => handleCallEnd(raw))
+      .on('broadcast', { event: 'call_reject' }, (raw) => handleCallReject(raw))
       .subscribe()
 
     globalChannelRef.current = gCh
