@@ -72,6 +72,23 @@ export const sosRequestRepository = {
       .select(requestSelect)
       .single()
     if (error) throw error
+
+    // Synchronize institution_staff status column
+    if (status === 'assigned' && staffId) {
+      await supabase.from('institution_staff').update({ status: 'assigned' }).eq('id', staffId)
+    } else if (status === 'resolved' && data.assigned_staff_id) {
+      const { data: activeAssistance } = await supabase
+        .from('assistance_requests')
+        .select('id')
+        .eq('assigned_staff_id', data.assigned_staff_id)
+        .eq('status', 'in_progress')
+        .limit(1)
+
+      if (!activeAssistance || activeAssistance.length === 0) {
+        await supabase.from('institution_staff').update({ status: 'free' }).eq('id', data.assigned_staff_id)
+      }
+    }
+
     return (await withTravellerNames([data]))[0]
   },
 

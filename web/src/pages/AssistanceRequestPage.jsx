@@ -257,6 +257,10 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
 
   async function handleAssignStaff(staff) {
     if (!selectedReq) return
+    if (staff.status !== 'available') {
+      showToast(`${staff.name} is currently ${staff.busyReason === 'sos' ? 'busy responding to an SOS emergency' : 'busy with another request'}.`)
+      return
+    }
     setSubmittingAssignId(staff.id)
     try {
       await assistanceRepository.assignStaffToRequest(selectedReq.id, staff.id, staff.name)
@@ -434,7 +438,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
     )
   }
 
-  const getStaffStatusBadge = (status) => {
+  const getStaffStatusBadge = (status, busyReason) => {
     switch (status) {
       case 'available':
         return (
@@ -444,8 +448,27 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
         )
       case 'busy':
         return (
-          <span className="badge secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', background: 'rgba(245, 158, 11, 0.15)', color: '#d97706' }}>
-            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#d97706' }}></span> Busy
+          <span
+            className="badge secondary"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '4px 8px',
+              background: busyReason === 'sos' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.15)',
+              color: busyReason === 'sos' ? '#dc2626' : '#d97706',
+              fontWeight: 600,
+            }}
+          >
+            <span
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: busyReason === 'sos' ? '#dc2626' : '#d97706',
+              }}
+            ></span>{' '}
+            {busyReason === 'sos' ? 'Busy (SOS)' : 'Busy'}
           </span>
         )
       case 'offline':
@@ -1211,8 +1234,8 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                             width: '42px',
                             height: '42px',
                             borderRadius: '50%',
-                            background: staff.status === 'available' ? 'rgba(34, 197, 94, 0.15)' : '#f1f5f9',
-                            color: staff.status === 'available' ? '#15803d' : '#475569',
+                            background: staff.status === 'available' ? 'rgba(34, 197, 94, 0.15)' : staff.busyReason === 'sos' ? 'rgba(239, 68, 68, 0.12)' : '#f1f5f9',
+                            color: staff.status === 'available' ? '#15803d' : staff.busyReason === 'sos' ? '#dc2626' : '#475569',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -1224,7 +1247,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <span style={{ fontWeight: 600, fontSize: '15px', color: '#0f172a' }}>{staff.name}</span>
-                              {getStaffStatusBadge(staff.status)}
+                              {getStaffStatusBadge(staff.status, staff.busyReason)}
                             </div>
                             <div style={{ fontSize: '13px', color: 'var(--primary)', fontWeight: 500, marginTop: '1px' }}>
                               {staff.role}
@@ -1264,7 +1287,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                               style={{ minWidth: '100px' }}
                               onClick={() => handleAssignStaff(staff)}
                             >
-                              {isAssigning ? 'Assigning...' : staff.status === 'available' ? 'Assign Staff' : 'Busy'}
+                              {isAssigning ? 'Assigning...' : staff.status === 'available' ? 'Assign Staff' : staff.busyReason === 'sos' ? 'Busy (SOS)' : 'Busy'}
                             </button>
                           )}
                         </div>
