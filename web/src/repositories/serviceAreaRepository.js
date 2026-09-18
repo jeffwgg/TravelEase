@@ -57,6 +57,13 @@ export const serviceAreaRepository = {
     const institutionId = institutionIdFrom(staffContext)
     const { error } = await supabase.from('service_areas').delete()
       .eq('id', id).eq('institution_id', institutionId)
-    if (error) throw error
+    if (error?.code === '23503') {
+      const reference = [error.message, error.details].filter(Boolean).join(' ').toLowerCase()
+      if (reference.includes('sos_requests')) {
+        throw new Error('This service area cannot be deleted because it is linked to an SOS request. Deactivate it instead to preserve the request history.')
+      }
+      throw new Error('This service area cannot be deleted because it is used by existing records. Deactivate it instead to preserve their history.')
+    }
+    if (error) throw new Error('Unable to delete this service area. Please try again.')
   },
 }
