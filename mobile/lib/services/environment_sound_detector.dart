@@ -21,7 +21,11 @@ class EnvironmentSoundDetector {
   static const _sampleRate = 16000;
   static const _frameLength = 15600;
   static const _frameHop = 7800;
-  static const _cooldown = Duration(seconds: 8);
+  // Pause actual microphone classification after an alert. YAMNet can relabel
+  // one physical siren as alarm/horn in adjacent frames; do not queue those
+  // frames for a later alert.
+  static const _importantSoundCooldown = Duration(seconds: 8);
+  static const _doorbellCooldown = Duration(seconds: 3);
 
   final AudioRecorder _recorder = AudioRecorder();
   final Queue<double> _samples = Queue<double>();
@@ -40,7 +44,10 @@ class EnvironmentSoundDetector {
   List<String> _labels = const [];
   Set<EnvironmentSoundType> _enabledTypes = EnvironmentSoundType.values.toSet();
   SoundSensitivity _sensitivity = SoundSensitivity.balanced;
-  final Map<EnvironmentSoundType, DateTime> _lastAlerts = {};
+  Timer? _resumeAfterAlertTimer;
+  Timer? _streamRecoveryTimer;
+  bool _isCoolingDown = false;
+  int _streamGeneration = 0;
   EnvironmentSoundType? _candidate;
   int _candidateHits = 0;
   int? _trailingByte;
@@ -49,7 +56,7 @@ class EnvironmentSoundDetector {
   Stream<SoundDetectionSnapshot> get snapshots => _snapshotController.stream;
   Stream<EnvironmentSoundDetection> get alerts => _alertController.stream;
   Stream<String> get errors => _errorController.stream;
-  bool get isMonitoring => _audioSubscription != null;
+  bool get isMonitoring => _audioSubscription != null && !_isCoolingDown;
 
   /// Restores saved monitoring settings at app start and keeps the app-scoped
   /// alert delivery active while the detector is running in the background.
@@ -69,20 +76,19 @@ class EnvironmentSoundDetector {
   }
 
   void _handleMonitoringAlert(EnvironmentSoundDetection detection) {
-    if (!isMonitoring || !_enabledTypes.contains(detection.type)) return;
+    // The detector deliberately pauses the microphone before this async stream
+    // listener runs. `isMonitoring` is therefore false during the cooldown,
+    // but the already-confirmed alert must still notify and flash.
+    if (!_enabledTypes.contains(detection.type)) return;
     // Spoken announcements continue through the dedicated speech-to-text
     // pipeline. The capture service sends the transcript notification.
     if (detection.type == EnvironmentSoundType.speechAnnouncement) return;
+    unawaited(FlashAlertService.instance.blinkTwice(alert: true));
     unawaited(
-      FlashAlertService.instance
-          .blinkTwice(alert: true)
-          .then(
-            (_) => AppNotificationService.instance.showImportantSound(
-              title: '${detection.type.title} detected',
-              details:
-                  'TravelEase heard ${detection.modelLabel.toLowerCase()} nearby.',
-            ),
-          ),
+      AppNotificationService.instance.showImportantSound(
+        title: '${detection.type.title} detected',
+        details: 'TravelEase heard ${detection.modelLabel.toLowerCase()} nearby.',
+      ),
     );
   }
 
@@ -129,11 +135,18 @@ class EnvironmentSoundDetector {
         streamBufferSize: 4096,
       ),
     );
+    final streamGeneration = ++_streamGeneration;
     _audioSubscription = stream.listen(
       _acceptAudio,
-      onError: (Object error) =>
-          _emitError('Microphone stream stopped: $error'),
-      onDone: () => _audioSubscription = null,
+      onError: (Object error) {
+        _emitError('Microphone stream stopped: $error');
+        _recoverStream(streamGeneration);
+      },
+      onDone: () {
+        if (streamGeneration != _streamGeneration) return;
+        _audioSubscription = null;
+        _recoverStream(streamGeneration);
+      },
     );
   }
 
@@ -150,12 +163,60 @@ class EnvironmentSoundDetector {
   }
 
   Future<void> stop() async {
+    _isCoolingDown = false;
+    _resumeAfterAlertTimer?.cancel();
+    _resumeAfterAlertTimer = null;
+    _streamRecoveryTimer?.cancel();
+    _streamRecoveryTimer = null;
+    _streamGeneration++;
+    await _stopMicrophone();
+  }
+
+  void _recoverStream(int streamGeneration) {
+    if (streamGeneration != _streamGeneration || _isCoolingDown) return;
+    _streamRecoveryTimer?.cancel();
+    _streamRecoveryTimer = Timer(const Duration(seconds: 2), () async {
+      if (streamGeneration != _streamGeneration || isMonitoring) return;
+      try {
+        if (!await _preferences.loadEnabled()) return;
+        final types = await _preferences.loadTypes();
+        if (types.isEmpty || streamGeneration != _streamGeneration) return;
+        await start(
+          enabledTypes: types,
+          sensitivity: await _preferences.loadSensitivity(),
+        );
+      } catch (error) {
+        _emitError('Unable to resume sound detection: $error');
+      }
+    });
+  }
+
+  Future<void> _stopMicrophone() async {
     final subscription = _audioSubscription;
     _audioSubscription = null;
     await subscription?.cancel();
     if (await _recorder.isRecording()) await _recorder.stop();
     _samples.clear();
     _snapshotController.add(SoundDetectionSnapshot.idle);
+  }
+
+  Future<void> _pauseAfterImportantAlert(EnvironmentSoundType type) async {
+    if (_isCoolingDown) return;
+    _isCoolingDown = true;
+    final cooldown = type == EnvironmentSoundType.doorbell
+        ? _doorbellCooldown
+        : _importantSoundCooldown;
+    await _stopMicrophone();
+    _resumeAfterAlertTimer?.cancel();
+    _resumeAfterAlertTimer = Timer(cooldown, () async {
+      if (!_isCoolingDown || _enabledTypes.isEmpty) return;
+      _isCoolingDown = false;
+      try {
+        await start(enabledTypes: _enabledTypes, sensitivity: _sensitivity);
+      } catch (error) {
+        _emitError('Unable to resume sound detection: $error');
+      }
+    });
   }
 
   void _acceptAudio(Uint8List bytes) {
@@ -215,6 +276,7 @@ class EnvironmentSoundDetector {
   }
 
   void _classify(Float32List frame, double inputLevel) {
+    if (_isCoolingDown) return;
     final interpreter = _interpreter!;
     final outputSize = interpreter.getOutputTensor(0).shape.last;
     final output = [List<double>.filled(outputSize, 0)];
@@ -279,9 +341,12 @@ class EnvironmentSoundDetector {
     }
 
     final now = DateTime.now();
-    final lastAlert = _lastAlerts[bestType];
-    if (lastAlert != null && now.difference(lastAlert) < _cooldown) return;
-    _lastAlerts[bestType] = now;
+    // Speech is handed to its own capture service. For important sounds, stop
+    // the microphone before emitting: no alternate labels are buffered or
+    // shown once the alert cooldown ends.
+    if (!isSpokenAnnouncement) {
+      unawaited(_pauseAfterImportantAlert(bestType));
+    }
     _candidateHits = 0;
     _alertController.add(
       EnvironmentSoundDetection(

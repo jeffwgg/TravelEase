@@ -14,6 +14,7 @@ import '../models/repositories/queue_repository.dart';
 import 'app_notification_service.dart';
 import 'flash_alert_service.dart';
 import 'queue_notification_service.dart';
+import 'venue_session_service.dart';
 
 /// Channel used by the persistent-service status notification. The
 /// flutter_background_service plugin does not create a custom channel itself,
@@ -134,11 +135,15 @@ Future<void> _poll() async {
 
 Future<Map<String, dynamic>?> _trackedSession() async {
   final preferences = await SharedPreferences.getInstance();
-  final institutionId = preferences.getString('venue_session_institution_id');
+  final institutionId = preferences.getString(
+    VenueSessionService.preferenceKey('venue_session_institution_id'),
+  );
   if (institutionId == null) return null;
   return {
     'institutionId': institutionId,
-    'serviceAreaId': preferences.getString('venue_session_service_area_id'),
+    'serviceAreaId': preferences.getString(
+      VenueSessionService.preferenceKey('venue_session_service_area_id'),
+    ),
     'preferences': preferences,
   };
 }
@@ -237,7 +242,12 @@ Future<void> _pollAnnouncements() async {
 Future<void> _pollQueue() async {
   final preferences = await SharedPreferences.getInstance();
   await preferences.reload();
-  if (preferences.getString('venue_session_institution_id') == null) return;
+  if (preferences.getString(
+        VenueSessionService.preferenceKey('venue_session_institution_id'),
+      ) ==
+      null) {
+    return;
+  }
   final lineId = preferences.getString('tracked_queue_line_id');
   final number = preferences.getString('tracked_queue_number');
   if (lineId == null || number == null) return;

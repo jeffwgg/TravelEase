@@ -139,6 +139,10 @@ class _TravelEaseAppState extends State<TravelEaseApp>
     if (state == AppLifecycleState.resumed) {
       _setForeground(true);
       startBackgroundNotificationService();
+      // Some Android devices stop a microphone stream while the UI is not
+      // visible. Restore the user's persisted monitoring configuration when
+      // the app comes back without requiring a visit to its settings page.
+      EnvironmentSoundDetector().initializeMonitoring();
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {

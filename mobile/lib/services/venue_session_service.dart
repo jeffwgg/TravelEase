@@ -22,34 +22,50 @@ class VenueSessionService extends ChangeNotifier {
   static const _startedAtKey = 'venue_session_started_at';
 
   VenueSession? _session;
+  StreamSubscription<dynamic>? _authSubscription;
 
   VenueSession? get session => _session;
 
   bool get hasActiveSession => _session != null;
 
+  /// Returns the current account's SharedPreferences key for [baseKey].
+  /// Background notification code uses this too, so it cannot accidentally
+  /// read the previous traveller's active venue session.
+  static String preferenceKey(String baseKey) =>
+      '$baseKey:${SupabaseClientHelper.client.auth.currentUser?.id ?? 'guest'}';
+
   /// Establishes a session for the given institution and persists it.
   Future<void> establish(VenueSession session) async {
     _session = session;
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setString(_idKey, session.institutionId);
-    await preferences.setString(_nameKey, session.institutionName);
+    await preferences.setString(preferenceKey(_idKey), session.institutionId);
+    await preferences.setString(
+      preferenceKey(_nameKey),
+      session.institutionName,
+    );
     final branch = session.branch;
     if (branch == null || branch.isEmpty) {
-      await preferences.remove(_branchKey);
+      await preferences.remove(preferenceKey(_branchKey));
     } else {
-      await preferences.setString(_branchKey, branch);
+      await preferences.setString(preferenceKey(_branchKey), branch);
     }
     final serviceAreaId = session.serviceAreaId;
     final serviceAreaName = session.serviceAreaName;
     if (serviceAreaId == null || serviceAreaName == null) {
-      await preferences.remove(_serviceAreaIdKey);
-      await preferences.remove(_serviceAreaNameKey);
+      await preferences.remove(preferenceKey(_serviceAreaIdKey));
+      await preferences.remove(preferenceKey(_serviceAreaNameKey));
     } else {
-      await preferences.setString(_serviceAreaIdKey, serviceAreaId);
-      await preferences.setString(_serviceAreaNameKey, serviceAreaName);
+      await preferences.setString(
+        preferenceKey(_serviceAreaIdKey),
+        serviceAreaId,
+      );
+      await preferences.setString(
+        preferenceKey(_serviceAreaNameKey),
+        serviceAreaName,
+      );
     }
     await preferences.setString(
-      _startedAtKey,
+      preferenceKey(_startedAtKey),
       session.startedAt.toIso8601String(),
     );
     unawaited(_syncRemoteSession(session));
@@ -61,12 +77,12 @@ class VenueSessionService extends ChangeNotifier {
     final previousSession = _session;
     _session = null;
     final preferences = await SharedPreferences.getInstance();
-    await preferences.remove(_idKey);
-    await preferences.remove(_nameKey);
-    await preferences.remove(_branchKey);
-    await preferences.remove(_serviceAreaIdKey);
-    await preferences.remove(_serviceAreaNameKey);
-    await preferences.remove(_startedAtKey);
+    await preferences.remove(preferenceKey(_idKey));
+    await preferences.remove(preferenceKey(_nameKey));
+    await preferences.remove(preferenceKey(_branchKey));
+    await preferences.remove(preferenceKey(_serviceAreaIdKey));
+    await preferences.remove(preferenceKey(_serviceAreaNameKey));
+    await preferences.remove(preferenceKey(_startedAtKey));
     if (previousSession != null) {
       unawaited(_endRemoteSession());
     }
@@ -76,17 +92,30 @@ class VenueSessionService extends ChangeNotifier {
   /// Restores a persisted session at app start-up. A stale session without a
   /// stored institution id is discarded.
   Future<void> restore() async {
+    _authSubscription ??= SupabaseClientHelper.client.auth.onAuthStateChange
+        .listen((_) => unawaited(restore()));
     final preferences = await SharedPreferences.getInstance();
-    final institutionId = preferences.getString(_idKey);
-    if (institutionId == null) return;
+    final institutionId = preferences.getString(preferenceKey(_idKey));
+    if (institutionId == null) {
+      if (_session != null) {
+        _session = null;
+        notifyListeners();
+      }
+      return;
+    }
     _session = VenueSession(
       institutionId: institutionId,
-      institutionName: preferences.getString(_nameKey) ?? 'Connected venue',
-      branch: preferences.getString(_branchKey),
-      serviceAreaId: preferences.getString(_serviceAreaIdKey),
-      serviceAreaName: preferences.getString(_serviceAreaNameKey),
+      institutionName:
+          preferences.getString(preferenceKey(_nameKey)) ?? 'Connected venue',
+      branch: preferences.getString(preferenceKey(_branchKey)),
+      serviceAreaId: preferences.getString(preferenceKey(_serviceAreaIdKey)),
+      serviceAreaName: preferences.getString(
+        preferenceKey(_serviceAreaNameKey),
+      ),
       startedAt:
-          DateTime.tryParse(preferences.getString(_startedAtKey) ?? '') ??
+          DateTime.tryParse(
+            preferences.getString(preferenceKey(_startedAtKey)) ?? '',
+          ) ??
           DateTime.now(),
     );
     unawaited(_syncRemoteSession(_session!));

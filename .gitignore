@@ -63,6 +63,10 @@ env/
 
 # Generated assets and local model output
 *.tflite
+# The packaged on-device sound classifier is required for every developer
+# build; keep generated/exported models ignored, but version this runtime one.
+!/mobile/assets/models/
+!/mobile/assets/models/1.tflite
 *.h5
 *.keras
 *.onnx
