@@ -7,7 +7,6 @@ import '../../services/app_tour_controller.dart';
 import '../../widgets/app_tour_coachmark.dart';
 import '../sign_reference/favorite_phrases_view.dart';
 import '../sign_reference/sign_dictionary_view.dart';
-import 'two_way_dialogue_view.dart';
 
 class CommunicationHubView extends StatelessWidget {
   const CommunicationHubView({super.key});
@@ -57,12 +56,7 @@ class CommunicationHubView extends StatelessWidget {
                       title: '2-Way Dialogue',
                       subtitle: 'Counter split-screen chat',
                       color: AppColors.secondary,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const TwoWayDialogueView(),
-                        ),
-                      ),
+                      onTap: () => context.push('/dialogue'),
                     ),
                   ),
                 ],
