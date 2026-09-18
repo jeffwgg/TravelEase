@@ -123,14 +123,6 @@ class _HomeViewState extends State<HomeView> {
             message: 'Use Profile in the bottom menu for alert settings.',
           ),
         ),
-        Positioned.fill(
-          child: AppTourCoachmark(
-            feature: AppTourFeature.profileContactsNavigation,
-            targetKey: _profileTourKey,
-            title: 'Emergency Contacts',
-            message: 'Return to Profile to add emergency contacts.',
-          ),
-        ),
       ],
     );
   }
