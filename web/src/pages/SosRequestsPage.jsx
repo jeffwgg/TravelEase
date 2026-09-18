@@ -1,12 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Clock3, MapPin, RefreshCw, ShieldCheck, X, Radio } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { AlertTriangle, CheckCircle2, RefreshCw, ShieldCheck, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { sosRequestRepository } from '../repositories/sosRequestRepository'
+import { availableSosStaff, sosRequestRepository } from '../repositories/sosRequestRepository'
+import { staffRepository } from '../repositories/staffRepository'
+import SosRequestCard, { formatCoordinate } from '../components/SosRequestCard'
 import LiveLocationMap from '../components/LiveLocationMap'
+import StaffSosOverview from '../components/StaffSosOverview'
 
-export default function SosRequestsPage({ staffOnly = false }) {
+export default function SosRequestsPage() {
   const { staffContext } = useAuth()
-  const institutionId = staffContext?.institutions?.id
+  const [searchParams, setSearchParams] = useSearchParams()
+  const taskId = searchParams.get('task')
+  const focusedTask = useRef(null)
+  const staffOnly = staffContext?.role === 'staff'
+  const isManager = staffContext?.role === 'manager'
+  const assignedStaffId = staffOnly ? staffContext?.staff?.id : null
+  const institutionId = staffContext?.institution_id || staffContext?.institutions?.id
+  const [staff, setStaff] = useState([])
+  const [ownStaff, setOwnStaff] = useState(null)
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -15,36 +27,72 @@ export default function SosRequestsPage({ staffOnly = false }) {
   const [selectedLocation, setSelectedLocation] = useState(null)
 
   const load = useCallback(async ({ quiet = false } = {}) => {
-    if (!institutionId) return
+    if (!institutionId || (!isManager && !assignedStaffId)) {
+      setRequests([])
+      setStaff([])
+      setLoading(false)
+      return
+    }
     if (quiet) setRefreshing(true)
     else setLoading(true)
     setError('')
     try {
-      setRequests(await sosRequestRepository.listForInstitution(institutionId))
+      const [nextRequests, nextStaff, nextOwnStaff] = await Promise.all([
+        sosRequestRepository.listForInstitution(institutionId, assignedStaffId),
+        isManager ? staffRepository.list({ institution_id: institutionId }) : Promise.resolve([]),
+        assignedStaffId ? staffRepository.getOwn() : Promise.resolve(null),
+      ])
+      setRequests(nextRequests)
+      setOwnStaff(nextOwnStaff)
+      setStaff(availableSosStaff(nextStaff, nextRequests, institutionId))
     } catch (loadError) {
       setError(friendlyError(loadError))
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [institutionId])
+  }, [institutionId, isManager, assignedStaffId])
 
   useEffect(() => {
-    if (!institutionId) return undefined
     load()
-    return sosRequestRepository.subscribe(institutionId, () => load({ quiet: true }))
-  }, [institutionId, load])
+    if (!institutionId || (!isManager && !assignedStaffId)) return undefined
+    const unsubscribe = sosRequestRepository.subscribe(institutionId, () => load({ quiet: true }), assignedStaffId)
+    // Refresh availability even when another workflow changes a staff record.
+    const timer = window.setInterval(() => load({ quiet: true }), 10000)
+    return () => { unsubscribe(); window.clearInterval(timer) }
+  }, [institutionId, isManager, assignedStaffId, load])
 
+  const visibleRequests = useMemo(
+    () => requests.filter((request) => request.institution_id === institutionId
+      && (isManager || (assignedStaffId && request.assigned_staff_id === assignedStaffId))),
+    [requests, institutionId, isManager, assignedStaffId],
+  )
   const activeRequests = useMemo(
-    () => requests.filter((request) => request.status === 'sent' || request.status === 'acknowledged'),
-    [requests],
+    () => visibleRequests.filter((request) => request.status !== 'resolved'),
+    [visibleRequests],
   )
   const resolvedRequests = useMemo(
-    () => requests.filter((request) => request.status === 'resolved'),
-    [requests],
+    () => visibleRequests.filter((request) => request.status === 'resolved'),
+    [visibleRequests],
   )
+  const locationRequest = visibleRequests.find((request) => request.id === selectedLocation?.id)
+  const openedTask = staffOnly ? visibleRequests.find((request) => request.id === taskId) : null
+  const closeTask = () => setSearchParams(current => {
+    const next = new URLSearchParams(current)
+    next.delete('task')
+    return next
+  })
+  useEffect(() => {
+    if (loading || !taskId || focusedTask.current === taskId) return
+    const task = document.getElementById(`sos-task-${taskId}`)
+    if (task) {
+      task.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      task.focus({ preventScroll: true })
+      focusedTask.current = taskId
+    }
+  }, [taskId, loading, visibleRequests])
 
-  const updateStatus = async (request, status) => {
+  const updateStatus = async (request, status, staffId = null) => {
     setBusyId(request.id)
     setError('')
     try {
@@ -53,9 +101,13 @@ export default function SosRequestsPage({ staffOnly = false }) {
         request.id,
         request.status,
         status,
+        staffId,
       )
       setRequests((current) => current.map((item) => item.id === updated.id ? updated : item))
+      if (status === 'assigned') setStaff((current) => current.filter((member) => member.id !== staffId))
+      await load({ quiet: true })
     } catch (updateError) {
+      await load({ quiet: true })
       setError(friendlyError(updateError))
     } finally {
       setBusyId('')
@@ -72,8 +124,8 @@ export default function SosRequestsPage({ staffOnly = false }) {
   return <div className="page sos-page">
     <div className="page-header sos-page-header">
       <div>
-        <h1>SOS / Emergency</h1>
-        <p>{staffOnly ? 'Institution emergency alerts — respond and acknowledge.' : "Emergency alerts matched to your institution's active Service Areas."}</p>
+        <h1>{staffOnly ? 'My SOS Tasks' : 'Institution SOS Management'}</h1>
+        <p>{staffOnly ? 'View your assigned traveller, follow their location, and update your response.' : 'Acknowledge emergencies, assign free staff, and monitor your institution.'}</p>
       </div>
       <button className="btn btn-outline" onClick={() => load({ quiet: true })} disabled={refreshing}>
         <RefreshCw size={16} className={refreshing ? 'spin' : ''} />
@@ -83,23 +135,30 @@ export default function SosRequestsPage({ staffOnly = false }) {
 
     {error && <div className="form-alert error" role="alert">{error}</div>}
     {loading ? <div className="card sos-empty">Loading SOS requests…</div> : <>
-      <section className="sos-section" aria-labelledby="active-sos-title">
+      {staffOnly ? <div className="sos-staff-overview"><StaffSosOverview tasks={visibleRequests} staff={ownStaff} /></div> : <div className="sos-overview-strip" aria-label="SOS overview"><span><strong>{activeRequests.length}</strong> Active</span><span><strong>{activeRequests.filter(request => request.status === 'en_route').length}</strong> On The Way</span><span><strong>{resolvedRequests.length}</strong> Resolved</span></div>}
+      {isManager && <><section className="sos-section" aria-labelledby="active-sos-title">
         <div className="sos-section-heading emergency">
           <div>
             <span className="sos-heading-icon"><AlertTriangle size={20} /></span>
-            <div><h2 id="active-sos-title">Active SOS Requests</h2><p>Sent and acknowledged emergencies requiring attention.</p></div>
+            <div><h2 id="active-sos-title">{staffOnly ? 'My Active Tasks' : 'Active SOS Requests'}</h2><p>{staffOnly ? 'Only emergencies assigned to your account appear here.' : 'Ongoing emergencies awaiting or receiving assistance.'}</p></div>
           </div>
           <span className="sos-count">{activeRequests.length}</span>
         </div>
         {activeRequests.length === 0
-          ? <div className="card sos-empty"><ShieldCheck size={30} /><strong>No active SOS requests</strong><span>New institution-linked alerts will appear here automatically.</span></div>
+          ? <div className="card sos-empty"><ShieldCheck size={30} /><strong>{staffOnly ? 'No active assigned tasks' : 'No active SOS requests'}</strong><span>{staffOnly ? 'Tasks will appear when your manager assigns you.' : 'New institution-linked alerts will appear here automatically.'}</span></div>
           : <div className="sos-grid">{activeRequests.map((request) =>
             <SosRequestCard
               key={request.id}
               request={request}
+              focused={request.id === taskId}
+              isManager={isManager}
+              canRespond={staffOnly && request.assigned_staff_id === assignedStaffId}
               busy={busyId === request.id}
               onView={() => setSelectedLocation(request)}
               onAcknowledge={() => updateStatus(request, 'acknowledged')}
+              staff={staff}
+              onAssign={(staffId) => updateStatus(request, 'assigned', staffId)}
+              onEnRoute={() => updateStatus(request, 'en_route')}
               onResolve={() => resolveRequest(request)}
             />,
           )}</div>}
@@ -120,42 +179,26 @@ export default function SosRequestsPage({ staffOnly = false }) {
               key={request.id}
               request={request}
               busy={false}
+              focused={request.id === taskId}
               onView={() => setSelectedLocation(request)}
             />,
           )}</div>}
-      </section>
+      </section></>}
     </>}
 
-    {selectedLocation && <LocationModal request={selectedLocation} onClose={() => setSelectedLocation(null)} />}
-  </div>
-}
-
-function SosRequestCard({ request, busy, onView, onAcknowledge, onResolve }) {
-  const isResolved = request.status === 'resolved'
-  const travellerName = request.traveller?.full_name || 'Traveller'
-  const serviceAreaName = request.service_area?.name || 'Unknown Service Area'
-  return <article className={`card sos-request-card ${isResolved ? 'resolved' : 'active'}`}>
-    <div className="sos-request-topline">
-      <div><strong>{travellerName}</strong><span><Clock3 size={14} /> {formatTime(request.triggered_at)}</span></div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-        {!isResolved && (
-          <span style={{ fontSize: '11px', color: '#dc2626', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
-            <Radio size={11} color="#dc2626" /> Live
-          </span>
-        )}
-        <span className={`sos-status ${request.status}`}>{statusLabel(request.status)}</span>
+    {openedTask && <div className="sos-map-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) closeTask() }} onKeyDown={event => { if (event.key === 'Escape') closeTask() }}>
+      <div className="sos-map-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-task-title">
+        <div className="sos-map-header"><h2 id="staff-task-title">Emergency task</h2><button className="icon-button" onClick={closeTask} aria-label="Close task"><X size={20} /></button></div>
+        <SosRequestCard request={openedTask} busy={busyId === openedTask.id}
+          canRespond={openedTask.assigned_staff_id === assignedStaffId}
+          onView={() => setSelectedLocation(openedTask)}
+          onEnRoute={() => updateStatus(openedTask, 'en_route')}
+          onResolve={() => resolveRequest(openedTask)} />
       </div>
-    </div>
-    <dl className="sos-request-details">
-      <div><dt>Service Area</dt><dd>{serviceAreaName}</dd></div>
-      <div><dt>Trigger Coordinates</dt><dd>{formatCoordinate(request.latitude)}, {formatCoordinate(request.longitude)}</dd></div>
-    </dl>
-    <div className="sos-request-actions">
-      <button className="btn btn-outline btn-sm" onClick={onView}><MapPin size={15} /> {isResolved ? 'View Location' : 'Live Tracking Map'}</button>
-      {request.status === 'sent' && <button className="btn btn-primary btn-sm" disabled={busy} onClick={onAcknowledge}>{busy ? 'Acknowledging…' : 'Acknowledge'}</button>}
-      {request.status === 'acknowledged' && <button className="btn btn-primary btn-sm" disabled={busy} onClick={onResolve}>{busy ? 'Resolving…' : 'Resolve'}</button>}
-    </div>
-  </article>
+    </div>}
+
+    {locationRequest && <LocationModal request={locationRequest} onClose={() => setSelectedLocation(null)} />}
+  </div>
 }
 
 function LocationModal({ request, onClose }) {
@@ -185,26 +228,11 @@ function LocationModal({ request, onClose }) {
   </div>
 }
 
-function statusLabel(status) {
-  if (status === 'acknowledged') return 'Acknowledged'
-  if (status === 'resolved') return 'Resolved'
-  return 'Sent'
-}
-
-function formatTime(value) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
-}
-
-function formatCoordinate(value) {
-  const coordinate = Number(value)
-  return Number.isFinite(coordinate) ? coordinate.toFixed(6) : 'Unavailable'
-}
-
 function friendlyError(error) {
   const message = String(error?.message || '')
   const lower = message.toLowerCase()
   if (lower.includes('sos_requests') && lower.includes('schema cache')) return 'SOS requests are not configured yet. Apply migrations 011 and 012 in Supabase.'
-  if (lower.includes('permission') || lower.includes('row-level security')) return 'Supabase denied this SOS operation. Re-run migration 012 and confirm this login is linked through institutions.account_user_id.'
+  if (lower.includes('permission') || lower.includes('row-level security')) return 'Your account is not allowed to perform this SOS action. Refresh to check your current assignment.'
+  if (error?.code === 'PGRST116') return 'This SOS request changed or is no longer accessible. Refresh and try again.'
   return message || 'Unable to load SOS requests.'
 }

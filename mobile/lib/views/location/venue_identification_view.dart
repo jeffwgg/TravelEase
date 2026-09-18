@@ -5,11 +5,13 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../core/theme.dart';
+import '../../viewmodels/profile_viewmodel.dart';
 import '../../models/entities/announcement.dart';
 import '../../models/entities/venue_search_result.dart';
 import '../../models/entities/venue_information.dart';
 import '../../models/entities/venue_session.dart';
 import '../../models/entities/venue_service_area.dart';
+import '../../models/repositories/auth_repository.dart';
 import '../../models/repositories/venue_repository.dart';
 import '../../services/app_tour_controller.dart';
 import '../../viewmodels/venue_identification_viewmodel.dart';
@@ -44,7 +46,9 @@ class VenueIdentificationView extends StatefulWidget {
 class _VenueIdentificationViewState extends State<VenueIdentificationView>
     with WidgetsBindingObserver {
   final _searchController = TextEditingController();
+  final _profileViewModel = ProfileViewModel();
   final _scrollController = ScrollController();
+  final _authRepository = AuthRepository();
   final _viewModel = VenueIdentificationViewModel();
   int _appliedSearchInputResetVersion = 0;
 
@@ -89,6 +93,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   @override
   void initState() {
     super.initState();
+    unawaited(_profileViewModel.loadProfile());
     WidgetsBinding.instance.addObserver(this);
     _viewModel.addListener(_syncSearchInput);
     unawaited(_viewModel.initialize());
@@ -113,6 +118,7 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
 
   @override
   void dispose() {
+    _profileViewModel.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _viewModel.removeListener(_syncSearchInput);
     _searchController.dispose();
@@ -202,6 +208,16 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
     await _viewModel.quitSession();
   }
 
+  /// First word of the signed-in traveller's full name, kept in sync with the
+  /// auth user metadata (set at sign-up and refreshed on profile updates).
+  String get _greetingName {
+    final fullName = _authRepository.currentUser?.userMetadata?['full_name'];
+    if (fullName is String && fullName.trim().isNotEmpty) {
+      return fullName.trim().split(RegExp(r'\s+')).first;
+    }
+    return 'traveller';
+  }
+
   Future<void> _loadHomeTour() async {
     if (_tourCheckStarted) return;
     _tourCheckStarted = true;
@@ -215,9 +231,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   _HomeTourStep _initialTourStep() =>
       switch (AppTourController.instance.homeSection) {
         HomeGuideSection.location =>
+         
           _session == null
-              ? _HomeTourStep.locationSearch
-              : _HomeTourStep.activeVenueSession,
+                ? _HomeTourStep.locationSearch
+                : _HomeTourStep.activeVenueSession,
         HomeGuideSection.spokenAnnouncements =>
           _HomeTourStep.spokenAnnouncements,
         HomeGuideSection.officialAnnouncements =>
@@ -411,10 +428,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Hello, Jeff',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .headlineLarge,
+                                        'Hello, $_greetingName',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.headlineLarge,
                                       ),
                                       const SizedBox(height: 2),
                                       Text(

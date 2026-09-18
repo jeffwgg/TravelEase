@@ -5,18 +5,18 @@ import {
   ListOrdered,
   LifeBuoy,
   MessageSquare,
-  BarChart3,
-  Zap,
   Activity,
   FileText,
   Building2,
   Bell,
   Siren,
-  Users
+  Users,
+  UserRound,
+  BarChart3
 } from 'lucide-react'
 import './index.css'
+import './staff-workspace.css'
 import LandingPage from './pages/LandingPage'
-import AuthPage from './pages/AuthPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
@@ -29,13 +29,14 @@ import AddQueueLinePage from './pages/AddQueueLinePage'
 import AssistanceRequestPage from './pages/AssistanceRequestPage'
 import StaffChatPage from './pages/StaffChatPage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import ManagerDashboardPage from './pages/ManagerDashboardPage'
 import UsageInsightsPage from './pages/UsageInsightsPage'
-import ServicePerformancePage from './pages/ServicePerformancePage'
 import ReportGenerationPage from './pages/ReportGenerationPage'
 import SosRequestsPage from './pages/SosRequestsPage'
 import StaffManagementPage from './pages/StaffManagementPage'
 import StaffSetupPage from './pages/StaffSetupPage'
 import StaffDashboardPage from './pages/StaffDashboardPage'
+import StaffProfilePage from './pages/StaffProfilePage'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { NotificationProvider, useNotifications } from './context/NotificationContext'
 
@@ -92,13 +93,10 @@ function Sidebar() {
           <div className="sidebar-section">
             <div className="sidebar-section-title">Analytics</div>
             <NavLink to="/analytics" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <span className="link-icon"><BarChart3 size={18} /></span> Accessibility
+              <span className="link-icon"><BarChart3 size={18} /></span> Accessibility Analytics
             </NavLink>
             <NavLink to="/usage" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <span className="link-icon"><Activity size={18} /></span> Usage Insights
-            </NavLink>
-            <NavLink to="/performance" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <span className="link-icon"><Zap size={18} /></span> Performance
+              <span className="link-icon"><Activity size={18} /></span> Service Analytics
             </NavLink>
             <NavLink to="/reports" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
               <span className="link-icon"><FileText size={18} /></span> Reports
@@ -112,6 +110,7 @@ function Sidebar() {
           </div>
         </>}
 
+        {!isManager && <div className="sidebar-section"><div className="sidebar-section-title">Account</div><NavLink to="/profile" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}><span className="link-icon"><UserRound size={18} /></span> My Profile</NavLink></div>}
         {permission === 'default' && (
           <div style={{ padding: '8px 12px', marginTop: '12px' }}>
             <button
@@ -191,8 +190,8 @@ function AppRoutes() {
     <DashboardLayout>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={staffContext?.role === 'staff' ? <StaffDashboardPage /> : <AnalyticsPage />} />
-        <Route path="/profile" element={isManager ? <ProfilePage /> : <Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={staffContext?.role === 'staff' ? <StaffDashboardPage /> : <ManagerDashboardPage />} />
+        <Route path="/profile" element={isManager ? <ProfilePage /> : <StaffProfilePage />} />
         <Route path="/announcements" element={<AnnouncementPage />} />
         <Route path="/announcements/create" element={<CreateAnnouncementPage />} />
         <Route path="/announcements/:id" element={<AnnouncementDetailsPage />} />
@@ -200,12 +199,14 @@ function AppRoutes() {
         <Route path="/queue" element={<QueueUpdatePage />} />
         <Route path="/queue/add" element={<AddQueueLinePage />} />
         <Route path="/requests" element={<AssistanceRequestPage staffOnly={staffContext?.role === 'staff'} />} />
-        <Route path="/sos" element={<SosRequestsPage staffOnly={staffContext?.role === 'staff'} />} />
+        <Route path="/sos" element={<SosRequestsPage />} />
         <Route path="/chat" element={staffContext?.role === 'staff' ? <StaffChatPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/staff" element={isManager ? <StaffManagementPage /> : <Navigate to="/dashboard" replace />} />
+        {/* Accessibility analytics (barriers & hotspots); the dashboard is now an operations hub. */}
         <Route path="/analytics" element={isManager ? <AnalyticsPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/usage" element={isManager ? <UsageInsightsPage /> : <Navigate to="/dashboard" replace />} />
-        <Route path="/performance" element={isManager ? <ServicePerformancePage /> : <Navigate to="/dashboard" replace />} />
+        {/* Legacy deep-link alias: service performance is now a tab of the consolidated analytics page. */}
+        <Route path="/performance" element={<Navigate to="/usage" replace />} />
         <Route path="/reports" element={isManager ? <ReportGenerationPage /> : <Navigate to="/dashboard" replace />} />
       </Routes>
     </DashboardLayout>

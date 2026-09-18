@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../models/emergency_communication_card.dart';
-import '../models/emergency_contact.dart';
+import '../models/entities/emergency_communication_card.dart';
+import '../models/entities/emergency_contact.dart';
 import '../models/repositories/emergency_communication_card_repository.dart';
 
 class EmergencyCommunicationCardViewModel extends ChangeNotifier {

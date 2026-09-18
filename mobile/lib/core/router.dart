@@ -8,6 +8,7 @@ import '../services/venue_session_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'supabase_client.dart';
+import '../models/repositories/auth_repository.dart';
 import '../views/auth/authentication_view.dart';
 import '../views/auth/check_email_view.dart';
 import '../views/auth/reset_password_view.dart';
@@ -22,12 +23,14 @@ import '../views/emergency/emergency_communication_card_view.dart';
 import '../views/emergency/environment_sound_alert_view.dart';
 import '../views/emergency/sos_countdown_view.dart';
 import '../views/emergency/sos_active_view.dart';
+import '../views/emergency/sos_history_view.dart';
 import '../views/location/venue_identification_view.dart';
 import '../views/location/announcement_view.dart';
 import '../views/location/announcement_details_view.dart';
 import '../views/location/queue_tracking_view.dart';
 import '../views/location/notification_history_view.dart';
 import '../views/communication/communication_hub_view.dart';
+import '../views/communication/communication_history_view.dart';
 import '../views/communication/sign_translation_camera_view.dart';
 import '../views/communication/two_way_dialogue_view.dart';
 import '../views/sign_reference/sign_dictionary_view.dart';
@@ -60,7 +63,8 @@ final GoRouter appRouter = GoRouter(
   routes: [
     GoRoute(
       path: '/auth',
-      builder: (context, state) => const AuthenticationView(),
+      builder: (context, state) =>
+          AuthenticationView(accessError: _authRouterNotifier.accessError),
     ),
     GoRoute(
       path: '/check-email',
@@ -132,6 +136,18 @@ final GoRouter appRouter = GoRouter(
       builder: (context, state) => const SosCountdownView(),
     ),
     GoRoute(
+      path: '/sos-history',
+      builder: (context, state) => const SosHistoryView(),
+    ),
+    GoRoute(
+      path: '/communication-history',
+      builder: (context, state) => const CommunicationHistoryView(),
+    ),
+    GoRoute(
+      path: '/emergency-communication-history',
+      builder: (context, state) => const EmergencyCommunicationHistoryView(),
+    ),
+    GoRoute(
       path: '/sos-active',
       builder: (context, state) => const SosActiveView(),
     ),
@@ -182,7 +198,11 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/request-tracking',
-      builder: (context, state) => const RequestTrackingView(),
+      builder: (context, state) {
+        final tabParam = state.uri.queryParameters['tab'];
+        final initialTab = tabParam == 'reports' ? 1 : 0;
+        return RequestTrackingView(initialTab: initialTab);
+      },
     ),
     GoRoute(
       path: '/assistance-request/new',
@@ -197,7 +217,9 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: '/accessibility-issue',
-      builder: (context, state) => const AccessibilityIssueView(),
+      builder: (context, state) => AccessibilityIssueView(
+        venueName: state.uri.queryParameters['venue'],
+      ),
     ),
     GoRoute(
       path: '/location-picker',
@@ -209,17 +231,55 @@ final GoRouter appRouter = GoRouter(
 class AuthRouterNotifier extends ChangeNotifier {
   AuthRouterNotifier() {
     _subscription = SupabaseClientHelper.client.auth.onAuthStateChange.listen(
-      (_) => notifyListeners(),
+      (_) => unawaited(_validateSession()),
     );
+    unawaited(_validateSession());
   }
 
   late final StreamSubscription<AuthState> _subscription;
 
+  bool _authorized = false;
+  String? _validatedUserId;
+  bool _disposed = false;
+  int _validation = 0;
+  String? accessError;
   bool get isAuthenticated =>
-      SupabaseClientHelper.client.auth.currentSession != null;
+      _authorized &&
+      SupabaseClientHelper.client.auth.currentSession != null &&
+      _validatedUserId == SupabaseClientHelper.client.auth.currentUser?.id;
+
+  Future<void> _validateSession() async {
+    final version = ++_validation;
+    final client = SupabaseClientHelper.client;
+    if (client.auth.currentSession == null) {
+      _authorized = false;
+      _validatedUserId = null;
+      if (!_disposed) notifyListeners();
+      return;
+    }
+    if (_validatedUserId != client.auth.currentUser?.id) _authorized = false;
+    accessError = null;
+    if (!_disposed) notifyListeners();
+    try {
+      await AuthRepository().validateTravellerSession();
+      if (_disposed || version != _validation) return;
+      _authorized = true;
+      _validatedUserId = client.auth.currentUser?.id;
+    } catch (error) {
+      if (_disposed || version != _validation) return;
+      _authorized = false;
+      accessError = error is AuthException
+          ? error.message
+          : 'Unable to verify traveller access. Please sign in again.';
+      await client.auth.signOut(scope: SignOutScope.local);
+    }
+    if (!_disposed) notifyListeners();
+  }
 
   @override
   void dispose() {
+    _disposed = true;
+    _validation++;
     _subscription.cancel();
     super.dispose();
   }

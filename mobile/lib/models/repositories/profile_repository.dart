@@ -9,6 +9,7 @@ class ProfileRepository {
 
   final SupabaseClient _client;
   static const avatarBucket = 'profile-images';
+  static final changes = ValueNotifier<int>(0);
 
   Future<Map<String, dynamic>?> getCurrentUserProfile() async {
     final user = _client.auth.currentUser;
@@ -42,6 +43,7 @@ class ProfileRepository {
       'nationality': nationality,
       'profile_completed': true,
     });
+    changes.value++;
   }
 
   Future<void> updateCurrentUserProfile({
@@ -53,10 +55,11 @@ class ProfileRepository {
       throw const AuthException('No authenticated user is available.');
     }
 
-    await _client.from('user_profiles').update({
-      'full_name': fullName,
-      'nationality': nationality,
-    }).eq('id', user.id);
+    await _client
+        .from('user_profiles')
+        .update({'full_name': fullName, 'nationality': nationality})
+        .eq('id', user.id);
+    changes.value++;
 
     await _client.auth.updateUser(
       UserAttributes(data: {'full_name': fullName}),

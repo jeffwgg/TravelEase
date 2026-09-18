@@ -2,10 +2,33 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'notification_settings.dart';
+import 'flash_alert_service.dart';
+import '../core/hardware_services.dart';
 
 class AccessibilityAlertService {
   static const _channel = MethodChannel('travelease/accessibility_alerts');
   int _sosOperation = 0;
+  bool _sosActive = false;
+
+  Future<void> startSosAlerts() async {
+    if (_sosActive) return;
+    _sosActive = true;
+    await Future.wait([
+      vibrateForSos(),
+      FlashAlertService.instance.startSosFlash(),
+      HardwareServices().startSosAudio(),
+    ]);
+  }
+
+  Future<void> stopSosAlerts() async {
+    if (!_sosActive) return;
+    _sosActive = false;
+    await Future.wait([
+      stopSosVibration(),
+      FlashAlertService.instance.stopSosFlash(),
+      HardwareServices().stopSosAudio(),
+    ]);
+  }
 
   Future<void> testVibration(String strength) async {
     await _channel.invokeMethod<void>('vibrate', {'strength': strength});

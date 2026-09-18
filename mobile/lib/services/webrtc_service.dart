@@ -1,7 +1,10 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../core/supabase_client.dart';
 
 /// Call types
@@ -32,7 +35,7 @@ class WebRTCService extends ChangeNotifier {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
-    ]
+    ],
   };
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -42,6 +45,53 @@ class WebRTCService extends ChangeNotifier {
   String? incomingRequestId;
   bool isMicMuted = false;
   bool isCameraOff = false;
+
+  /// Human-readable reason the last call attempt failed (shown as a snackbar).
+  String? callError;
+
+  /// Ensures mic (voice) or mic+camera (video) permission is granted BEFORE
+  /// getUserMedia — otherwise the very first call silently fails and the
+  /// offer is never sent to the other side.
+  Future<bool> _ensureCallPermissions(CallType type) async {
+    final permissions = <Permission>[
+      Permission.microphone,
+      if (type == CallType.video) Permission.camera,
+    ];
+    final statuses = await permissions.request();
+    return statuses.values.every((s) => s.isGranted);
+  }
+
+  // Call summary for the chat log ("Video call · 1:23").
+  // Only the side that dialed emits it, so the row is inserted exactly once.
+  bool _initiatedCall = false;
+  DateTime? _connectedAt;
+  DateTime? _endedCallAt;
+  CallType? _endedCallType;
+
+  /// True when this device dialed and the call actually connected and ended.
+  bool get hasCallSummary =>
+      _initiatedCall && _endedCallAt != null && _connectedAt != null;
+
+  CallType? get endedCallType => _endedCallType;
+
+  int get endedCallSeconds {
+    if (_connectedAt == null || _endedCallAt == null) return 0;
+    return _endedCallAt!.difference(_connectedAt!).inSeconds;
+  }
+
+  void clearCallSummary() {
+    _initiatedCall = false;
+    _connectedAt = null;
+    _endedCallAt = null;
+    _endedCallType = null;
+  }
+
+  void _markCallEnded() {
+    if (_connectedAt != null) {
+      _endedCallAt = DateTime.now();
+      _endedCallType = callType;
+    }
+  }
 
   // ── WebRTC internals ───────────────────────────────────────────────────────
   RTCPeerConnection? _pc;
@@ -61,6 +111,26 @@ class WebRTCService extends ChangeNotifier {
   String? _requestId;
 
   bool _renderersInitialized = false;
+
+  Future<String> _currentTravelerName() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return 'Traveler';
+    try {
+      final row = await _client
+          .from('user_profiles')
+          .select('full_name')
+          .eq('id', user.id)
+          .maybeSingle();
+      final profileName = (row?['full_name'] as String?)?.trim();
+      if (profileName != null && profileName.isNotEmpty) return profileName;
+    } catch (_) {
+      // fall through
+    }
+    final metadataName = (user.userMetadata?['full_name'] as String?)?.trim();
+    if (metadataName != null && metadataName.isNotEmpty) return metadataName;
+    final emailHandle = user.email?.split('@').first ?? '';
+    return emailHandle.isNotEmpty ? emailHandle : 'Traveler';
+  }
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -143,8 +213,20 @@ class WebRTCService extends ChangeNotifier {
   // ── Mobile initiates a call → sends offer to Web ──────────────────────────
 
   Future<void> startCall(String requestId, CallType type) async {
+    callError = null;
+    final granted = await _ensureCallPermissions(type);
+    if (!granted) {
+      callError = type == CallType.video
+          ? 'Camera and microphone access are needed to start a video call'
+          : 'Microphone access is needed to start a call';
+      notifyListeners();
+      return;
+    }
     callType = type;
     callState = WebRTCCallState.calling;
+    _initiatedCall = true;
+    _connectedAt = null;
+    _endedCallAt = null;
     _remoteDescriptionSet = false;
     _iceCandidateQueue.clear();
     notifyListeners();
@@ -162,15 +244,24 @@ class WebRTCService extends ChangeNotifier {
       final offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      final travelerName = await _currentTravelerName();
       await _sendSignal('call_offer', {
         'sdp': offer.sdp,
         'callType': type == CallType.video ? 'video' : 'voice',
-        'callerName': 'Jeff Wong (Traveler)',
+        'callerName':
+            (_client.auth.currentUser?.userMetadata?['full_name'] as String?)
+                    ?.trim()
+                    .isNotEmpty ==
+                true
+            ? (_client.auth.currentUser!.userMetadata!['full_name'] as String)
+                  .trim()
+            : 'Guest',
         'callerSide': 'mobile',
         'requestId': requestId,
       });
     } catch (e) {
       debugPrint('WebRTCService.startCall error: $e');
+      callError = 'Could not start the call. Please try again.';
       _cleanupPeer();
       callState = WebRTCCallState.idle;
       notifyListeners();
@@ -181,7 +272,15 @@ class WebRTCService extends ChangeNotifier {
 
   Future<void> acceptCall() async {
     if (_pendingOffer == null) return;
+    callError = null;
+    final granted = await _ensureCallPermissions(callType);
+    if (!granted) {
+      callError = 'Allow microphone${callType == CallType.video ? ' and camera' : ''} access to join this call';
+      await rejectCall();
+      return;
+    }
     callState = WebRTCCallState.connected;
+    _connectedAt = DateTime.now();
     notifyListeners();
 
     try {
@@ -209,6 +308,7 @@ class WebRTCService extends ChangeNotifier {
       _pendingOffer = null;
     } catch (e) {
       debugPrint('WebRTCService.acceptCall error: $e');
+      callError = 'Could not join the call. Please try again.';
       _cleanupPeer();
       callState = WebRTCCallState.idle;
       notifyListeners();
@@ -228,6 +328,7 @@ class WebRTCService extends ChangeNotifier {
   // ── Hang up ───────────────────────────────────────────────────────────────
 
   Future<void> hangup({bool notifyRemote = true}) async {
+    _markCallEnded();
     if (notifyRemote) {
       await _sendSignal('call_end', {'reason': 'hangup'});
     }
@@ -262,6 +363,7 @@ class WebRTCService extends ChangeNotifier {
     // If we sent this ourselves (mobile), ignore
     if (data['callerSide'] == 'mobile') return;
 
+    _initiatedCall = false;
     _pendingOffer = data;
     callType = (data['callType'] as String?) == 'voice'
         ? CallType.voice
@@ -286,6 +388,7 @@ class WebRTCService extends ChangeNotifier {
     _remoteDescriptionSet = true;
     await _flushIceCandidates();
     callState = WebRTCCallState.connected;
+    _connectedAt = DateTime.now();
     notifyListeners();
   }
 
@@ -383,8 +486,10 @@ class WebRTCService extends ChangeNotifier {
   Future<void> _sendSignal(String event, Map<String, dynamic> payload) async {
     final fullPayload = {
       ...payload,
-      if (!payload.containsKey('requestId') && _requestId != null) 'requestId': _requestId,
-      if (!payload.containsKey('requestId') && incomingRequestId != null) 'requestId': incomingRequestId,
+      if (!payload.containsKey('requestId') && _requestId != null)
+        'requestId': _requestId,
+      if (!payload.containsKey('requestId') && incomingRequestId != null)
+        'requestId': incomingRequestId,
     };
     if (_signalingChannel != null) {
       await _signalingChannel!.sendBroadcastMessage(

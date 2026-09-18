@@ -551,7 +551,7 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                         context,
                         MaterialPageRoute(
                           builder: (_) =>
-                              CommunicationHistoryView(viewModel: _viewModel),
+                              const CommunicationHistoryView(),
                         ),
                       );
                     },

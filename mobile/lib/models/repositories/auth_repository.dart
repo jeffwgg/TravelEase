@@ -29,8 +29,28 @@ class AuthRepository {
   Future<AuthResponse> signIn({
     required String email,
     required String password,
-  }) {
-    return _client.auth.signInWithPassword(email: email, password: password);
+  }) async {
+    final response = await _client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+    try {
+      await validateTravellerSession();
+      return response;
+    } catch (_) {
+      await _client.auth.signOut(scope: SignOutScope.local);
+      rethrow;
+    }
+  }
+
+  static const travellerAccessMessage =
+      'This account is not registered as a traveller.';
+
+  Future<void> validateTravellerSession() async {
+    if (_client.auth.currentUser == null ||
+        await _client.rpc('is_traveller_account') != true) {
+      throw const AuthException(travellerAccessMessage);
+    }
   }
 
   Future<void> sendPasswordResetEmail(String email) {
@@ -40,7 +60,8 @@ class AuthRepository {
     );
   }
 
-  Future<UserResponse> updatePassword(String password) {
+  Future<UserResponse> updatePassword(String password) async {
+    await validateTravellerSession();
     return _client.auth.updateUser(UserAttributes(password: password));
   }
 

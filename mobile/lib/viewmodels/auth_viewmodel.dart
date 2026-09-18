@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../core/traveller_name.dart';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -73,8 +75,9 @@ class AuthViewModel extends ChangeNotifier {
     final password = registrationPasswordController.text;
     final confirmPassword = registrationConfirmPasswordController.text;
 
-    if (name.length < 2 || name.length > 80) {
-      _setError('Full name must be between 2 and 80 characters.');
+    final nameError = TravellerName.validate(name);
+    if (nameError != null) {
+      _setError(nameError);
       return null;
     }
     if (nationality.isEmpty) {
@@ -110,6 +113,7 @@ class AuthViewModel extends ChangeNotifier {
         return null;
       }
       if (response.session != null) {
+        await _repository.validateTravellerSession();
         _finishRequest();
         return RegistrationResult.authenticated;
       }
@@ -141,8 +145,7 @@ class AuthViewModel extends ChangeNotifier {
     try {
       await _repository.sendPasswordResetEmail(email);
       _isLoading = false;
-      _successMessage =
-          'If an account exists for this email, a password reset link has been sent.';
+      _successMessage = 'If an account exists for this email, a password reset link has been sent.';
       notifyListeners();
       return true;
     } on AuthException catch (error) {
@@ -249,6 +252,9 @@ class AuthViewModel extends ChangeNotifier {
       RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email);
 
   String _friendlyAuthError(AuthException error) {
+    if (error.message == AuthRepository.travellerAccessMessage) {
+      return error.message;
+    }
     final message = error.message.toLowerCase();
     if (message.contains('invalid login credentials')) {
       return 'Incorrect email or password.';
@@ -271,6 +277,9 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   String _friendlyPasswordResetError(AuthException error) {
+    if (error.message == AuthRepository.travellerAccessMessage) {
+      return error.message;
+    }
     final message = error.message.toLowerCase();
     if (message.contains('rate limit') ||
         message.contains('too many') ||

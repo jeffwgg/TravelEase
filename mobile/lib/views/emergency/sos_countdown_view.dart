@@ -119,7 +119,7 @@ class _SosCountdownViewState extends State<SosCountdownView> {
               ),
               const Spacer(),
               Text(
-                'No alert is sent during this prototype step.',
+                'Cancel before the countdown ends to stop the alert.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),

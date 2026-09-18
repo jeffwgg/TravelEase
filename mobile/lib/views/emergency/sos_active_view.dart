@@ -1,10 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
-import '../../services/accessibility_alert_service.dart';
 import '../../models/repositories/feature_usage_repository.dart';
 import '../../viewmodels/sos_viewmodel.dart';
 
@@ -17,19 +14,16 @@ class SosActiveView extends StatefulWidget {
 
 class _SosActiveViewState extends State<SosActiveView> {
   late final SosViewModel _viewModel;
-  final _alertService = AccessibilityAlertService();
 
   @override
   void initState() {
     super.initState();
     FeatureUsageTracker.instance.completed(TrackedFeature.sos);
-    unawaited(_alertService.vibrateForSos());
     _viewModel = SosViewModel()..activateSos();
   }
 
   @override
   void dispose() {
-    unawaited(_alertService.stopSosVibration());
     _viewModel.dispose();
     super.dispose();
   }
@@ -43,67 +37,70 @@ class _SosActiveViewState extends State<SosActiveView> {
   }
 
   Widget _buildScreen(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFFF7F7),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 52),
-              Container(
-                width: 96,
-                height: 96,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.emergency.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFFFF7F7),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 52),
+                Container(
+                  width: 96,
+                  height: 96,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.emergency.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.emergency_rounded,
+                    color: AppColors.emergency,
+                    size: 52,
+                  ),
                 ),
-                child: const Icon(
-                  Icons.emergency_rounded,
-                  color: AppColors.emergency,
-                  size: 52,
+                const SizedBox(height: 24),
+                Text(
+                  'SOS ACTIVE',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                    color: AppColors.emergency,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'SOS ACTIVE',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                  color: AppColors.emergency,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
+                const SizedBox(height: 8),
+                Text(
+                  'Emergency alert activated',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Emergency alert activated',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 32),
-              _EmergencyContactStatus(viewModel: _viewModel),
-              const SizedBox(height: 12),
-              _LocationStatus(viewModel: _viewModel),
-              const SizedBox(height: 12),
-              _InstitutionStatus(viewModel: _viewModel),
-              const SizedBox(height: 32),
-              ElevatedButton.icon(
-                onPressed: _endSos,
-                icon: const Icon(Icons.stop_circle_outlined),
-                label: const Text('End SOS'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.emergency,
+                const SizedBox(height: 32),
+                _EmergencyContactStatus(viewModel: _viewModel),
+                const SizedBox(height: 12),
+                _LocationStatus(viewModel: _viewModel),
+                const SizedBox(height: 12),
+                _InstitutionStatus(viewModel: _viewModel),
+                const SizedBox(height: 32),
+                ElevatedButton.icon(
+                  onPressed: _endSos,
+                  icon: const Icon(Icons.stop_circle_outlined),
+                  label: const Text('End SOS'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.emergency,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Emergency status updates are shown above.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+                const SizedBox(height: 16),
+                Text(
+                  'Emergency status updates are shown above.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -111,7 +108,7 @@ class _SosActiveViewState extends State<SosActiveView> {
   }
 
   Future<void> _endSos() async {
-    await _alertService.stopSosVibration();
+    await _viewModel.endSos();
     if (mounted) context.go('/home');
   }
 }

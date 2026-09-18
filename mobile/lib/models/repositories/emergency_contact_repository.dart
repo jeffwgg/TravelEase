@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/supabase_client.dart';
-import '../emergency_contact.dart';
+import '../entities/emergency_contact.dart';
 
 class EmergencyContactRepository {
   EmergencyContactRepository({SupabaseClient? client})
@@ -121,7 +121,7 @@ class EmergencyContactRepository {
             'relationship': relationship,
             'phone_number': phoneNumber,
             'email': email,
-            'updated_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           })
           .eq('id', id)
           .eq('user_id', _userId)

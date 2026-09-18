@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { authRepository } from '../repositories/authRepository'
+import { validatePortalContext } from '../lib/accountAccess'
 
 const AuthContext = createContext(null)
 
@@ -8,77 +9,87 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [staffContext, setStaffContext] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [accessError, setAccessError] = useState('')
+  const validation = useRef(0)
+  const validatedUser = useRef(null)
 
   const loadStaffContext = async (nextSession) => {
-    setSession(nextSession)
+    const version = ++validation.current
     if (!nextSession?.user) {
+      validatedUser.current = null
+      setSession(null)
       setStaffContext(null)
       return null
     }
-
-    const context = await authRepository.getStaffContext(nextSession.user.id)
-    setStaffContext(context)
-    return context
+    try {
+      const context = validatePortalContext(await authRepository.getStaffContext(nextSession.user.id), nextSession.user.id)
+      if (version === validation.current) {
+        validatedUser.current = nextSession.user.id
+        setSession(nextSession)
+        setStaffContext(context)
+        setAccessError('')
+      }
+      return context
+    } catch (error) {
+      if (version === validation.current) {
+        validatedUser.current = null
+        setSession(null)
+        setStaffContext(null)
+        setAccessError(error.message)
+        await authRepository.signOut()
+      }
+      throw error
+    }
   }
 
   useEffect(() => {
     let active = true
+    let authEvent = 0
 
     const restoreSession = async () => {
       try {
         const { data, error } = await supabase.auth.getSession()
         if (error) throw error
-        if (!active) return
+        if (!active || authEvent !== 0) return
         await loadStaffContext(data.session)
       } catch (error) {
         console.error('Unable to load staff authorization:', error)
-        if (active) {
-          setSession(null)
-          setStaffContext(null)
-        }
       } finally {
-        if (active) setLoading(false)
+        if (active && authEvent === 0) setLoading(false)
       }
     }
 
     restoreSession()
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      const event = ++authEvent
+      if (nextSession?.user?.id !== validatedUser.current) {
+        setSession(null)
+        setStaffContext(null)
+        setLoading(true)
+      }
       setTimeout(async () => {
-        if (!active) return
+        if (!active || event !== authEvent) return
         try {
           await loadStaffContext(nextSession)
         } catch (error) {
           console.error('Unable to refresh staff authorization:', error)
-          setStaffContext(null)
         } finally {
-          if (active) setLoading(false)
+          if (active && event === authEvent) setLoading(false)
         }
       }, 0)
     })
 
     return () => {
       active = false
+      validation.current++
       listener.subscription.unsubscribe()
     }
   }, [])
 
   const signIn = async (email, password) => {
     const { session: nextSession } = await authRepository.signIn(email, password)
-    const context = await loadStaffContext(nextSession)
-    if (!context?.institutions) {
-      await authRepository.signOut()
-      throw new Error('This account is not an institution account.')
-    }
-    if (context.role === 'manager' && context.institutions.verification_status !== 'email_verified') {
-      await authRepository.signOut()
-      throw new Error('Verify your institution email before signing in.')
-    }
-    if (!context.institutions.active || (context.role === 'staff' && !context.staff?.active)) {
-      await authRepository.signOut()
-      throw new Error('This institution account is not active yet.')
-    }
-    return context
+    return loadStaffContext(nextSession)
   }
 
   const registerInstitution = async (form) => {
@@ -99,6 +110,7 @@ export function AuthProvider({ children }) {
   const sendPasswordReset = (email) => authRepository.sendPasswordReset(email)
 
   const updatePassword = async (password) => {
+    validatePortalContext(await authRepository.getStaffContext(session?.user?.id), session?.user?.id)
     const result = await authRepository.updatePassword(password)
     await authRepository.signOut()
     setSession(null)
@@ -127,6 +139,7 @@ export function AuthProvider({ children }) {
       session,
       staffContext,
       loading,
+      accessError,
       signIn,
       signOut,
       registerInstitution,

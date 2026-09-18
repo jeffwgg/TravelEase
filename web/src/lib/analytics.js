@@ -206,33 +206,93 @@ export function monthlyTrend(rows, field, months = 6) {
   return [...buckets.values()]
 }
 
-// Spatial + category breakdown per mapped zone (FR-M7-04, FR-M7-19).
-export function zoneStats(zones, issues, requests) {
-  return zones
-    .filter((z) => z.map_x != null && z.map_y != null)
-    .map((z) => {
-      const zIssues = issues.filter((i) => i.location_zone === z.name)
-      const zRequests = requests.filter((r) => r.location_zone === z.name)
-      return {
-        id: z.id,
-        name: z.name,
-        code: z.code,
-        x: Number(z.map_x),
-        y: Number(z.map_y),
-        issueCount: zIssues.length,
-        requestCount: zRequests.length,
-        categories: toList(countBy(zIssues, (i) => i.issue_type), (k) => ISSUE_TYPE_LABELS[k] || k),
-        hourly: hourlyTrend(zIssues)
-      }
-    })
-    .sort((a, b) => b.issueCount - a.issueCount)
+// --- Service-area geographic attribution -----------------------------------
+// FR-M7-04/19 now bucket by service_areas (lat/lng + radius_m circles) instead
+// of venue_zones. Rows are matched to the containing circle first; the
+// location_zone text is a fallback for rows without shared coordinates.
+
+const EARTH_R_M = 6371000
+
+export function haversineMeters(lat1, lng1, lat2, lng2) {
+  const toRad = (d) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return 2 * EARTH_R_M * Math.asin(Math.sqrt(a))
 }
 
-// FR-M7-19: zones that are hotspots for both confirmed barriers AND live
+// Returns the service area the row falls in, or null ("unmapped").
+// Nearest centre wins when circles overlap.
+export function assignServiceArea(areas, row) {
+  if (row.latitude != null && row.longitude != null) {
+    let best = null
+    let bestDist = Infinity
+    for (const a of areas) {
+      const d = haversineMeters(row.latitude, row.longitude, a.latitude, a.longitude)
+      if (d <= a.radius_m && d < bestDist) {
+        best = a
+        bestDist = d
+      }
+    }
+    if (best) return best
+  }
+  const zone = (row.location_zone || '').trim().toLowerCase()
+  if (zone) {
+    const byName = areas.find((a) => a.name.trim().toLowerCase() === zone)
+    if (byName) return byName
+  }
+  return null
+}
+
+// Spatial + category breakdown per service area. Output shape (id, name,
+// issueCount, requestCount, categories, hourly) is what hotspotFlags and the
+// charts consume; the synthetic
+// "unmapped" row (id: 'unmapped', no coords) collects unattributable rows.
+export const UNMAPPED_ID = 'unmapped'
+
+export function serviceAreaStats(areas, issues, requests) {
+  const active = areas.filter((a) => a.active !== false && a.latitude != null && a.longitude != null)
+  const assign = (row) => assignServiceArea(active, row)
+  const rows = active.map((a) => {
+    const aIssues = issues.filter((i) => assign(i)?.id === a.id)
+    const aRequests = requests.filter((r) => assign(r)?.id === a.id)
+    return {
+      id: a.id,
+      name: a.name,
+      latitude: Number(a.latitude),
+      longitude: Number(a.longitude),
+      radiusM: Number(a.radius_m) || null,
+      issueCount: aIssues.length,
+      requestCount: aRequests.length,
+      categories: toList(countBy(aIssues, (i) => i.issue_type), (k) => ISSUE_TYPE_LABELS[k] || k),
+      hourly: hourlyTrend(aIssues)
+    }
+  })
+  const unIssues = issues.filter((i) => !assign(i))
+  const unRequests = requests.filter((r) => !assign(r))
+  if (unIssues.length || unRequests.length) {
+    rows.push({
+      id: UNMAPPED_ID,
+      name: 'Unmapped',
+      latitude: null,
+      longitude: null,
+      radiusM: null,
+      issueCount: unIssues.length,
+      requestCount: unRequests.length,
+      categories: toList(countBy(unIssues, (i) => i.issue_type), (k) => ISSUE_TYPE_LABELS[k] || k),
+      hourly: hourlyTrend(unIssues)
+    })
+  }
+  return rows.sort((a, b) => b.issueCount - a.issueCount)
+}
+
+// FR-M7-19: areas that are hotspots for both confirmed barriers AND live
 // assistance demand — the "double jeopardy" flag.
-export function hotspotFlags(zoneList) {
-  const issueVals = zoneList.map((z) => z.issueCount)
-  const reqVals = zoneList.map((z) => z.requestCount)
+export function hotspotFlags(areaList) {
+  const issueVals = areaList.map((z) => z.issueCount)
+  const reqVals = areaList.map((z) => z.requestCount)
   const median = (arr) => {
     if (!arr.length) return 0
     const s = [...arr].sort((a, b) => a - b)
@@ -241,7 +301,7 @@ export function hotspotFlags(zoneList) {
   }
   const mi = median(issueVals)
   const mr = median(reqVals)
-  return zoneList.map((z) => ({
+  return areaList.map((z) => ({
     ...z,
     doubleJeopardy: z.issueCount > mi && z.requestCount > mr && z.issueCount + z.requestCount > 0
   }))
@@ -305,10 +365,10 @@ export function communicationStats(sessions, messages) {
 }
 
 export function ratingDistribution(requests) {
-  const dist = toList(countBy(requests.filter((r) => r.user_rating != null), (r) => Math.round(Number(r.user_rating))))
+  const dist = toList(countBy(requests.filter((r) => r.user_rating != null), (r) => String(Math.round(Number(r.user_rating)))))
   return [5, 4, 3, 2, 1].map((star) => ({
     key: String(star),
     label: `${star} star${star > 1 ? 's' : ''}`,
-    count: dist.find((d) => d.key === String(star))?.count || 0
+    count: dist.find((d) => String(d.key) === String(star))?.count || 0
   }))
 }

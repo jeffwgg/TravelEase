@@ -101,9 +101,18 @@ class AssistanceMenuView extends StatelessWidget {
                 _buildMenuCard(
                   context,
                   icon: Icons.track_changes_outlined,
-                  title: 'View / Track Request',
-                  subtitle: 'Check the status of your current requests',
+                  title: 'Track Requests & Reports',
+                  subtitle: 'Check assistance status and accessibility report history',
                   onTap: () => context.push('/request-tracking'),
+                ),
+                const SizedBox(height: 16),
+                _buildMenuCard(
+                  context,
+                  icon: Icons.report_outlined,
+                  title: 'Report a Barrier',
+                  subtitle:
+                      'Facility feedback only - staff will not respond to reports',
+                  onTap: () => context.push('/accessibility-issue'),
                 ),
                 const SizedBox(height: 16),
                 _buildMenuCard(

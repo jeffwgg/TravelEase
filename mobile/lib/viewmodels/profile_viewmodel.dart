@@ -12,7 +12,13 @@ class ProfileViewModel extends ChangeNotifier {
     ImagePicker? imagePicker,
   }) : _profileRepository = profileRepository ?? ProfileRepository(),
        _authRepository = authRepository ?? AuthRepository(),
-       _imagePicker = imagePicker ?? ImagePicker();
+       _imagePicker = imagePicker ?? ImagePicker() {
+    ProfileRepository.changes.addListener(_onProfileChanged);
+  }
+
+  void _onProfileChanged() {
+    if (!_disposed) loadProfile();
+  }
 
   final ProfileRepository _profileRepository;
   final AuthRepository _authRepository;
@@ -24,6 +30,7 @@ class ProfileViewModel extends ChangeNotifier {
   final newPasswordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
 
+  bool _disposed = false;
   bool _isLoading = false;
   bool _isChangingPassword = false;
   bool _isUploadingAvatar = false;
@@ -35,6 +42,16 @@ class ProfileViewModel extends ChangeNotifier {
   bool get isUploadingAvatar => _isUploadingAvatar;
   String? get errorMessage => _errorMessage;
   Map<String, dynamic>? get profile => _profile;
+  String get greetingName {
+    final name = (_profile?['full_name'] as String?)?.trim() ?? '';
+    return name.isEmpty ? 'Guest' : name;
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
   String get fullName =>
       (_profile?['full_name'] as String?) ??
       (_authRepository.currentUser?.userMetadata?['full_name'] as String?) ??
@@ -59,6 +76,7 @@ class ProfileViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       _profile = await _profileRepository.getCurrentUserProfile();
+      if (_disposed) return;
       fullNameController.text = fullName;
       nationalityController.text = nationality;
     } catch (_) {
@@ -268,6 +286,8 @@ class ProfileViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    ProfileRepository.changes.removeListener(_onProfileChanged);
     fullNameController.dispose();
     nationalityController.dispose();
     currentPasswordController.dispose();

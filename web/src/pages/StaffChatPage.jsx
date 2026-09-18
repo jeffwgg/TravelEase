@@ -14,15 +14,10 @@ import {
   Phone, 
   PhoneIncoming, 
   X, 
-  ExternalLink, 
-  Navigation,
   AlertTriangle,
   Star,
   AlertCircle,
-  MessageSquare,
-  ShieldCheck,
   Paperclip,
-  ImageIcon,
   Loader2,
   Radio
 } from 'lucide-react'
@@ -118,10 +113,12 @@ export default function StaffChatPage() {
     }
   }, [])
 
+  const rawVenueName = staffContext?.institutions?.name
   // Filter requests to ONLY assigned chat requests, respecting chatFilter ('unsolved' by default)
   const assignedChatRequests = requests.filter(
     (r) => r.preferred_communication !== 'location' &&
-      r.assigned_staff_id === myStaffId
+      r.assigned_staff_id === myStaffId &&
+      (!rawVenueName || (r.venue_name || '').trim().toLowerCase() === rawVenueName.trim().toLowerCase())
   )
 
   const unsolvedCount = assignedChatRequests.filter(
@@ -188,8 +185,8 @@ export default function StaffChatPage() {
       unsubscribeSignalingRef.current = null
     }
 
-    if (!selectedReq?.id) return
-
+    // Subscribe even with no chat selected: the global channel still needs
+    // its call_offer handler so incoming calls from travelers can ring.
     const cleanup = subscribeToSignaling()
     unsubscribeSignalingRef.current = cleanup
 
@@ -231,6 +228,7 @@ export default function StaffChatPage() {
   async function handleSend(e) {
     e.preventDefault()
     if (!inputText.trim() || !selectedReq) return
+    if (selectedReq.status === 'resolved' || selectedReq.status === 'closed') return
 
     const staffDisplayName =
       selectedReq.assigned_staff_name && selectedReq.assigned_staff_name !== 'Unassigned'
@@ -277,6 +275,7 @@ export default function StaffChatPage() {
   async function handleMediaSelect(e) {
     const file = e.target.files?.[0]
     if (!file || !selectedReq) return
+    if (selectedReq.status === 'resolved' || selectedReq.status === 'closed') return
     // Reset input so same file can be re-selected
     e.target.value = ''
 
@@ -315,6 +314,56 @@ export default function StaffChatPage() {
   }
 
   const isInCall = callState === 'connected' || callState === 'calling'
+
+  // Once the request is resolved (or closed), the conversation becomes read-only
+  const isChatLocked =
+    !!selectedReq && (selectedReq.status === 'resolved' || selectedReq.status === 'closed')
+
+  // Keep the open conversation's row fresh as realtime status updates arrive,
+  // even when it drops out of the current sidebar filter
+  useEffect(() => {
+    if (!selectedReq?.id) return
+    const fresh = requests.find((r) => r.id === selectedReq.id)
+    if (fresh && fresh !== selectedReq) setSelectedReq(fresh)
+  }, [requests, selectedReq])
+
+  // ── Call summary log ("Video call · 1:23") ─────────────────────────────────
+  // Only the side that DIALED writes the summary row, so each call is logged
+  // exactly once (the other side receives it via the realtime message feed).
+  const prevCallStateRef = useRef('idle')
+  const initiatedCallRef = useRef(false)
+  const connectedAtRef = useRef(null)
+
+  function handleStartCall(type) {
+    initiatedCallRef.current = true
+    startCall(type)
+  }
+
+  useEffect(() => {
+    const prev = prevCallStateRef.current
+    if (callState === 'connected' && prev !== 'connected') {
+      connectedAtRef.current = Date.now()
+    }
+    if (callState === 'idle' && prev !== 'idle') {
+      if (initiatedCallRef.current && connectedAtRef.current && selectedReq?.id) {
+        const seconds = Math.round((Date.now() - connectedAtRef.current) / 1000)
+        if (seconds > 0) {
+          assistanceRepository.sendChatMessage({
+            request_id: selectedReq.id,
+            sender_type: 'staff',
+            sender_name: 'Call Log',
+            content: `${callType}|${seconds}`,
+            message_type: 'call',
+            is_read: true,
+            created_at: new Date().toISOString(),
+          }).catch((err) => console.error('Failed to log call summary:', err))
+        }
+      }
+      initiatedCallRef.current = false
+      connectedAtRef.current = null
+    }
+    prevCallStateRef.current = callState
+  }, [callState, callType, selectedReq?.id])
 
   return (
     <div style={{ padding: '0' }}>
@@ -381,7 +430,7 @@ export default function StaffChatPage() {
                   boxShadow: '0 4px 12px rgba(34,197,94,0.4)',
                 }}
               >
-                <Phone size={22} color="white" />
+                {callType === 'video' ? <Video size={22} color="white" /> : <Phone size={22} color="white" />}
               </button>
             </div>
           </div>
@@ -507,12 +556,12 @@ export default function StaffChatPage() {
       {/* ── Page Header ──────────────────────────────────────────────────────── */}
       <div className="page-header" style={{ padding: '16px 32px' }}>
         <div>
-          <h2>Staff Communication Console</h2>
-          <div className="header-subtitle">Real-time two-way dialogue console with automatic speech-to-text and sign translation support.</div>
+          <h2>Staff Chat</h2>
+          <div className="header-subtitle">Chat with your assigned travelers.</div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <span className="badge success" style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></span> Online &amp; Accepting Chats
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></span> Online
           </span>
         </div>
       </div>
@@ -664,7 +713,7 @@ export default function StaffChatPage() {
                     onClick={() => setSelectedReq(req)}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
-                      <strong style={{ fontSize: '14px' }}>{req.traveler_name} ({req.request_code})</strong>
+                      <strong style={{ fontSize: '14px' }}>{req.traveler_name}</strong>
                       <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                         {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
@@ -677,14 +726,14 @@ export default function StaffChatPage() {
                       }}>
                         <AlertTriangle size={13} color="#ef4444" />
                         <span style={{ fontSize: '11px', fontWeight: '700', color: '#ef4444' }}>
-                          ESCALATED — Waiting {minutesWaiting} min
+                          ESCALATED — {minutesWaiting} min
                         </span>
                       </div>
                     )}
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {req.description}
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '8px', alignItems: 'center' }}>
                       <span className="badge primary">{req.location_zone}</span>
                       <span
                         className={`badge ${
@@ -694,19 +743,7 @@ export default function StaffChatPage() {
                         {req.status}
                       </span>
                       {req.urgency === 'high' && (
-                        <span className="badge emergency" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                          <AlertCircle size={11} /> High
-                        </span>
-                      )}
-                      {req.assigned_staff_name && (
-                        <span className="badge secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px' }}>
-                          <ShieldCheck size={10} color="var(--primary)" /> {req.assigned_staff_name}
-                        </span>
-                      )}
-                      {req.user_rating && (
-                        <span className="badge secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontWeight: '700' }}>
-                          <Star size={11} fill="#f59e0b" /> {req.user_rating}/5
-                        </span>
+                        <AlertCircle size={14} color="#ef4444" style={{ flexShrink: 0 }} />
                       )}
                     </div>
                   </div>
@@ -723,20 +760,13 @@ export default function StaffChatPage() {
               {/* Top chat info bar */}
               <div style={{ padding: '16px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--divider)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <h3 style={{ fontSize: '16px', fontWeight: '700' }}>{selectedReq.traveler_name} (Deaf Traveler)</h3>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px', flexWrap: 'wrap' }}>
-                    <span>Location: <strong>{selectedReq.location_zone}</strong></span>
-                    <span>•</span>
-                    <span>Reach: <strong>{selectedReq.preferred_communication === 'location' ? 'In-Person (Come to Location)' : 'In-App Chat'}</strong></span>
-                    <span>•</span>
-                    <span style={{ textTransform: 'capitalize' }}>Request: <strong>{selectedReq.category}</strong></span>
+                  <h3 style={{ fontSize: '16px', fontWeight: '700' }}>{selectedReq.traveler_name}</h3>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                    <span style={{ textTransform: 'capitalize' }}>{selectedReq.category} · {selectedReq.location_zone}</span>
                     {selectedReq.share_location && (
-                      <>
-                        <span>•</span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontWeight: 600 }}>
-                          <Radio size={13} color="#16a34a" /> Live Tracking Active
-                        </span>
-                      </>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontWeight: 600 }}>
+                        <Radio size={13} color="#16a34a" /> Live
+                      </span>
                     )}
                   </div>
                 </div>
@@ -744,114 +774,162 @@ export default function StaffChatPage() {
                   {/* Voice call button */}
                   <button
                     className="btn btn-secondary btn-sm"
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                    onClick={() => startCall('voice')}
-                    title="Start Voice Call"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      opacity: isChatLocked ? 0.45 : 1,
+                    }}
+                    onClick={() => handleStartCall('voice')}
+                    disabled={isChatLocked}
+                    title={isChatLocked ? 'Calls unavailable — request resolved' : 'Start Voice Call'}
                   >
                     <Phone size={14} /> Voice
                   </button>
                   {/* Video call button */}
                   <button
-                    className="btn btn-primary btn-sm"
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                    onClick={() => startCall('video')}
-                    title="Start Video Call"
+                    className="btn btn-secondary btn-sm"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      opacity: isChatLocked ? 0.45 : 1,
+                    }}
+                    onClick={() => handleStartCall('video')}
+                    disabled={isChatLocked}
+                    title={isChatLocked ? 'Calls unavailable — request resolved' : 'Start Video Call'}
                   >
-                    <Video size={14} /> Video Call
+                    <Video size={14} /> Video
                   </button>
                   <button
                     className="btn btn-outline btn-sm"
                     style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
                     onClick={() => setShowMapModal(true)}
+                    title={selectedReq.share_location ? 'Live Map' : 'View Location'}
                   >
-                    <MapPin size={14} /> {selectedReq.share_location ? 'Live Map' : 'View Location'}
+                    <MapPin size={14} />
                   </button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    style={{ background: 'var(--success)', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    onClick={handleMarkResolved}
-                  >
-                    <CheckCircle2 size={14} /> Mark Resolved
-                  </button>
+                  {!isChatLocked && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      style={{ background: 'var(--success)', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      onClick={handleMarkResolved}
+                    >
+                      <CheckCircle2 size={14} /> Resolve
+                    </button>
+                  )}
                 </div>
               </div>
 
               {/* ── Traveler Resolution Feedback Banner ── */}
               {(selectedReq.resolution_outcome || selectedReq.user_rating) && (
                 <div style={{
-                  margin: '16px 24px 0',
-                  padding: '14px 20px',
-                  borderRadius: '14px',
+                  margin: '12px 24px 0',
+                  padding: '10px 16px',
+                  borderRadius: '12px',
                   background: selectedReq.resolution_outcome === 'fully_resolved'
                     ? 'rgba(34, 197, 94, 0.1)'
                     : 'rgba(245, 158, 11, 0.1)',
                   border: `1px solid ${selectedReq.resolution_outcome === 'fully_resolved' ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
                   display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
+                  alignItems: 'center',
+                  gap: '10px',
+                  flexWrap: 'wrap',
+                  fontSize: '13px',
                 }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                      <span style={{ fontSize: '13px', fontWeight: '700', color: selectedReq.resolution_outcome === 'fully_resolved' ? '#22c55e' : '#f59e0b', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        {selectedReq.resolution_outcome === 'fully_resolved' ? (
-                          <><CheckCircle2 size={15} color="#22c55e" /> Traveler Outcome: Fully Resolved</>
-                        ) : selectedReq.resolution_outcome === 'partially_resolved' ? (
-                          <><AlertTriangle size={15} color="#f59e0b" /> Traveler Outcome: Partially Resolved</>
-                        ) : (
-                          <><AlertCircle size={15} color="#ef4444" /> Traveler Outcome: Unresolved</>
-                        )}
-                      </span>
-                      {selectedReq.user_rating && (
-                        <span style={{ fontSize: '13px', fontWeight: '700', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <Star size={13} fill="#f59e0b" /> {selectedReq.user_rating} / 5
-                        </span>
-                      )}
-                    </div>
-                    {selectedReq.user_feedback_comment && (
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                        "{selectedReq.user_feedback_comment}"
-                      </div>
+                  <span style={{ fontWeight: '700', display: 'flex', alignItems: 'center', gap: '5px', color: selectedReq.resolution_outcome === 'fully_resolved' ? '#22c55e' : '#f59e0b' }}>
+                    {selectedReq.resolution_outcome === 'fully_resolved' ? (
+                      <><CheckCircle2 size={15} color="#22c55e" /> Resolved</>
+                    ) : selectedReq.resolution_outcome === 'partially_resolved' ? (
+                      <><AlertTriangle size={15} color="#f59e0b" /> Partially resolved</>
+                    ) : (
+                      <><AlertCircle size={15} color="#ef4444" /> Unresolved</>
                     )}
-                  </div>
-                  <span className="badge" style={{
-                    background: selectedReq.status === 'closed' ? 'var(--success)' : 'var(--secondary)',
-                    color: '#fff',
-                    padding: '6px 12px',
-                    fontSize: '11px',
-                    fontWeight: '700'
-                  }}>
-                    Ticket: {selectedReq.status.toUpperCase()}
                   </span>
+                  {selectedReq.user_rating && (
+                    <span style={{ fontWeight: '700', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Star size={13} fill="#f59e0b" /> {selectedReq.user_rating}/5
+                    </span>
+                  )}
+                  {selectedReq.user_feedback_comment && (
+                    <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                      "{selectedReq.user_feedback_comment}"
+                    </span>
+                  )}
                 </div>
               )}
 
               {/* Messages list */}
               <div style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ alignSelf: 'center', background: 'var(--surface-variant)', padding: '4px 12px', borderRadius: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Assistance session initiated for {selectedReq.request_code}
+                  Conversation started
                 </div>
 
                 {loadingMsg ? (
                   <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Loading chat history...</div>
                 ) : messages.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No messages yet. Send a response to greet the traveler.</div>
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No messages yet.</div>
                 ) : (
                   messages.map((msg) => {
                     const isStaff = msg.sender_type === 'staff'
                     const msgType = msg.message_type || 'text'
-                    const timeStr = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    
+                    // Robust timestamp parsing supporting Postgres and ISO formats with fallback
+                    let timeStr = ''
+                    if (msg.created_at) {
+                      try {
+                        let d = new Date(msg.created_at)
+                        if (isNaN(d.getTime()) && typeof msg.created_at === 'string') {
+                          const normalized = msg.created_at.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')
+                          d = new Date(normalized)
+                        }
+                        if (!isNaN(d.getTime())) {
+                          timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        }
+                      } catch {
+                        // ignore and use fallback
+                      }
+                    }
+                    if (!timeStr) {
+                      timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    }
+
+                    // Call summary row: content is '<video|voice>|<seconds>'
+                    if (msgType === 'call') {
+                      const [rawType, rawSeconds] = String(msg.content || '').split('|')
+                      const isVideoCall = rawType === 'video'
+                      const secs = parseInt(rawSeconds || '0', 10) || 0
+                      const dur = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`
+                      return (
+                        <div
+                          key={msg.id}
+                          style={{
+                            alignSelf: 'center',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: 'var(--surface-variant, #f1f5f9)',
+                            padding: '4px 12px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            color: 'var(--text-muted)',
+                          }}
+                        >
+                          {isVideoCall ? <Video size={13} /> : <Phone size={13} />}
+                          {isVideoCall ? 'Video call' : 'Voice call'} · {dur} · {timeStr}
+                        </div>
+                      )
+                    }
+
                     return (
                       <div
                         key={msg.id}
                         style={{
                           alignSelf: isStaff ? 'flex-end' : 'flex-start',
                           maxWidth: '85%',
+                          minWidth: '72px',
                           background: isStaff ? 'var(--success)' : 'var(--surface)',
                           color: isStaff ? '#fff' : 'var(--text)',
-                          padding: msgType === 'text' ? '14px' : '8px',
+                          padding: msgType === 'text' ? '10px 14px 12px 14px' : '8px',
                           borderRadius: '16px',
                           border: isStaff ? 'none' : '1px solid var(--card-border)',
-                          overflow: 'hidden',
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
                         }}
                       >
                         {msgType === 'image' ? (
@@ -870,7 +948,7 @@ export default function StaffChatPage() {
                                 objectFit: 'cover',
                               }}
                             />
-                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)', textAlign: 'right', marginTop: '4px', padding: '0 4px' }}>
+                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)', textAlign: 'right', marginTop: '6px', padding: '0 4px 2px' }}>
                               {timeStr}
                             </div>
                           </div>
@@ -888,24 +966,35 @@ export default function StaffChatPage() {
                                 background: '#000',
                               }}
                             />
-                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)', textAlign: 'right', marginTop: '4px', padding: '0 4px' }}>
+                            <div style={{ fontSize: '10px', color: isStaff ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)', textAlign: 'right', marginTop: '6px', padding: '0 4px 2px' }}>
                               {timeStr}
                             </div>
                           </div>
                         ) : (
-                          <>
-                            <div style={{ fontSize: '14px' }}>{msg.content}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <div
+                              style={{
+                                fontSize: '14px',
+                                lineHeight: '1.5',
+                                wordBreak: 'break-word',
+                                paddingBottom: '6px', // Extra bottom padding to avoid overlapping the line/timing
+                              }}
+                            >
+                              {msg.content}
+                            </div>
                             <div
                               style={{
                                 fontSize: '10px',
-                                color: isStaff ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)',
+                                color: isStaff ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)',
                                 textAlign: 'right',
-                                marginTop: '4px'
+                                lineHeight: '1.2',
+                                alignSelf: 'flex-end',
+                                userSelect: 'none',
                               }}
                             >
                               {timeStr}
                             </div>
-                          </>
+                          </div>
                         )}
                       </div>
                     )
@@ -914,28 +1003,47 @@ export default function StaffChatPage() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {isChatLocked ? (
+                /* ── Read-only notice once the request is resolved/closed ── */
+                <div style={{
+                  padding: '16px 24px',
+                  background: 'var(--surface)',
+                  borderTop: '1px solid var(--divider)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  color: 'var(--text-muted)',
+                  fontSize: '13px',
+                }}>
+                  <CheckCircle2 size={16} color="var(--success)" />
+                  {selectedReq.status === 'closed'
+                    ? 'This request is closed. The conversation is view-only.'
+                    : 'Marked as resolved — waiting for the traveler to confirm. Chat is now view-only.'}
+                </div>
+              ) : (
+                <>
               {/* Quick response templates */}
               <div style={{ padding: '8px 24px', background: 'var(--surface)', borderTop: '1px solid var(--divider)', display: 'flex', gap: '8px', overflowX: 'auto' }}>
                 <button
                   className="btn btn-outline btn-sm"
-                  style={{ whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  onClick={() => insertTemplate('Please proceed to Gate B12. Our staff member is waiting for you there.')}
+                  style={{ whiteSpace: 'nowrap' }}
+                  onClick={() => insertTemplate('Please proceed to Gate B12. Staff are waiting for you there.')}
                 >
-                  <Zap size={14} /> Gate Direction Template
+                  <Zap size={14} /> Gate
                 </button>
                 <button
                   className="btn btn-outline btn-sm"
-                  style={{ whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  onClick={() => insertTemplate('We apologize for the delay. Your flight is currently delayed by 25 minutes.')}
+                  style={{ whiteSpace: 'nowrap' }}
+                  onClick={() => insertTemplate('Sorry for the delay — your flight is delayed by 25 minutes.')}
                 >
-                  <Zap size={14} /> Delay Explanation
+                  <Zap size={14} /> Delay
                 </button>
                 <button
                   className="btn btn-outline btn-sm"
-                  style={{ whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  onClick={() => insertTemplate('An accessibility team member has been dispatched to your location.')}
+                  style={{ whiteSpace: 'nowrap' }}
+                  onClick={() => insertTemplate('An accessibility team member is on the way to you.')}
                 >
-                  <Zap size={14} /> Staff Dispatching Notice
+                  <Zap size={14} /> Dispatch
                 </button>
               </div>
 
@@ -952,14 +1060,10 @@ export default function StaffChatPage() {
                   style={{ display: 'none' }}
                   onChange={handleMediaSelect}
                 />
-                <button type="button" className="btn btn-outline" style={{ padding: '10px' }} title="Microphone Speech-to-Text">
-                  <Mic size={18} />
-                </button>
-                {/* Attach media button */}
                 <button
                   type="button"
                   className="btn btn-outline"
-                  style={{ padding: '10px', position: 'relative' }}
+                  style={{ padding: '10px' }}
                   title="Attach Image or Video"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
@@ -971,20 +1075,22 @@ export default function StaffChatPage() {
                 <input
                   type="text"
                   className="input"
-                  placeholder="Type your response to the traveler..."
+                  placeholder="Type a message..."
                   style={{ flex: 1 }}
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   disabled={isUploading}
                 />
                 <button type="submit" className="btn btn-primary" disabled={isUploading}>
-                  <Send size={16} /> Send Response
+                  <Send size={16} /> Send
                 </button>
               </form>
+                </>
+              )}
             </>
           ) : (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-              Select a traveler conversation from the left panel to begin.
+              Select a conversation to begin.
             </div>
           )}
         </div>
