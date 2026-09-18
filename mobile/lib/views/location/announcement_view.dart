@@ -86,10 +86,6 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                   _buildSpokenHeader(context)
                 else
                   _buildVenueHeader(context),
-                if (_viewModel.translating) ...[
-                  const SizedBox(height: 12),
-                  _buildTranslationProgress(context),
-                ],
                 if (isSpokenFeed) ...[
                   const SizedBox(height: 12),
                   const AppMessageBanner(
@@ -97,6 +93,11 @@ class _AnnouncementViewState extends State<AnnouncementView> {
                     type: AppMessageType.information,
                   ),
                 ],
+                if (_viewModel.translating) ...[
+                  const SizedBox(height: 12),
+                  _buildTranslationProgress(context),
+                ],
+
                 const SizedBox(height: 20),
                 if (_loading)
                   const Padding(
@@ -196,7 +197,7 @@ class _AnnouncementViewState extends State<AnnouncementView> {
               _viewModel.isSoundMonitoring &&
                       _viewModel.isSpokenAnnouncementEnabled
                   ? 'Monitoring is on and spoken announcements are enabled.'
-                  : 'Spoken announcements are off. Enable monitoring and Spoken Announcement in settings.',
+                  : 'Spoken announcements are off. Enable it in settings.',
             ),
           ),
           TextButton(

@@ -281,10 +281,7 @@ class _QueueTrackingViewState extends State<QueueTrackingView>
                 ..._lines.map(
                   (line) => DropdownMenuItem<String?>(
                     value: line.id,
-                    child: Text(
-                      '${line.name} — ${line.serviceArea}',
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child: Text(line.name, overflow: TextOverflow.ellipsis),
                   ),
                 ),
               ],

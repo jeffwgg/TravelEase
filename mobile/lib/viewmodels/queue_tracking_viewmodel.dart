@@ -31,6 +31,10 @@ class QueueTrackingViewModel extends ChangeNotifier {
   String? numberToPrefill;
 
   bool _disposed = false;
+  Timer? _refreshTimer;
+  bool _refreshing = false;
+
+  static const _refreshInterval = Duration(seconds: 15);
 
   QueueLineInfo? get selectedLine {
     for (final line in lines) {
@@ -42,6 +46,9 @@ class QueueTrackingViewModel extends ChangeNotifier {
   Future<void> initialize() async {
     FeatureUsageTracker.instance.opened(TrackedFeature.queueTracking);
     await loadLines();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      if (tracking != null) unawaited(refreshTracking());
+    });
   }
 
   void selectLine(String? lineId) {
@@ -56,8 +63,10 @@ class QueueTrackingViewModel extends ChangeNotifier {
       tracking == null ? loadLines() : refreshTracking();
 
   Future<void> loadLines() async {
-    final institutionId = VenueSessionService.instance.session?.institutionId;
-    if (institutionId == null) {
+    final session = VenueSessionService.instance.session;
+    final institutionId = session?.institutionId;
+    final serviceAreaId = session?.serviceAreaId;
+    if (institutionId == null || serviceAreaId == null) {
       lines = const [];
       tracking = null;
       selectedLineId = null;
@@ -75,10 +84,9 @@ class QueueTrackingViewModel extends ChangeNotifier {
       _notify();
     }
     try {
-      // Queue lines are intentionally institution-wide: the selected service
-      // area is shown as information but never filters this list.
       final loadedLines = await _repository.getActiveQueueLines(
         institutionId: institutionId,
+        serviceAreaId: serviceAreaId,
       );
       if (_disposed) return;
       lines = loadedLines;
@@ -110,9 +118,12 @@ class QueueTrackingViewModel extends ChangeNotifier {
   }
 
   Future<void> trackNumber(String rawNumber) async {
-    final institutionId = VenueSessionService.instance.session?.institutionId;
-    if (institutionId == null) {
-      error = 'Start a venue session before tracking a queue.';
+    final session = VenueSessionService.instance.session;
+    final institutionId = session?.institutionId;
+    final serviceAreaId = session?.serviceAreaId;
+    if (institutionId == null || serviceAreaId == null) {
+      error =
+          'Start a venue session with a service area before tracking a queue.';
       _notify();
       return;
     }
@@ -146,6 +157,7 @@ class QueueTrackingViewModel extends ChangeNotifier {
         queueLineId: selectedLineId,
         queuePrefix: line?.prefix,
         institutionId: institutionId,
+        serviceAreaId: serviceAreaId,
       );
       if (_disposed) return;
       if (result == null) {
@@ -175,14 +187,23 @@ class QueueTrackingViewModel extends ChangeNotifier {
 
   Future<void> refreshTracking() async {
     final current = tracking;
-    final institutionId = VenueSessionService.instance.session?.institutionId;
-    if (current == null || institutionId == null) return;
+    final session = VenueSessionService.instance.session;
+    final institutionId = session?.institutionId;
+    final serviceAreaId = session?.serviceAreaId;
+    if (_refreshing ||
+        current == null ||
+        institutionId == null ||
+        serviceAreaId == null) {
+      return;
+    }
+    _refreshing = true;
     try {
       final result = await _repository.trackNumber(
         number: current.number,
         queueLineId: current.line.id,
         queuePrefix: current.line.prefix,
         institutionId: institutionId,
+        serviceAreaId: serviceAreaId,
       );
       if (_disposed) return;
       if (result != null) {
@@ -195,6 +216,8 @@ class QueueTrackingViewModel extends ChangeNotifier {
       if (_disposed) return;
       loadError =
           'Unable to refresh this queue number. Showing the last known status.';
+    } finally {
+      _refreshing = false;
     }
     _notify();
   }
@@ -214,6 +237,8 @@ class QueueTrackingViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
     final activeChannel = channel;
     channel = null;
     if (activeChannel != null) {

@@ -69,6 +69,7 @@ class EnvironmentSoundDetector {
   }
 
   void _handleMonitoringAlert(EnvironmentSoundDetection detection) {
+    if (!isMonitoring || !_enabledTypes.contains(detection.type)) return;
     // Spoken announcements continue through the dedicated speech-to-text
     // pipeline. The capture service sends the transcript notification.
     if (detection.type == EnvironmentSoundType.speechAnnouncement) return;

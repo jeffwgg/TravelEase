@@ -382,7 +382,7 @@ class PublicAnnouncementCaptureService {
     try {
       return await completer.future;
     } finally {
-      firstResultTimeout?.cancel();
+      firstResultTimeout.cancel();
       resultInactivityTimeout?.cancel();
       if (identical(_activeListen, completer)) _activeListen = null;
       _listenTimeout?.cancel();
@@ -440,7 +440,8 @@ class PublicAnnouncementCaptureService {
   /// transcript failed the keyword gate, re-evaluate that transcript with the
   /// tone as extra evidence.
   Future<void> _recheckRecentCandidateWithTone() async {
-    if (_capturing) return;
+    if (_capturing || !await _spokenAnnouncementEnabled()) return;
+    final captureGeneration = _captureGeneration;
     final now = DateTime.now();
     _recentCandidates.removeWhere(
       (candidate) => now.difference(candidate.heardAt) > _toneRecheckWindow,
@@ -463,6 +464,10 @@ class PublicAnnouncementCaptureService {
         'valid=${result.isAnnouncement}',
       );
       if (!result.isAnnouncement) return;
+      if (captureGeneration != _captureGeneration ||
+          !await _spokenAnnouncementEnabled()) {
+        return;
+      }
       _recentCandidates.remove(candidate);
       final refinement = AnnouncementTextRefiner.formatLocally(
         candidate.transcript,
@@ -477,6 +482,10 @@ class PublicAnnouncementCaptureService {
         keywordHits: result.keywordHits,
         language: result.language,
       );
+      if (captureGeneration != _captureGeneration ||
+          !await _spokenAnnouncementEnabled()) {
+        return;
+      }
       await FlashAlertService.instance.blinkTwice();
       await AppNotificationService.instance.showCapturedAnnouncement(
         id: capture.id,
@@ -577,8 +586,9 @@ class PublicAnnouncementCaptureService {
         .toList(growable: false);
 
     if (_containsWordSequence(normalizedNext, normalizedCurrent)) return next;
-    if (_containsWordSequence(normalizedCurrent, normalizedNext))
+    if (_containsWordSequence(normalizedCurrent, normalizedNext)) {
       return current;
+    }
     // Repeated PA recordings often restart immediately after the final
     // sentence. Treat a tail-to-opening update as the same circular
     // utterance, not text that should be appended in reverse order.

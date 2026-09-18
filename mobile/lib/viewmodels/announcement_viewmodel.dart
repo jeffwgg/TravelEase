@@ -25,8 +25,7 @@ class AnnouncementViewModel extends ChangeNotifier {
   final TranslationService _translator;
   final Map<String, AnnouncementTranslation> _deviceTranslations = {};
 
-  static const _officialLanguageKey = 'official_announcement_list_language';
-  static const _spokenLanguageKey = 'spoken_announcement_list_language';
+  static const _languageKey = 'announcement_language';
 
   List<Announcement> announcements = [];
   RealtimeChannel? channel;
@@ -52,9 +51,15 @@ class AnnouncementViewModel extends ChangeNotifier {
   Future<void> initialize({required bool isSpokenFeed}) async {
     _isSpokenFeed = isSpokenFeed;
     final preferences = await SharedPreferences.getInstance();
-    final savedLanguage = preferences.getString(
-      isSpokenFeed ? _spokenLanguageKey : _officialLanguageKey,
-    );
+    // One translation choice is shared by the official/spoken lists and both
+    // detail screens, so moving between them never unexpectedly changes text.
+    final savedLanguage =
+        preferences.getString(_languageKey) ??
+        preferences.getString(
+          isSpokenFeed
+              ? 'spoken_announcement_list_language'
+              : 'official_announcement_list_language',
+        );
     if (const {'en', 'ms', 'zh'}.contains(savedLanguage)) {
       language = savedLanguage!;
     }
@@ -82,10 +87,7 @@ class AnnouncementViewModel extends ChangeNotifier {
     language = value;
     _notify();
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setString(
-      _isSpokenFeed ? _spokenLanguageKey : _officialLanguageKey,
-      value,
-    );
+    await preferences.setString(_languageKey, value);
     await _translateListAnnouncements();
   }
 

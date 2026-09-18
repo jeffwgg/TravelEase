@@ -2,6 +2,7 @@ class QueueLineInfo {
   final String id;
   final String name;
   final String serviceArea;
+  final String? serviceAreaId;
 
   /// Optional service counter label. The web portal no longer sets it, so it
   /// may be absent — [counterLabel] falls back to the service area.
@@ -24,6 +25,7 @@ class QueueLineInfo {
     required this.id,
     required this.name,
     required this.serviceArea,
+    this.serviceAreaId,
     this.counter,
     required this.prefix,
     required this.currentNumber,
@@ -46,6 +48,7 @@ class QueueLineInfo {
     id: json['id'] as String,
     name: json['name'] as String,
     serviceArea: json['service_area'] as String,
+    serviceAreaId: json['service_area_id'] as String?,
     counter: json['counter'] as String?,
     prefix: json['prefix'] as String? ?? '',
     currentNumber: json['current_number'] as String,

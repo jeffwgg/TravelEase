@@ -61,7 +61,7 @@ export default function CreateAnnouncementPage() {
             expiresAt: toLocalDateTime(item.expires_at),
             autoTranslate: item.auto_translated || false,
             targetLanguages: Object.keys(item.translations || {}).length ? Object.keys(item.translations) : ['ms'],
-            status: item.status === 'draft' ? 'active' : item.status,
+        status: item.status,
           })
           setPublishLocked(Boolean(item.published_at) && new Date(item.published_at) <= new Date())
           setTranslations({
@@ -185,7 +185,11 @@ export default function CreateAnnouncementPage() {
         title: form.title.trim(),
         message_en: form.messageEn.trim(),
         priority: form.priority,
-        status: form.status,
+        status: form.status === 'withdrawn'
+          ? 'withdrawn'
+          : isScheduled
+            ? 'scheduled'
+            : 'active',
         translations: translationsPayload,
         auto_translated: form.autoTranslate,
         expires_at: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,

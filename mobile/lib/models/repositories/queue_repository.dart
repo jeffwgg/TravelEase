@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../core/supabase_client.dart';
 import '../entities/queue_tracking.dart';
 
@@ -8,13 +9,19 @@ class QueueRepository {
 
   Future<List<QueueLineInfo>> getActiveQueueLines({
     String institutionId = kliaTerminalOneId,
+    String? serviceAreaId,
   }) async {
-    final response = await _client
+    var query = _client
         .from('queue_lines')
         .select()
         .eq('institution_id', institutionId)
-        .eq('status', 'active')
-        .order('name');
+        .eq('status', 'active');
+    if (serviceAreaId != null) {
+      query = query.or(
+        'service_area_id.is.null,service_area_id.eq.$serviceAreaId',
+      );
+    }
+    final response = await query.order('name');
     return (response as List<dynamic>)
         .map((row) => QueueLineInfo.fromJson(row as Map<String, dynamic>))
         .toList();
@@ -25,6 +32,7 @@ class QueueRepository {
     String? queueLineId,
     String? queuePrefix,
     String institutionId = kliaTerminalOneId,
+    String? serviceAreaId,
   }) async {
     var query = _client
         .from('queue_numbers')
@@ -37,20 +45,33 @@ class QueueRepository {
     if (queueLineId != null && queueLineId.isNotEmpty) {
       query = query.eq('queue_line_id', queueLineId);
     }
-    final response = await query.limit(1).maybeSingle();
-    if (response == null) {
+    // PostgREST does not support this logical `or` reliably through an
+    // embedded `queue_lines!inner` relation. Fetch the small set of number
+    // candidates then apply the identical area rule locally instead.
+    final response = await query.limit(20);
+    final matching = (response as List<dynamic>)
+        .map(
+          (row) =>
+              QueueTrackingData.fromJson(Map<String, dynamic>.from(row as Map)),
+        )
+        .where(
+          (item) => serviceAreaId == null
+              ? item.line.serviceAreaId == null
+              : item.line.serviceAreaId == null ||
+                    item.line.serviceAreaId == serviceAreaId,
+        )
+        .firstOrNull;
+    if (matching == null) {
       return _virtualWaitingNumber(
         number: number,
         queueLineId: queueLineId,
         queuePrefix: queuePrefix,
         institutionId: institutionId,
+        serviceAreaId: serviceAreaId,
       );
     }
-    final tracking = QueueTrackingData.fromJson(
-      Map<String, dynamic>.from(response),
-    );
-    enforceMaximumQueueNumber(tracking);
-    return tracking;
+    enforceMaximumQueueNumber(matching);
+    return matching;
   }
 
   /// Waiting numbers are not pre-created in the database. When a number is
@@ -62,6 +83,7 @@ class QueueRepository {
     required String institutionId,
     String? queueLineId,
     String? queuePrefix,
+    String? serviceAreaId,
   }) async {
     final match = RegExp(r'^(?:([A-Z]+)[-\\s]?)?(\\d+)$')
         .firstMatch(number.trim().toUpperCase());
@@ -79,6 +101,11 @@ class QueueRepository {
     if (queueLineId != null && queueLineId.isNotEmpty) {
       lines = lines.eq('id', queueLineId);
     }
+    if (serviceAreaId != null) {
+      lines = lines.or(
+        'service_area_id.is.null,service_area_id.eq.$serviceAreaId',
+      );
+    }
     final response = await lines.limit(20);
     final lineJson = (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
@@ -88,15 +115,18 @@ class QueueRepository {
               .toUpperCase();
           return row['status'] == 'active' &&
               linePrefix == requestedPrefix &&
-              value <= (row['max_tracking_number'] as int? ??
-                  QueueLineInfo.defaultMaxTrackingNumber);
+              value <=
+                  (row['max_tracking_number'] as int? ??
+                      QueueLineInfo.defaultMaxTrackingNumber);
         })
         .cast<Map<String, dynamic>>()
         .firstOrNull;
     if (lineJson == null) return null;
     final line = QueueLineInfo.fromJson(lineJson);
     final digits = value.toString().padLeft(3, '0');
-    final formatted = line.prefix.trim().isEmpty ? digits : '${line.prefix}-$digits';
+    final formatted = line.prefix.trim().isEmpty
+        ? digits
+        : '${line.prefix}-$digits';
     return QueueTrackingData(
       id: 'virtual-${line.id}-$value',
       number: formatted,

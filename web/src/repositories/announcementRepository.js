@@ -4,6 +4,7 @@ const announcementSelect = '*, service_areas(id, name)'
 
 export const announcementRepository = {
   async getAnnouncements(institutionId) {
+    await this.refreshStatuses()
     const { data, error } = await supabase
       .from('announcements')
       .select(announcementSelect)
@@ -41,6 +42,7 @@ export const announcementRepository = {
   },
 
   async getAnnouncement(id, institutionId) {
+    await this.refreshStatuses()
     const { data, error } = await supabase
       .from('announcements')
       .select(announcementSelect)
@@ -61,6 +63,11 @@ export const announcementRepository = {
 
     if (error) throw error
     return data
+  },
+
+  async refreshStatuses() {
+    const { error } = await supabase.rpc('refresh_announcement_statuses')
+    if (error) throw error
   },
 
   async updateAnnouncement(id, payload) {
@@ -97,11 +104,9 @@ export const announcementRepository = {
   },
 
   async deleteAnnouncement(id) {
-    // `cancelled` is the database-compatible tombstone value. The web UI
-    // presents it as Withdrawn; the underlying database status stays unchanged.
     const { error } = await supabase
       .from('announcements')
-      .update({ status: 'cancelled' })
+      .update({ status: 'withdrawn' })
       .eq('id', id)
 
     if (error) throw error
