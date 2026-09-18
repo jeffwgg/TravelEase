@@ -27,6 +27,9 @@ import {
 import { assistanceRepository } from '../repositories/assistanceRepository'
 import { useAuth } from '../context/AuthContext'
 import LiveLocationMap from '../components/LiveLocationMap'
+import ListPagination from '../components/ListPagination'
+
+const pageSize = 10
 
 export default function AssistanceRequestPage({ staffOnly = false, staffDashboard = false }) {
   const navigate = useNavigate()
@@ -37,6 +40,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('All Statuses')
   const [searchQuery, setSearchQuery] = useState('')
+  const [requestPage, setRequestPage] = useState(1)
 
   // Top-level Navigation Tab: 'requests' | 'barriers'
   const [mainTab, setMainTab] = useState('requests')
@@ -46,6 +50,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
   const [loadingBarriers, setLoadingBarriers] = useState(true)
   const [barrierStatusFilter, setBarrierStatusFilter] = useState('All Statuses')
   const [barrierSearchQuery, setBarrierSearchQuery] = useState('')
+  const [barrierPage, setBarrierPage] = useState(1)
   const [selectedBarrier, setSelectedBarrier] = useState(null)
   const [isBarrierModalOpen, setIsBarrierModalOpen] = useState(false)
   const [barrierNewStatus, setBarrierNewStatus] = useState('reported')
@@ -64,6 +69,14 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
   const [staffFilterAvailable, setStaffFilterAvailable] = useState(true)
   const [submittingAssignId, setSubmittingAssignId] = useState(null)
   const [toastMessage, setToastMessage] = useState(null)
+
+  useEffect(() => {
+    setRequestPage(1)
+  }, [statusFilter, searchQuery, mainTab])
+
+  useEffect(() => {
+    setBarrierPage(1)
+  }, [barrierStatusFilter, barrierSearchQuery, mainTab])
 
   useEffect(() => {
     loadRequests()
@@ -175,6 +188,13 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
       return matchesStatus && matchesSearch
     })
   }, [scopedBarriers, barrierStatusFilter, barrierSearchQuery])
+
+  const totalBarrierPages = Math.max(1, Math.ceil(filteredBarriers.length / pageSize))
+  const currentBarrierPage = Math.min(barrierPage, totalBarrierPages)
+  const paginatedBarriers = filteredBarriers.slice(
+    (currentBarrierPage - 1) * pageSize,
+    currentBarrierPage * pageSize
+  )
 
   const barrierPendingCount = scopedBarriers.filter(b => b.status === 'reported').length
   const barrierInvestigatingCount = scopedBarriers.filter(b => b.status === 'investigating' || b.status === 'in_progress').length
@@ -305,6 +325,13 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
     }
     return new Date(b.created_at || 0) - new Date(a.created_at || 0)
   })
+
+  const totalRequestPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize))
+  const currentRequestPage = Math.min(requestPage, totalRequestPages)
+  const paginatedRequests = filteredRequests.slice(
+    (currentRequestPage - 1) * pageSize,
+    currentRequestPage * pageSize
+  )
 
   const filteredStaff = staffList.filter(staff => {
     const matchesAvailability = !staffFilterAvailable || staff.status === 'available'
@@ -593,7 +620,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                       <td colSpan={staffOnly ? "8" : "9"} style={{ textAlign: 'center', padding: '32px' }}>No assistance requests match your filter.</td>
                     </tr>
                   ) : (
-                    filteredRequests.map((req) => {
+                    paginatedRequests.map((req) => {
                       const isUnassigned = !req.assigned_staff_name || req.assigned_staff_name === 'Unassigned'
                       const isEscalated = req.is_escalated === true
                       const minutesWaiting = req.created_at
@@ -768,6 +795,15 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                   )}
                 </tbody>
               </table>
+              {!loading && (
+                <ListPagination
+                  page={currentRequestPage}
+                  totalItems={filteredRequests.length}
+                  pageSize={pageSize}
+                  onPageChange={setRequestPage}
+                  label="Immediate assistance requests"
+                />
+              )}
             </div>
           </>
         ) : (
@@ -867,7 +903,7 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                       </td>
                     </tr>
                   ) : (
-                    filteredBarriers.map((b) => {
+                    paginatedBarriers.map((b) => {
                       return (
                         <tr key={b.id}>
                           <td>
@@ -991,6 +1027,15 @@ export default function AssistanceRequestPage({ staffOnly = false, staffDashboar
                   )}
                 </tbody>
               </table>
+              {!loadingBarriers && (
+                <ListPagination
+                  page={currentBarrierPage}
+                  totalItems={filteredBarriers.length}
+                  pageSize={pageSize}
+                  onPageChange={setBarrierPage}
+                  label="Accessibility barrier reports"
+                />
+              )}
             </div>
           </>
         )}
