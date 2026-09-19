@@ -10,9 +10,8 @@ The backend is a hosted [Supabase](https://supabase.com) project (Postgres, Auth
 |---|---|
 | `mobile/` | Flutter app for travellers (Android/iOS). |
 | `web/` | React + Vite dashboard for institution staff. |
-| `server/supabase/` | Shared database migrations, seed data, and emergency-contact edge functions. |
+| `server/supabase/` | Emergency-contact edge functions (SOS contact, OTP). |
 | `web/supabase/` | Web-owned edge functions (translation, queue lines, venue search) and the LibreTranslate Docker setup. |
-| `docs/` | Requirements, architecture, and design documents. |
 
 ## Prerequisites
 
@@ -20,7 +19,7 @@ The backend is a hosted [Supabase](https://supabase.com) project (Postgres, Auth
 - **Flutter 3.47.1 via FVM** — for the mobile app. See [Mobile toolchain](#mobile-toolchain) below.
 - **JDK 17** — for Android builds.
 - **Docker** — only required if you run the self-hosted translation service (LibreTranslate).
-- A **Supabase project** with the migrations in `server/supabase/migrations` applied, or access to the shared team project.
+- A **Supabase project** — use the shared team project, or any project where the TravelEase schema is already applied.
 
 ## Environment variables
 
@@ -112,11 +111,11 @@ For IDE builds, `dart.flutterSdkPath` must also point to a space-free absolute S
 
 The app previously pinned `video_player` 2.8.2, which selected `video_player_android` 2.4.17. That Android plugin still referenced Flutter's removed `PluginRegistry.Registrar` API, so builds failed on newer Flutter SDKs. The tested `video_player` 2.14.0 resolution selects `video_player_android` 2.12.2 instead.
 
-CI runs the same Flutter and Java versions for every pull request.
+Use these same Flutter and Java versions for local builds.
 
 ## Supabase backend
 
-Database migrations live in `server/supabase/migrations` and are applied to the hosted Supabase project (SQL editor or `supabase db push`). Edge Functions are deployed with the Supabase CLI:
+The database schema is managed directly in the hosted Supabase project. Edge Functions are deployed with the Supabase CLI:
 
 ```bash
 # from web/ for web-owned functions
@@ -138,8 +137,6 @@ supabase secrets set LIBRETRANSLATE_API_KEY=<your-libretranslate-key>
 supabase secrets set RESEND_API_KEY=<your-resend-key>
 ```
 
-Optional demo data for the analytics dashboards can be seeded with the scripts in [server/supabase/seed](server/supabase/seed/README.md).
-
 ## Docker: self-hosted translation service (LibreTranslate)
 
 Announcement translation (English → Malay / Chinese) runs through a self-hosted LibreTranslate server so no third-party translation API key is needed in the clients. Start it with Docker from `web/supabase/libretranslate`:
@@ -157,9 +154,3 @@ Full step-by-step instructions, including key creation, the tunnel workflow, and
 - [web/supabase/TRANSLATION_FUNCTION_GUIDE.md](web/supabase/TRANSLATION_FUNCTION_GUIDE.md) — how the translation flow works end to end.
 
 If someone else already hosts LibreTranslate and the Supabase secrets are set, you do not need Docker at all.
-
-## Further reading
-
-- [docs/Proposal.md](docs/Proposal.md) — project proposal.
-- [docs/SRS n SDA_TravelEase.md](docs/SRS%20n%20SDA_TravelEase.md) — requirements and architecture.
-- [docs/design.md](docs/design.md) — design notes.
