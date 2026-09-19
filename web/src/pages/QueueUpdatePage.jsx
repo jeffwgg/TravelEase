@@ -152,10 +152,8 @@ export default function QueueUpdatePage() {
   }
 
   const saveLine = async () => {
-    const serviceArea = editing.service_area_id
-      ? activeServiceAreas.find((area) => area.id === editing.service_area_id)
-      : null
-    if (!editing.name.trim() || (editing.service_area_id && !serviceArea)) {
+    const serviceArea = activeServiceAreas.find((area) => area.id === editing.service_area_id)
+    if (!editing.name.trim() || !serviceArea) {
       setEditingError('Queue line name is required, and a selected service area must be active.')
       return
     }
@@ -174,8 +172,8 @@ export default function QueueUpdatePage() {
     try {
       await queueRepository.updateQueueLine(editing.id, {
         name: editing.name.trim(),
-        service_area_id: serviceArea?.id || null,
-        service_area: serviceArea?.name || 'All service areas',
+        service_area_id: serviceArea.id,
+        service_area: serviceArea.name,
         status: editing.status,
         estimated_service_minutes: Number(editing.estimated_service_minutes),
         max_tracking_number: Number(editing.max_tracking_number) > 0 ? Number(editing.max_tracking_number) : 100,
@@ -418,7 +416,7 @@ export default function QueueUpdatePage() {
             <div className="form-group"><label>Queue Line Name</label><input className="input" disabled={editing.was_closed} value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></div>
             <div className="form-group"><label>Current Number</label><div className="input queue-readonly-value" aria-label="Current Number">{editing.current_number}</div></div>
             <div className="form-group"><label>Upcoming Number</label><div className="input queue-readonly-value" aria-label="Upcoming Number">{editing.upcoming_number}</div></div>
-            <div className="form-group"><label>Service Area</label><select className="input" disabled={editing.was_closed} value={editing.service_area_id || ''} onChange={(event) => setEditing({ ...editing, service_area_id: event.target.value || null })}><option value="">All service areas</option>{activeServiceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></div>
+            <div className="form-group"><label>Service Area</label><select className="input" disabled={editing.was_closed} value={editing.service_area_id || ''} onChange={(event) => setEditing({ ...editing, service_area_id: event.target.value || null })}><option value="" disabled>Select a service area</option>{activeServiceAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></div>
             <div className="form-group"><label>Estimated Service Time (Minutes)</label><input type="number" min="1" max="240" className="input" disabled={editing.was_closed} value={editing.estimated_service_minutes} onChange={(event) => setEditing({ ...editing, estimated_service_minutes: event.target.value })} /></div>
             <div className="form-group"><label>Maximum Queue Number</label><input type="number" min="1" max="500" step="1" className="input" disabled={editing.was_closed} value={editing.max_tracking_number ?? 100} onChange={(event) => setEditing({ ...editing, max_tracking_number: event.target.value })} /><div className="field-note">Queue numbers stop at this value; no larger numbers can be called or tracked.</div></div>
             <div className="form-group"><label>Operating Hours</label><input className="input" disabled={editing.was_closed} value={editing.operating_hours || ''} onChange={(event) => setEditing({ ...editing, operating_hours: event.target.value })} placeholder="e.g. 6:00 AM – 11:00 PM" /></div>
