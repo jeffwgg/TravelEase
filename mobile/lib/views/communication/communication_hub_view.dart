@@ -34,69 +34,75 @@ class CommunicationHubView extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _toolCard(
-                      context: context,
-                      tourKey: _signTourKey,
-                      icon: Icons.sign_language_rounded,
-                      title: 'Live Camera Sign Translation',
-                      subtitle: 'Real-time gesture AI with Auto-Speak',
-                      color: AppColors.primary,
-                      onTap: () => context.push('/sign-camera'),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _toolCard(
+                        context: context,
+                        tourKey: _signTourKey,
+                        icon: Icons.sign_language_rounded,
+                        title: 'Live Camera Sign Translation',
+                        subtitle: 'Real-time gesture AI with Auto-Speak',
+                        color: AppColors.primary,
+                        onTap: () => context.push('/sign-camera'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _toolCard(
-                      context: context,
-                      tourKey: _dialogueTourKey,
-                      icon: Icons.chat_bubble_outline_rounded,
-                      title: '2-Way Dialogue',
-                      subtitle: 'Counter split-screen chat',
-                      color: AppColors.secondary,
-                      onTap: () => context.push('/dialogue'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _toolCard(
+                        context: context,
+                        tourKey: _dialogueTourKey,
+                        icon: Icons.chat_bubble_outline_rounded,
+                        title: '2-Way Dialogue',
+                        subtitle: 'Counter split-screen chat',
+                        color: AppColors.secondary,
+                        onTap: () => context.push('/dialogue'),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _toolCard(
-                      context: context,
-                      tourKey: _dictionaryTourKey,
-                      icon: Icons.menu_book_rounded,
-                      title: 'Sign Dictionary',
-                      subtitle: 'BIM / ASL Library',
-                      color: const Color(0xFF10B981),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const SignDictionaryView(),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _toolCard(
+                        context: context,
+                        tourKey: _dictionaryTourKey,
+                        icon: Icons.menu_book_rounded,
+                        title: 'Sign Dictionary',
+                        subtitle: 'BIM / ASL Library',
+                        color: const Color(0xFF10B981),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const SignDictionaryView(),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _toolCard(
-                      context: context,
-                      icon: Icons.star_rounded,
-                      title: 'Favorites',
-                      subtitle: 'Bookmarked quick phrases',
-                      color: AppColors.secondary,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const FavoritePhrasesView(),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _toolCard(
+                        context: context,
+                        icon: Icons.star_rounded,
+                        title: 'Favorites',
+                        subtitle: 'Bookmarked quick phrases',
+                        color: AppColors.secondary,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const FavoritePhrasesView(),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 24),
               Text(
@@ -198,7 +204,7 @@ class CommunicationHubView extends StatelessWidget {
     onTap: onTap,
     borderRadius: BorderRadius.circular(18),
     child: Container(
-      height: 152,
+      constraints: const BoxConstraints(minHeight: 152),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -226,15 +232,11 @@ class CommunicationHubView extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
           ),
           const SizedBox(height: 2),
           Text(
             subtitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontSize: 11,
               color: AppColors.textSecondary,

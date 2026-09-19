@@ -13,52 +13,69 @@ class AssistanceMenuView extends StatelessWidget {
   void _showGuidanceInfo(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 24),
-                decoration: BoxDecoration(
-                  color: AppColors.divider,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const Row(
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, color: AppColors.primary, size: 28),
-                SizedBox(width: 12),
-                Text(
-                  'Assistance Guidance',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 24),
+                    decoration: BoxDecoration(
+                      color: AppColors.divider,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: AppColors.primary,
+                      size: 28,
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Assistance Guidance',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  '• Make Request: Use this if you need help with navigation, luggage, communication, or other airport services. Staff will be dispatched or will chat with you.\n\n'
+                  '• Track Request: Once you have submitted a request, you can track its status and chat with the assigned staff member here.\n\n'
+                  '• Emergency: For immediate emergencies, please use the SOS button on the home page.',
+                  style: TextStyle(fontSize: 15, height: 1.5),
+                ),
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Got it'),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            const Text(
-              '• Make Request: Use this if you need help with navigation, luggage, communication, or other airport services. Staff will be dispatched or will chat with you.\n\n'
-              '• Track Request: Once you have submitted a request, you can track its status and chat with the assigned staff member here.\n\n'
-              '• Emergency: For immediate emergencies, please use the SOS button on the home page.',
-              style: TextStyle(fontSize: 15, height: 1.5),
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Got it'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -110,8 +127,7 @@ class AssistanceMenuView extends StatelessWidget {
                   context,
                   icon: Icons.report_outlined,
                   title: 'Report a Barrier',
-                  subtitle:
-                      'Facility feedback only - staff will not respond to reports',
+                  subtitle: 'Facility feedback only - staff will not respond to reports',
                   onTap: () => context.push('/accessibility-issue'),
                 ),
                 const SizedBox(height: 16),

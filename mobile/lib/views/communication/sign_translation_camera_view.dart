@@ -15,6 +15,7 @@ import '../../services/sign_frame_data.dart';
 import '../../services/app_tour_controller.dart';
 import '../../viewmodels/sign_translation_camera_viewmodel.dart';
 import '../../widgets/app_tour_coachmark.dart';
+import '../../widgets/scrollable_screen_body.dart';
 
 /// Debug overlays (skeleton painter, harness tray) are hidden in release
 /// builds but shown in BOTH debug and profile — profiling runs are exactly
@@ -431,8 +432,9 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                                 ? 'Conversation log saved to this device!'
                                 : 'Nothing to save yet.',
                           ),
-                          backgroundColor:
-                              ok ? AppColors.success : AppColors.emergency,
+                          backgroundColor: ok
+                              ? AppColors.success
+                              : AppColors.emergency,
                           duration: const Duration(seconds: 2),
                         ),
                       );
@@ -486,7 +488,10 @@ class _SignTranslationCameraViewState extends State<SignTranslationCameraView>
                   const SizedBox(width: 4),
                 ],
               ),
-              body: _buildSignToTextView(),
+              body: ScrollableScreenBody(
+                minimumHeight: 680,
+                child: _buildSignToTextView(),
+              ),
             ),
             Positioned.fill(
               child: AppTourCoachmark(

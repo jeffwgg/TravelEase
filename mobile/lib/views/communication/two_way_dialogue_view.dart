@@ -7,6 +7,7 @@ import '../../models/repositories/feature_usage_repository.dart';
 import '../../services/app_tour_controller.dart';
 import '../../viewmodels/two_way_dialogue_viewmodel.dart';
 import '../../widgets/app_tour_coachmark.dart';
+import '../../widgets/scrollable_screen_body.dart';
 import 'communication_history_view.dart';
 
 /// Google Translate-style conversation view (FR-M3-08 to FR-M3-16, UC303, UC304)
@@ -550,8 +551,7 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              const CommunicationHistoryView(),
+                          builder: (_) => const CommunicationHistoryView(),
                         ),
                       );
                     },
@@ -614,79 +614,86 @@ class _TwoWayDialogueViewState extends State<TwoWayDialogueView>
                   ),
                 ],
               ),
-              body: Column(
-                children: [
-                  // ── Language pair header, Google Translate style ──
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 10, 24, 6),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            _langName(_viewModel.sourceLang),
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary,
+              body: ScrollableScreenBody(
+                minimumHeight: _showInputBar ? 520 : 440,
+                child: Column(
+                  children: [
+                    // ── Language pair header, Google Translate style ──
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 10, 24, 6),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              _langName(_viewModel.sourceLang),
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                           ),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Icon(
-                            Icons.arrow_forward_rounded,
-                            size: 14,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                        Flexible(
-                          child: Text(
-                            _langName(_viewModel.targetLang),
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary,
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            child: Icon(
+                              Icons.arrow_forward_rounded,
+                              size: 14,
+                              color: AppColors.primary,
                             ),
                           ),
-                        ),
-                      ],
+                          Flexible(
+                            child: Text(
+                              _langName(_viewModel.targetLang),
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
 
-                  if (_viewModel.isTranslating || _viewModel.isProcessingSpeech)
-                    const LinearProgressIndicator(minHeight: 2),
+                    if (_viewModel.isTranslating ||
+                        _viewModel.isProcessingSpeech)
+                      const LinearProgressIndicator(minHeight: 2),
 
-                  // ── Unified sentence-by-sentence transcript ──
-                  Expanded(
-                    child: _viewModel.isLoading
-                        ? const Center(child: CircularProgressIndicator())
-                        : ListView.builder(
-                            controller: _scrollController,
-                            padding: const EdgeInsets.only(top: 4, bottom: 12),
-                            itemCount: _viewModel.messages.length + 1,
-                            itemBuilder: (context, i) {
-                              if (i == _viewModel.messages.length) {
-                                return _buildLiveTranscriptSlot();
-                              }
-                              return _buildSentenceBlock(
-                                _viewModel.messages[i],
-                              );
-                            },
-                          ),
-                  ),
+                    // ── Unified sentence-by-sentence transcript ──
+                    Expanded(
+                      child: _viewModel.isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : ListView.builder(
+                              controller: _scrollController,
+                              padding: const EdgeInsets.only(
+                                top: 4,
+                                bottom: 12,
+                              ),
+                              itemCount: _viewModel.messages.length + 1,
+                              itemBuilder: (context, i) {
+                                if (i == _viewModel.messages.length) {
+                                  return _buildLiveTranscriptSlot();
+                                }
+                                return _buildSentenceBlock(
+                                  _viewModel.messages[i],
+                                );
+                              },
+                            ),
+                    ),
 
-                  // ── Inline typing bar (shown when keyboard mode is on) ──
-                  if (_showInputBar) _buildInlineInputBar(),
+                    // ── Inline typing bar (shown when keyboard mode is on) ──
+                    if (_showInputBar) _buildInlineInputBar(),
 
-                  // ── Bottom controls: language pills + big mic ──
-                  KeyedSubtree(
-                    key: _tourTargetKey,
-                    child: _buildBottomControls(),
-                  ),
-                ],
+                    // ── Bottom controls: language pills + big mic ──
+                    KeyedSubtree(
+                      key: _tourTargetKey,
+                      child: _buildBottomControls(),
+                    ),
+                  ],
+                ),
               ),
             ),
             Positioned.fill(

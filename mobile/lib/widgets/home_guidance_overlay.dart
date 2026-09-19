@@ -191,93 +191,114 @@ class _HomeGuidanceOverlayState extends State<HomeGuidanceOverlay> {
     final width = math.min(352.0, size.width - horizontalMargin * 2);
     final left = (size.width - width) / 2;
     final preferAbove = target != null && target.center.dy > size.height * 0.58;
-    final top = target == null
-        ? math.max(24.0, (size.height - 260) / 2)
-        : math.min(size.height - 216, target.bottom + 18);
+    final media = MediaQuery.of(context);
+    final safeTop = media.padding.top + 16;
+    final safeBottom =
+        math.max(media.padding.bottom, media.viewInsets.bottom) + 16;
+    final available = math.max(0.0, size.height - safeTop - safeBottom);
+    final room = math.min(300.0, available);
+    final top = target == null || preferAbove
+        ? safeTop
+        : (target.bottom + 18).clamp(safeTop, safeTop + available - room);
+    final bottom = target == null || !preferAbove
+        ? safeBottom
+        : (size.height - target.top + 18).clamp(
+            safeBottom,
+            safeBottom + available - room,
+          );
 
     return Positioned(
       left: left,
       width: width,
-      top: preferAbove ? null : math.max(16, top),
-      bottom: preferAbove ? math.max(16, size.height - target.top + 18) : null,
-      child: Material(
-        color: Colors.transparent,
-        child: Semantics(
-          liveRegion: true,
-          child: Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x40000000),
-                  blurRadius: 24,
-                  offset: Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  widget.message,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 14,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final action in widget.actions)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: action.isPrimary
-                            ? ElevatedButton(
-                                onPressed: action.onPressed,
-                                style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size(0, 40),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                  ),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                child: Text(action.label),
-                              )
-                            : OutlinedButton(
-                                onPressed: action.onPressed,
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size(0, 40),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                  ),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                child: Text(action.label),
-                              ),
-                      ),
-                    TextButton(
-                      onPressed: widget.onSkip,
-                      child: Text(widget.skipLabel),
+      top: top,
+      bottom: bottom,
+      child: Align(
+        alignment: target == null
+            ? Alignment.center
+            : preferAbove
+            ? Alignment.bottomCenter
+            : Alignment.topCenter,
+        child: SingleChildScrollView(
+          child: Material(
+            color: Colors.transparent,
+            child: Semantics(
+              liveRegion: true,
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x40000000),
+                      blurRadius: 24,
+                      offset: Offset(0, 8),
                     ),
                   ],
                 ),
-              ],
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.title,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      widget.message,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      runSpacing: 6,
+                      children: [
+                        for (final action in widget.actions)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: action.isPrimary
+                                ? ElevatedButton(
+                                    onPressed: action.onPressed,
+                                    style: ElevatedButton.styleFrom(
+                                      minimumSize: const Size(0, 40),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                      ),
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: Text(action.label),
+                                  )
+                                : OutlinedButton(
+                                    onPressed: action.onPressed,
+                                    style: OutlinedButton.styleFrom(
+                                      minimumSize: const Size(0, 40),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                      ),
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: Text(action.label),
+                                  ),
+                          ),
+                        TextButton(
+                          onPressed: widget.onSkip,
+                          child: Text(widget.skipLabel),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
