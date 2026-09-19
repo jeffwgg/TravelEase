@@ -930,6 +930,10 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
   }) {
     final area = match.serviceArea;
     final detail = <String>[
+      // Current-location results keep the institution as the title, then show
+      // the matched service area directly underneath it.
+      if (autoSuggested && area != null) 'Service area: ${area.name}',
+      if (autoSuggested && area == null) 'Choose a service area',
       if (area?.address?.trim().isNotEmpty ?? false) area!.address!.trim(),
       if (match.venue.distanceLabel.isNotEmpty) match.venue.distanceLabel,
     ].join(' • ');
@@ -938,11 +942,16 @@ class _VenueIdentificationViewState extends State<VenueIdentificationView>
       title: autoSuggested ? match.venue.name : area?.name,
       icon: Icons.location_on_outlined,
       subtitle: detail,
-      onTap: () => _confirmAndEstablish(
-        match.venue,
-        serviceArea: area,
-        autoSuggested: autoSuggested,
-      ),
+      onTap: autoSuggested && area == null
+          // The venue is nearby but GPS did not fall inside a configured
+          // service-area radius. Load its areas rather than silently creating
+          // an institution-level session.
+          ? () => _selectInstitution(match.venue)
+          : () => _confirmAndEstablish(
+              match.venue,
+              serviceArea: area,
+              autoSuggested: autoSuggested,
+            ),
     );
   }
 

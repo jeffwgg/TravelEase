@@ -316,6 +316,9 @@ class VenueIdentificationViewModel extends ChangeNotifier {
       manualServiceAreaOptions = serviceAreas
           .map((area) => VenueLocationMatch(venue: venue, serviceArea: area))
           .toList();
+      // Replace the nearby institution choices with the selected venue's
+      // precise service-area choices.
+      detectedVenues = const [];
       _notify();
       return false;
     } catch (_) {
