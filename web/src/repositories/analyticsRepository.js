@@ -3,10 +3,12 @@ import { supabase } from '../lib/supabase'
 // Module 7 data access: cross-module reads (queue, communication, users, SLA)
 // used by the analytics dashboards and the report generator.
 export const analyticsRepository = {
-  async getQueueLines() {
-    const { data, error } = await supabase
+  async getQueueLines(institutionId) {
+    let query = supabase
       .from('queue_lines')
       .select('id, name, prefix, service_area, status')
+    if (institutionId) query = query.eq('institution_id', institutionId)
+    const { data, error } = await query
 
     if (error) {
       console.error('Error fetching queue lines:', error)
@@ -15,10 +17,12 @@ export const analyticsRepository = {
     return data
   },
 
-  async getQueueNumbers() {
-    const { data, error } = await supabase
+  async getQueueNumbers(institutionId) {
+    let query = supabase
       .from('queue_numbers')
       .select('id, queue_line_id, number, status, called_at, completed_at, created_at')
+    if (institutionId) query = query.eq('institution_id', institutionId)
+    const { data, error } = await query
 
     if (error) {
       console.error('Error fetching queue numbers:', error)

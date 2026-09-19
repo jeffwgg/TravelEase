@@ -90,6 +90,7 @@ class _ChatViewState extends State<ChatView> {
 
   // ── Start a call (Mobile initiates) ────────────────────────────────────────
   Future<void> _startCall(CallType type) async {
+    if (_webrtc.callState != WebRTCCallState.idle) return;
     await _webrtc.startCall(widget.requestId, type);
   }
 
@@ -157,15 +158,37 @@ class _ChatViewState extends State<ChatView> {
         actions: [
           // Voice call button
           IconButton(
-            icon: Icon(Icons.call, color: _viewModel.isReadOnly ? AppColors.textMuted : AppColors.success),
-            tooltip: _viewModel.isReadOnly ? 'Calls unavailable — request resolved' : 'Start Voice Call',
-            onPressed: _viewModel.isReadOnly ? null : () => _startCall(CallType.voice),
+            icon: Icon(
+              Icons.call,
+              color: (_viewModel.isReadOnly || _webrtc.callState != WebRTCCallState.idle)
+                  ? AppColors.textMuted
+                  : AppColors.success,
+            ),
+            tooltip: _viewModel.isReadOnly
+                ? 'Calls unavailable — request resolved'
+                : _webrtc.callState != WebRTCCallState.idle
+                    ? 'Call in progress'
+                    : 'Start Voice Call',
+            onPressed: (_viewModel.isReadOnly || _webrtc.callState != WebRTCCallState.idle)
+                ? null
+                : () => _startCall(CallType.voice),
           ),
           // Video call button
           IconButton(
-            icon: Icon(Icons.videocam, color: _viewModel.isReadOnly ? AppColors.textMuted : AppColors.primary),
-            tooltip: _viewModel.isReadOnly ? 'Calls unavailable — request resolved' : 'Start Video Call',
-            onPressed: _viewModel.isReadOnly ? null : () => _startCall(CallType.video),
+            icon: Icon(
+              Icons.videocam,
+              color: (_viewModel.isReadOnly || _webrtc.callState != WebRTCCallState.idle)
+                  ? AppColors.textMuted
+                  : AppColors.primary,
+            ),
+            tooltip: _viewModel.isReadOnly
+                ? 'Calls unavailable — request resolved'
+                : _webrtc.callState != WebRTCCallState.idle
+                    ? 'Call in progress'
+                    : 'Start Video Call',
+            onPressed: (_viewModel.isReadOnly || _webrtc.callState != WebRTCCallState.idle)
+                ? null
+                : () => _startCall(CallType.video),
           ),
           IconButton(icon: const Icon(Icons.more_vert), onPressed: () {}),
         ],
@@ -415,17 +438,39 @@ class _ChatViewState extends State<ChatView> {
             ),
 
           // Local video (PIP — bottom right)
-          if (_webrtc.callType == CallType.video)
+          if (_webrtc.callType == CallType.video && !_webrtc.isCameraOff)
             Positioned(
               bottom: 120, right: 16,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: SizedBox(
+                child: Container(
                   width: 120, height: 90,
-                  child: RTCVideoView(
-                    _webrtc.localRenderer,
-                    mirror: true,
-                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  color: Colors.black,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: RTCVideoView(
+                          _webrtc.localRenderer,
+                          mirror: _webrtc.isFrontCamera,
+                          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                        ),
+                      ),
+                      // Quick flip camera button on PIP
+                      Positioned(
+                        top: 4, right: 4,
+                        child: GestureDetector(
+                          onTap: () => _webrtc.flipCamera(),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.black.withValues(alpha: 0.55),
+                            ),
+                            child: const Icon(Icons.flip_camera_ios, color: Colors.white, size: 16),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -454,6 +499,16 @@ class _ChatViewState extends State<ChatView> {
                     size: 48,
                   ),
                   const SizedBox(width: 16),
+                  // Flip camera (video calls only, when camera is active)
+                  if (!_webrtc.isCameraOff) ...[
+                    _callControlBtn(
+                      icon: Icons.flip_camera_ios,
+                      active: !_webrtc.isFrontCamera,
+                      onTap: () => _webrtc.flipCamera(),
+                      size: 48,
+                    ),
+                    const SizedBox(width: 16),
+                  ],
                 ],
                 // End call
                 GestureDetector(

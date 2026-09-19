@@ -45,6 +45,7 @@ class WebRTCService extends ChangeNotifier {
   String? incomingRequestId;
   bool isMicMuted = false;
   bool isCameraOff = false;
+  bool isFrontCamera = true;
 
   /// Human-readable reason the last call attempt failed (shown as a snackbar).
   String? callError;
@@ -110,6 +111,9 @@ class WebRTCService extends ChangeNotifier {
   RealtimeChannel? _globalChannel;
   String? _requestId;
 
+  Timer? _callTimeoutTimer;
+  StreamSubscription<AuthState>? _authSubscription;
+
   bool _renderersInitialized = false;
 
   Future<String> _currentTravelerName() async {
@@ -136,6 +140,11 @@ class WebRTCService extends ChangeNotifier {
 
   /// Call this once when app starts.
   Future<void> init() async {
+    _authSubscription ??= _client.auth.onAuthStateChange.listen((data) {
+      if (data.session != null) {
+        subscribeToGlobalSignaling();
+      }
+    });
     if (_renderersInitialized) return;
     await localRenderer.initialize();
     await remoteRenderer.initialize();
@@ -144,7 +153,12 @@ class WebRTCService extends ChangeNotifier {
 
   /// Global foreground listener for incoming calls from any room/request
   void subscribeToGlobalSignaling() {
-    if (_globalChannel != null) return;
+    if (_globalChannel != null) {
+      try {
+        _client.removeChannel(_globalChannel!);
+      } catch (_) {}
+      _globalChannel = null;
+    }
     _globalChannel = _client
         .channel('call_room_global')
         .onBroadcast(
@@ -223,6 +237,7 @@ class WebRTCService extends ChangeNotifier {
   // ── Mobile initiates a call → sends offer to Web ──────────────────────────
 
   Future<void> startCall(String requestId, CallType type) async {
+    if (callState != WebRTCCallState.idle) return;
     callError = null;
     final granted = await _ensureCallPermissions(type);
     if (!granted) {
@@ -232,6 +247,7 @@ class WebRTCService extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    _requestId = requestId;
     callType = type;
     callState = WebRTCCallState.calling;
     _initiatedCall = true;
@@ -239,7 +255,18 @@ class WebRTCService extends ChangeNotifier {
     _endedCallAt = null;
     _remoteDescriptionSet = false;
     _iceCandidateQueue.clear();
+    _callTimeoutTimer?.cancel();
+    _callTimeoutTimer = Timer(const Duration(seconds: 35), () {
+      if (callState == WebRTCCallState.calling) {
+        callError = 'Staff did not answer. Please try again.';
+        hangup(notifyRemote: true);
+      }
+    });
     notifyListeners();
+
+    // Ensure the room signaling channel is subscribed BEFORE sending the
+    // offer, so the web's call_answer will be received on the room channel.
+    subscribeToSignaling(requestId);
 
     try {
       final constraints = _mediaConstraints(type);
@@ -276,12 +303,31 @@ class WebRTCService extends ChangeNotifier {
   Future<void> acceptCall() async {
     if (_pendingOffer == null) return;
     callError = null;
+    _callTimeoutTimer?.cancel();
+    _callTimeoutTimer = null;
     final granted = await _ensureCallPermissions(callType);
     if (!granted) {
       callError = 'Allow microphone${callType == CallType.video ? ' and camera' : ''} access to join this call';
       await rejectCall();
       return;
     }
+
+    // Close old peer connection if one exists, but PRESERVE the ICE
+    // candidate queue — it holds candidates the web sent while the phone
+    // was ringing.  _cleanupPeer() used to clear the queue, causing the
+    // web's ICE candidates to be lost and the connection to never
+    // establish (web would stay stuck on "calling").
+    if (_pc != null) {
+      _pc!.close();
+      _pc = null;
+    }
+    _localStream?.getTracks().forEach((t) => t.stop());
+    _localStream = null;
+    localRenderer.srcObject = null;
+    remoteRenderer.srcObject = null;
+    _remoteDescriptionSet = false;
+    // NOTE: _iceCandidateQueue is intentionally NOT cleared here.
+
     callState = WebRTCCallState.connected;
     _connectedAt = DateTime.now();
     notifyListeners();
@@ -358,6 +404,20 @@ class WebRTCService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> flipCamera() async {
+    if (_localStream == null) return;
+    final videoTracks = _localStream!.getVideoTracks();
+    if (videoTracks.isEmpty) return;
+    final track = videoTracks.first;
+    try {
+      final res = await Helper.switchCamera(track);
+      isFrontCamera = res;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[WebRTCService] flipCamera error: $e');
+    }
+  }
+
   // ── Private: signal event handlers ───────────────────────────────────────
 
   Future<void> _onCallOffer(Map<String, dynamic> payload) async {
@@ -414,15 +474,23 @@ class WebRTCService extends ChangeNotifier {
 
   Future<void> _onCallAnswer(Map<String, dynamic> payload) async {
     if (_pc == null) return;
+    _callTimeoutTimer?.cancel();
+    _callTimeoutTimer = null;
+    final signalingState = await _pc!.getSignalingState();
+    if (signalingState != RTCSignalingState.RTCSignalingStateHaveLocalOffer) return;
     final data = payload.containsKey('payload') ? payload['payload'] : payload;
     final sdp = data['sdp'] as String?;
     if (sdp == null) return;
-    await _pc!.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
-    _remoteDescriptionSet = true;
-    await _flushIceCandidates();
-    callState = WebRTCCallState.connected;
-    _connectedAt = DateTime.now();
-    notifyListeners();
+    try {
+      await _pc!.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
+      _remoteDescriptionSet = true;
+      await _flushIceCandidates();
+      callState = WebRTCCallState.connected;
+      _connectedAt = DateTime.now();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[WebRTCService] _onCallAnswer error: $e');
+    }
   }
 
   Future<void> _onIceCandidate(Map<String, dynamic> payload) async {
@@ -504,6 +572,8 @@ class WebRTCService extends ChangeNotifier {
   }
 
   void _cleanupPeer() {
+    _callTimeoutTimer?.cancel();
+    _callTimeoutTimer = null;
     _localStream?.getTracks().forEach((t) => t.stop());
     _localStream = null;
     localRenderer.srcObject = null;
@@ -512,6 +582,7 @@ class WebRTCService extends ChangeNotifier {
     _remoteDescriptionSet = false;
     _pc?.close();
     _pc = null;
+    isFrontCamera = true;
   }
 
   // ── Private: signaling ─────────────────────────────────────────────────────
@@ -524,20 +595,40 @@ class WebRTCService extends ChangeNotifier {
       if (!payload.containsKey('requestId') && incomingRequestId != null)
         'requestId': incomingRequestId,
     };
+    debugPrint('[WebRTCService] _sendSignal: event=$event, requestId=${fullPayload['requestId']}');
+
+    // Include both flat properties and a nested 'payload' map so that JS clients
+    // (which destructure { payload }) and flat payload readers receive all keys.
+    final broadcastPayload = <String, dynamic>{
+      ...fullPayload,
+      'payload': Map<String, dynamic>.from(fullPayload),
+    };
+
     if (_signalingChannel != null) {
-      await _signalingChannel!.sendBroadcastMessage(
-        event: event,
-        payload: fullPayload,
-      );
+      try {
+        await _signalingChannel!.sendBroadcastMessage(
+          event: event,
+          payload: broadcastPayload,
+        );
+      } catch (e) {
+        debugPrint('[WebRTCService] Signaling channel broadcast error: $e');
+      }
+    } else {
+      debugPrint('[WebRTCService] _signalingChannel is null, skipping room send for $event');
     }
-    try {
-      final globalChannel = _globalChannel ?? _client.channel('call_room_global');
-      await globalChannel.sendBroadcastMessage(
-        event: event,
-        payload: fullPayload,
-      );
-    } catch (e) {
-      debugPrint('Global signal broadcast error: $e');
+    // Only send on global channel if it's properly subscribed.
+    // Do NOT create an ephemeral unsubscribed channel — it will silently fail.
+    if (_globalChannel != null) {
+      try {
+        await _globalChannel!.sendBroadcastMessage(
+          event: event,
+          payload: broadcastPayload,
+        );
+      } catch (e) {
+        debugPrint('[WebRTCService] Global signal broadcast error: $e');
+      }
+    } else {
+      debugPrint('[WebRTCService] _globalChannel is null, skipping global send for $event');
     }
   }
 
@@ -553,6 +644,10 @@ class WebRTCService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _callTimeoutTimer?.cancel();
+    _callTimeoutTimer = null;
+    _authSubscription?.cancel();
+    _authSubscription = null;
     _cleanupPeer();
     _unsubscribeSignaling();
     if (_renderersInitialized) {

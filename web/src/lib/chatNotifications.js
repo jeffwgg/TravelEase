@@ -71,6 +71,8 @@ export function shouldAcceptCallOffer({
   currentStaffId,
   callerSide,
   requestAssignedStaffId,
+  activeRequestId,
+  targetRequestId,
 }) {
   if (role !== 'staff' || !currentStaffId) {
     return false
@@ -80,7 +82,10 @@ export function shouldAcceptCallOffer({
     return false
   }
 
-  if (!requestAssignedStaffId || requestAssignedStaffId !== currentStaffId) {
+  const isAssigned = Boolean(requestAssignedStaffId && requestAssignedStaffId === currentStaffId)
+  const isViewing = Boolean(activeRequestId && targetRequestId && activeRequestId === targetRequestId)
+
+  if (!isAssigned && !isViewing) {
     return false
   }
 

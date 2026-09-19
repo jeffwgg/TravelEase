@@ -277,7 +277,7 @@ export default function StaffChatPage() {
   }, [requests, selectedReq])
 
   function handleStartCall(type) {
-    if (!selectedReq?.id) return
+    if (!selectedReq?.id || callState !== 'idle') return
     startCall(type, selectedReq.id, selectedReq.traveler_name, selectedReq.user_id)
   }
 
@@ -506,11 +506,18 @@ export default function StaffChatPage() {
                     className="btn btn-secondary btn-sm"
                     style={{
                       display: 'flex', alignItems: 'center', gap: '6px',
-                      opacity: isChatLocked ? 0.45 : 1,
+                      opacity: (isChatLocked || callState !== 'idle') ? 0.45 : 1,
+                      cursor: (isChatLocked || callState !== 'idle') ? 'not-allowed' : 'pointer',
                     }}
                     onClick={() => handleStartCall('voice')}
-                    disabled={isChatLocked}
-                    title={isChatLocked ? 'Calls unavailable — request resolved' : 'Start Voice Call'}
+                    disabled={isChatLocked || callState !== 'idle'}
+                    title={
+                      isChatLocked
+                        ? 'Calls unavailable — request resolved'
+                        : callState !== 'idle'
+                        ? 'Call in progress'
+                        : 'Start Voice Call'
+                    }
                   >
                     <Phone size={14} /> Voice
                   </button>
@@ -519,11 +526,18 @@ export default function StaffChatPage() {
                     className="btn btn-secondary btn-sm"
                     style={{
                       display: 'flex', alignItems: 'center', gap: '6px',
-                      opacity: isChatLocked ? 0.45 : 1,
+                      opacity: (isChatLocked || callState !== 'idle') ? 0.45 : 1,
+                      cursor: (isChatLocked || callState !== 'idle') ? 'not-allowed' : 'pointer',
                     }}
                     onClick={() => handleStartCall('video')}
-                    disabled={isChatLocked}
-                    title={isChatLocked ? 'Calls unavailable — request resolved' : 'Start Video Call'}
+                    disabled={isChatLocked || callState !== 'idle'}
+                    title={
+                      isChatLocked
+                        ? 'Calls unavailable — request resolved'
+                        : callState !== 'idle'
+                        ? 'Call in progress'
+                        : 'Start Video Call'
+                    }
                   >
                     <Video size={14} /> Video
                   </button>
