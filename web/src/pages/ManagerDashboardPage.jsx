@@ -103,7 +103,7 @@ export default function ManagerDashboardPage() {
     : { label: 'In Progress', color: '#3b82f6' }
 
   const tiles = [
-    { to: '/requests', icon: LifeBuoy, label: 'Assistance Requests', desc: 'Triage and assign traveller requests', badge: activeRequests.length },
+    { to: '/requests', icon: LifeBuoy, label: 'Requests & Reports', desc: 'Triage assistance requests and barrier reports', badge: activeRequests.length },
     { to: '/sos', icon: Siren, label: 'SOS / Emergency', desc: 'Live emergency alerts', badge: activeSos.length, tone: activeSos.length > 0 ? 'emergency-active' : undefined },
     { to: '/announcements', icon: Megaphone, label: 'Announcements', desc: 'Publish venue-wide messages', badge: liveAnnouncements },
     { to: '/queue', icon: ListOrdered, label: 'Queue Updates', desc: 'Manage queue lines and calling', badge: waitingNumbers },
