@@ -81,7 +81,7 @@ function Sidebar() {
             <span className="link-icon"><Siren size={18} /></span> SOS / Emergency
           </NavLink>
           <NavLink to="/requests" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="link-icon"><LifeBuoy size={18} /></span> Requests
+            <span className="link-icon"><LifeBuoy size={18} /></span> {isManager ? 'Requests & Reports' : 'Requests'}
           </NavLink>
           {staffContext?.role === 'staff' && <NavLink to="/chat" className={({isActive}) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="link-icon"><MessageSquare size={18} /></span> Staff Chat
