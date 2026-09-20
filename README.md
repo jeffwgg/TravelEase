@@ -8,6 +8,7 @@ The backend is a hosted [Supabase](https://supabase.com) project (Postgres, Auth
 
 | Directory | What it is |
 |---|---|
+| `database/` | PostgreSQL database schema (`schema.sql`). |
 | `mobile/` | Flutter app for travellers (Android/iOS). |
 | `web/` | React + Vite dashboard for institution staff. |
 | `server/supabase/` | Emergency-contact edge functions (SOS contact, OTP). |
@@ -53,9 +54,15 @@ Other scripts: `npm run build` (production build into `web/dist`), `npm run prev
 ```bash
 cd mobile
 cp .env.example .env        # then fill in SUPABASE_URL, SUPABASE_ANON_KEY, GOOGLE_MAPS_API_KEY
-fvm install                 # installs the pinned Flutter SDK once
+
+# Option A — Using FVM (recommended to guarantee pinned Flutter 3.47.1):
+fvm install
 fvm flutter pub get
 fvm flutter run             # or: fvm flutter build apk --debug
+
+# Option B — Using global Flutter directly (if Flutter 3.47+ is already installed):
+flutter pub get
+flutter run
 ```
 
 The mobile `.env` is bundled as a Flutter asset (declared in `pubspec.yaml`) and loaded at startup with `flutter_dotenv`, so you must rebuild the app after changing it.
@@ -115,18 +122,48 @@ Use these same Flutter and Java versions for local builds.
 
 ## Supabase backend
 
-The database schema is managed directly in the hosted Supabase project. Edge Functions are deployed with the Supabase CLI:
+The backend is a PostgreSQL database hosted on [Supabase](https://supabase.com).
+
+### Database structure & schema (`database/schema.sql`)
+
+The complete database structure is provided in [`database/schema.sql`](database/schema.sql) (schema-only, containing table definitions, constraints, foreign keys, indexes, triggers, stored procedures, Row Level Security policies, and storage buckets):
+
+- **Venue & Institution Management:** `institutions`, `institution_staff`, `service_areas`, `sla_configs`, `generated_reports`
+- **Traveller & Preferences:** `user_profiles`, `accessibility_preferences`, `user_feature_guidance`
+- **Sign Language & Learning:** `sign_languages`, `sign_categories`, `sign_dictionary_phrases`, `sign_media_assets`, `sign_translations_history`, `user_favorite_phrases`, `sign_asset_feedback`
+- **Two-Way Dialogue & Live Translation:** `communication_dialogue_sessions`, `communication_dialogue_messages`, `communication_quick_phrases`, `communication_saved_logs`
+- **Queue Management:** `queue_lines`, `queue_numbers`, `queue_events`
+- **Assistance Requests & Staff Chat:** `assistance_requests`, `assistance_chat_messages`
+- **Emergency SOS & Location:** `sos_requests`, `traveller_sos_events`, `traveler_live_locations`, `emergency_contacts`, `emergency_contact_verifications`, `emergency_communication_cards`
+- **Announcements:** `announcements`
+- **Barrier Reports & Analytics:** `accessibility_issue_reports`, `analytics_daily_metrics`
+- **Active Sessions:** `venue_sessions`
+- **Storage Buckets:** `profile-images`, `institution-registration-documents`, `chat-media`, `docs-assets`, `accessibility-reports`
+
+#### How to import/restore the database
+
+1. Create a new project in [Supabase](https://supabase.com).
+2. Go to the **SQL Editor** in the Supabase dashboard.
+3. Open or paste the contents of [`database/schema.sql`](database/schema.sql) into the editor and click **Run**.
+4. *(Alternative via CLI / psql)*:
+   ```bash
+   psql "<YOUR_SUPABASE_POSTGRES_CONNECTION_STRING>" -f database/schema.sql
+   ```
+
+### Edge Functions
+
+Edge Functions are deployed with the Supabase CLI. Pass `--project-ref` (or run `supabase link` first) to avoid interactive prompts:
 
 ```bash
 # from web/ for web-owned functions
-supabase functions deploy translate-announcement
-supabase functions deploy translate-mobile-text
-supabase functions deploy create-queue-line
-supabase functions deploy search-venues
+supabase functions deploy translate-announcement --project-ref <PROJECT_REF>
+supabase functions deploy translate-mobile-text --project-ref <PROJECT_REF>
+supabase functions deploy create-queue-line --project-ref <PROJECT_REF>
+supabase functions deploy search-venues --project-ref <PROJECT_REF>
 
 # from server/ for emergency-contact functions
-supabase functions deploy send-sos-contact
-supabase functions deploy request-emergency-contact-otp
+supabase functions deploy send-sos-contact --project-ref <PROJECT_REF>
+supabase functions deploy request-emergency-contact-otp --project-ref <PROJECT_REF>
 ```
 
 Server-side secrets are configured once per project and never appear in client code:
